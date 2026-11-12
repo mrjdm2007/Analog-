@@ -15,12 +15,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
@@ -91,20 +94,45 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
             Spacer(Modifier.height(12.dp))
             Box(Modifier.fillMaxWidth().weight(1f).background(Color(0xFF101610), RoundedCornerShape(12.dp)).padding(14.dp)) {
                 Canvas(Modifier.fillMaxSize()) {
-                    val count = bars.size
-                    val gap = size.width * 0.009f
-                    val barWidth = (size.width - gap * (count - 1)) / count
-                    for (i in 0 until 5) {
-                        val y = size.height * i / 5f
-                        drawLine(Color(0xFF31402E).copy(alpha = .45f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
-                    }
-                    bars.forEachIndexed { index, value ->
-                        val h = value * size.height * .92f
-                        val x = index * (barWidth + gap)
-                        drawLine(Color(0xFFFFB45B), Offset(x + barWidth / 2, size.height), Offset(x + barWidth / 2, size.height - h), barWidth, StrokeCap.Round)
-                        if (h > 5.dp.toPx()) {
-                            drawLine(Color(0xFFFFD39A), Offset(x + barWidth / 2, size.height - h), Offset(x + barWidth / 2, size.height - h - 2.dp.toPx()), barWidth, StrokeCap.Round)
+                    if (mode == "SPECTRUM") {
+                        val count = bars.size
+                        val gap = size.width * 0.009f
+                        val barWidth = (size.width - gap * (count - 1)) / count
+                        for (i in 0 until 5) {
+                            val y = size.height * i / 5f
+                            drawLine(Color(0xFF31402E).copy(alpha = .45f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
                         }
+                        bars.forEachIndexed { index, value ->
+                            val h = value * size.height * .92f
+                            val x = index * (barWidth + gap)
+                            drawLine(Color(0xFFFFB45B), Offset(x + barWidth / 2, size.height), Offset(x + barWidth / 2, size.height - h), barWidth, StrokeCap.Round)
+                            if (h > 5.dp.toPx()) {
+                                drawLine(Color(0xFFFFD39A), Offset(x + barWidth / 2, size.height - h), Offset(x + barWidth / 2, size.height - h - 2.dp.toPx()), barWidth, StrokeCap.Round)
+                            }
+                        }
+                    } else {
+                        val arcSize = Size(size.width * .84f, size.height * .72f)
+                        val arcTop = Offset(size.width * .08f, size.height * .12f)
+                        drawArc(Color(0xFFB5D69B), 180f, 180f, false, arcTop, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
+                        val center = Offset(size.width / 2f, arcTop.y + arcSize.height * .78f)
+                        val radius = arcSize.width * .48f
+                        for (tick in 0..10) {
+                            val angle = Math.toRadians((180f - tick * 18f).toDouble())
+                            val inner = radius * .84f
+                            val outer = radius * .98f
+                            drawLine(
+                                Color(0xFFFFB45B),
+                                Offset(center.x + cos(angle).toFloat() * inner, center.y - sin(angle).toFloat() * inner),
+                                Offset(center.x + cos(angle).toFloat() * outer, center.y - sin(angle).toFloat() * outer),
+                                2.dp.toPx()
+                            )
+                        }
+                        val needleAngle = Math.toRadians((180f - peak * 180f).toDouble())
+                        drawLine(Color(0xFFFFB45B), center,
+                            Offset(center.x + cos(needleAngle).toFloat() * radius * .82f, center.y - sin(needleAngle).toFloat() * radius * .82f),
+                            4.dp.toPx(), StrokeCap.Round)
+                        drawCircle(Color(0xFFE8E1CF), 7.dp.toPx(), center)
+                        drawCircle(Color(0xFFFFB45B), 4.dp.toPx(), center)
                     }
                 }
             }
