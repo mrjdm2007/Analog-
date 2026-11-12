@@ -286,12 +286,13 @@ class MainActivity : ComponentActivity() {
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
     var playing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(player) { while (player != null) {
+    val appResumed = rememberAppResumed()
+    LaunchedEffect(player, appResumed) { while (player != null && appResumed) {
         title = player.mediaMetadata.title?.toString() ?: "Choose a track"
         artist = player.mediaMetadata.artist?.toString() ?: "ANALOG • OFFLINE"
         playing = player.isPlaying
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
-        delay(750)
+        delay(1_000)
     } }
     Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
         LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
@@ -311,14 +312,15 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
-    LaunchedEffect(player) { while (player != null) {
+    val appResumed = rememberAppResumed()
+    LaunchedEffect(player, appResumed) { while (player != null && appResumed) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
         playing = player.isPlaying
         duration = player.duration.coerceAtLeast(1).toFloat()
         position = player.currentPosition.toFloat().coerceIn(0f, duration)
         trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
-        delay(250)
+        delay(500)
     } }
     Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
