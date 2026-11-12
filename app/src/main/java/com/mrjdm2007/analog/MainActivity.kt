@@ -74,6 +74,11 @@ class MainActivity : ComponentActivity() {
             var nowPlaying by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
+            var settings by remember { mutableStateOf(false) }
+            var autoDetectHeadphones by remember {
+                mutableStateOf(getSharedPreferences("analog_settings", Context.MODE_PRIVATE).getBoolean("auto_detect_headphones", true))
+            }
+            val detectedHeadphoneOutput = rememberHeadphoneOutput(autoDetectHeadphones)
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
@@ -81,6 +86,15 @@ class MainActivity : ComponentActivity() {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
                     effects -> AudioEffectsScreen(onBack = { effects = false })
+                    settings -> HeadphoneSettingsScreen(
+                        autoDetect = autoDetectHeadphones,
+                        detectedOutput = detectedHeadphoneOutput,
+                        onAutoDetectChange = { enabled ->
+                            autoDetectHeadphones = enabled
+                            getSharedPreferences("analog_settings", Context.MODE_PRIVATE).edit().putBoolean("auto_detect_headphones", enabled).apply()
+                        },
+                        onBack = { settings = false }
+                    )
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
@@ -94,7 +108,7 @@ class MainActivity : ComponentActivity() {
                             TopHeader(onVisualizer = {
                                 visualizer = true
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
-                            }, onEffects = { effects = true })
+                            }, onEffects = { effects = true }, onSettings = { settings = true })
                             SearchBox(search) { search = it }
                             val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
@@ -232,11 +246,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit) {
+@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
-            Spacer(Modifier.weight(1f)); IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
+            Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }; IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
         }
         Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
@@ -277,7 +291,7 @@ class MainActivity : ComponentActivity() {
         artist = player.mediaMetadata.artist?.toString() ?: "ANALOG • OFFLINE"
         playing = player.isPlaying
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
-        delay(300)
+        delay(750)
     } }
     Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
         LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
