@@ -10,10 +10,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -72,6 +74,24 @@ class MainActivity : ComponentActivity() {
             var audioAllowed by remember { mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
             val askAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { audioAllowed = it }
             var tracks by remember { mutableStateOf(emptyList<Track>()) }
+            var scanFolders by remember { mutableStateOf(getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("scan_folders", emptySet())?.toSet() ?: emptySet()) }
+            var folderDialog by remember { mutableStateOf(false) }
+            var scanBusy by remember { mutableStateOf(false) }
+            var folderSetupShown by remember { mutableStateOf(getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("folder_setup_shown", false)) }
+            val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+                if (tree != null) {
+                    runCatching { contentResolver.takePersistableUriPermission(tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                    val id = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull()
+                    if (id != null) {
+                        val volume = id.substringBefore(":")
+                        val relative = id.substringAfter(":", "")
+                        val root = if (volume.equals("primary", true)) "/storage/emulated/0" else "/storage/$volume"
+                        val path = if (relative.isBlank()) root else "$root/$relative"
+                        scanFolders = scanFolders + path
+                        getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("scan_folders", scanFolders).apply()
+                    }
+                }
+            }
             var tab by remember { mutableStateOf("Songs") }
             var search by remember { mutableStateOf("") }
             var favorites by remember { mutableStateOf(readIds("favorites")) }
@@ -89,7 +109,10 @@ class MainActivity : ComponentActivity() {
             }
             val detectedHeadphoneOutput = rememberHeadphoneOutput(autoDetectHeadphones)
 
-            LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            LaunchedEffect(libraryAllowed, scanFolders) { if (libraryAllowed) tracks = scanLibrary(scanFolders) }
+            LaunchedEffect(libraryAllowed, folderSetupShown) {
+                if (libraryAllowed && !folderSetupShown) folderDialog = true
+            }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
@@ -117,8 +140,19 @@ class MainActivity : ComponentActivity() {
                             TopHeader(onVisualizer = {
                                 visualizer = true
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
-                            }, onEffects = { effects = true }, onSettings = { settings = true })
-                            SearchBox(search) { search = it }
+                            }, onEffects = { effects = true }, onSettings = { settings = true },
+                                onScan = {
+                                    scanBusy = true
+                                    tracks = scanLibrary(scanFolders)
+                                    scanBusy = false
+                                }, onFolders = { folderDialog = true }, onShuffleAll = {
+                                    if (tracks.isNotEmpty()) play(tracks.shuffled(), 0)
+                                })
+                            SearchBox(search, onChange = { search = it }, onScan = {
+                                scanBusy = true
+                                tracks = scanLibrary(scanFolders)
+                                scanBusy = false
+                            }, scanning = scanBusy)
                             val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
@@ -167,6 +201,41 @@ class MainActivity : ComponentActivity() {
                             }
                             MiniPlayer(controller) { nowPlaying = true }
                         }
+                        if (folderDialog) {
+                            AlertDialog(onDismissRequest = {
+                                folderDialog = false
+                                folderSetupShown = true
+                                getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putBoolean("folder_setup_shown", true).apply()
+                            }, containerColor = Panel,
+                                title = { Text("CHOOSE MUSIC FOLDERS", color = Amber, fontSize = 14.sp, letterSpacing = 1.4.sp) },
+                                text = { Column {
+                                    Text("Select the folders Analog should include. Add multiple folders, or scan all indexed music.", color = Cream.copy(alpha = .75f), fontSize = 12.sp)
+                                    Spacer(Modifier.height(10.dp))
+                                    if (scanFolders.isEmpty()) Text("Currently scanning all indexed music.", color = Green, fontSize = 11.sp)
+                                    else scanFolders.forEach { path ->
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(path.substringAfterLast("/"), color = Cream, modifier = Modifier.weight(1f))
+                                            IconButton(onClick = {
+                                                scanFolders = scanFolders - path
+                                                getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("scan_folders", scanFolders).apply()
+                                            }) { Icon(Icons.Default.Close, "Remove folder", tint = Cream) }
+                                        }
+                                    }
+                                    TextButton(onClick = { folderPicker.launch(null) }) { Icon(Icons.Default.CreateNewFolder, null); Text("ADD FOLDER") }
+                                    TextButton(onClick = {
+                                        scanFolders = emptySet()
+                                        getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("scan_folders", emptySet()).apply()
+                                    }) { Text("SCAN ALL MUSIC") }
+                                } },
+                                confirmButton = { TextButton(onClick = {
+                                    folderDialog = false
+                                    folderSetupShown = true
+                                    getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putBoolean("folder_setup_shown", true).apply()
+                                    scanBusy = true
+                                    tracks = scanLibrary(scanFolders)
+                                    scanBusy = false
+                                }) { Text("SAVE & SCAN") } })
+                        }
                         if (playlistDialog) {
                             AlertDialog(
                                 onDismissRequest = { playlistDialog = false; pendingTrack = null },
@@ -214,7 +283,7 @@ class MainActivity : ComponentActivity() {
         c.prepare(); c.play()
     }
 
-    private fun scanLibrary(): List<Track> {
+    private fun scanLibrary(selectedFolders: Set<String> = emptySet()): List<Track> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.ALBUM_ID)
@@ -229,6 +298,7 @@ class MainActivity : ComponentActivity() {
             val albumId = c.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
             while (c.moveToNext()) {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
+                if (selectedFolders.isNotEmpty() && selectedFolders.none { root -> path == root || path.startsWith(root.trimEnd('/') + "/") }) continue
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
                     c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" },
