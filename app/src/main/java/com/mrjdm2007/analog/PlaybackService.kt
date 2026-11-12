@@ -13,7 +13,7 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             // Let Android manage audio focus; leave the decoded source signal unmodified by default.
             setAudioAttributes(AudioAttributes.DEFAULT, true)
-            skipSilenceEnabled = false
+            setHandleAudioBecomingNoisy(true)
         }
         mediaSession = MediaSession.Builder(this, player).build()
     }
