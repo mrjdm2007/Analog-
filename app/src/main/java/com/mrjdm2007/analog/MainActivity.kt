@@ -48,6 +48,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF10110F)
 private val Panel = Color(0xFF1A1C18)
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
             var audioAllowed by remember { mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
             val askAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { audioAllowed = it }
             var tracks by remember { mutableStateOf(emptyList<Track>()) }
+            val scanScope = rememberCoroutineScope()
             var scanFolders by remember { mutableStateOf(getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("scan_folders", emptySet())?.toSet() ?: emptySet()) }
             var folderDialog by remember { mutableStateOf(false) }
             var scanBusy by remember { mutableStateOf(false) }
@@ -109,7 +111,7 @@ class MainActivity : ComponentActivity() {
             }
             val detectedHeadphoneOutput = rememberHeadphoneOutput(autoDetectHeadphones)
 
-            LaunchedEffect(libraryAllowed, scanFolders) { if (libraryAllowed) tracks = scanLibrary(scanFolders) }
+            LaunchedEffect(libraryAllowed, scanFolders) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary(scanFolders) } }
             LaunchedEffect(libraryAllowed, folderSetupShown) {
                 if (libraryAllowed && !folderSetupShown) folderDialog = true
             }
@@ -142,16 +144,20 @@ class MainActivity : ComponentActivity() {
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
                             }, onEffects = { effects = true }, onSettings = { settings = true },
                                 onScan = {
-                                    scanBusy = true
-                                    tracks = scanLibrary(scanFolders)
-                                    scanBusy = false
+                                    scanScope.launch {
+                                        scanBusy = true
+                                        tracks = withContext(Dispatchers.IO) { scanLibrary(scanFolders) }
+                                        scanBusy = false
+                                    }
                                 }, onFolders = { folderDialog = true }, onShuffleAll = {
                                     if (tracks.isNotEmpty()) play(tracks.shuffled(), 0)
                                 })
                             SearchBox(search, onChange = { search = it }, onScan = {
-                                scanBusy = true
-                                tracks = scanLibrary(scanFolders)
-                                scanBusy = false
+                                scanScope.launch {
+                                    scanBusy = true
+                                    tracks = withContext(Dispatchers.IO) { scanLibrary(scanFolders) }
+                                    scanBusy = false
+                                }
                             }, scanning = scanBusy)
                             val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
@@ -231,9 +237,11 @@ class MainActivity : ComponentActivity() {
                                     folderDialog = false
                                     folderSetupShown = true
                                     getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putBoolean("folder_setup_shown", true).apply()
-                                    scanBusy = true
-                                    tracks = scanLibrary(scanFolders)
-                                    scanBusy = false
+                                    scanScope.launch {
+                                        scanBusy = true
+                                        tracks = withContext(Dispatchers.IO) { scanLibrary(scanFolders) }
+                                        scanBusy = false
+                                    }
                                 }) { Text("SAVE & SCAN") } })
                         }
                         if (playlistDialog) {
