@@ -391,7 +391,7 @@ class MainActivity : ComponentActivity() {
             } }, confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } })
 }
 
-@Composable private fun AlbumArtwork(uri: Uri?, modifier: Modifier = Modifier) {
+@Composable fun AlbumArtwork(uri: Uri?, modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var bitmap by remember(uri) { mutableStateOf<android.graphics.Bitmap?>(null) }
     LaunchedEffect(uri) { bitmap = if (uri == null) null else withContext(Dispatchers.IO) {
