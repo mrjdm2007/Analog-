@@ -427,36 +427,38 @@ class MainActivity : ComponentActivity() {
         delay(500)
     } }
     BoxWithConstraints(Modifier.fillMaxSize().background(Ink)) {
-        val artSize = minOf(maxWidth * .78f, maxHeight * .37f, 330.dp)
-        Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        val artSize = minOf(maxWidth * .78f, maxHeight * .34f, 300.dp)
+        Column(Modifier.fillMaxSize().padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
                 Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
                 IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
             }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-            AlbumArtwork(artworkUri, Modifier.size(artSize))
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                    Text(artist, color = Cream.copy(alpha = .62f), fontSize = 14.sp, maxLines = 1)
-                    if (album.isNotBlank()) Text(album, color = Green.copy(alpha = .8f), fontSize = 11.sp, maxLines = 1)
+                Spacer(Modifier.height(6.dp))
+                AlbumArtwork(artworkUri, Modifier.size(artSize))
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                        Text(artist, color = Cream.copy(alpha = .62f), fontSize = 14.sp, maxLines = 1)
+                        if (album.isNotBlank()) Text(album, color = Green.copy(alpha = .8f), fontSize = 11.sp, maxLines = 1)
+                    }
+                    IconButton(onClick = { trackId?.let(onFavorite) }) {
+                        Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber)
+                    }
                 }
-                IconButton(onClick = { trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber) }
+                Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) },
+                    valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = Amber, activeTrackColor = Amber, inactiveTrackColor = Panel))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+                }
+                Spacer(Modifier.height(10.dp))
             }
-            Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) },
-                valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = Amber, activeTrackColor = Amber, inactiveTrackColor = Panel))
-            Row(Modifier.fillMaxWidth()) {
-                Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
-                Spacer(Modifier.weight(1f))
-                Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
-            }
-
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 24.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { shuffle = !shuffle; player?.shuffleModeEnabled = shuffle }) { Icon(Icons.Default.Shuffle, null, tint = if (shuffle) Amber else Green) }
                 IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(34.dp)) }
                 FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Amber)) {
@@ -465,8 +467,6 @@ class MainActivity : ComponentActivity() {
                 IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(34.dp)) }
                 IconButton(onClick = { repeat = (repeat + 1) % 3; player?.repeatMode = repeat }) { Icon(if (repeat == 2) Icons.Default.RepeatOne else Icons.Default.Repeat, null, tint = if (repeat == 0) Green else Amber) }
             }
-
-            Spacer(Modifier.height(8.dp))
         }
     }
     if (showQueue) AlertDialog(onDismissRequest = { showQueue = false }, containerColor = Panel,
