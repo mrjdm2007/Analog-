@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
+        android:icon="@drawable/ic_analog_logo"
+        android:roundIcon="@drawable/ic_analog_logo"
         android:allowBackup="true"
         android:label="Analog"
         android:supportsRtl="true"
