@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
                             "Favorites" -> tracks.filter { it.id in favorites }
                             "Playlists" -> activePlaylist?.let { name -> tracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
                             else -> tracks
-                        }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) }
+                        }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) || it.folder.contains(search, true) }
                         Column(Modifier.fillMaxSize().background(Ink)) {
                             TopHeader(onVisualizer = {
                                 visualizer = true
@@ -327,22 +327,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
+@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit,
+    onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
-            Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }; IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
+            Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onShuffleAll) { Icon(Icons.Default.Shuffle, "Shuffle all songs", tint = Green) }
+            IconButton(onClick = onScan) { Icon(Icons.Default.Refresh, "Scan for new music", tint = Cream) }
+            IconButton(onClick = onFolders) { Icon(Icons.Default.FolderOpen, "Choose music folders", tint = Cream) }
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }
+            IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }
+            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
         }
         Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
 }
-@Composable private fun SearchBox(value: String, onChange: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).background(Panel, RoundedCornerShape(9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.Search, null, tint = Green); Spacer(Modifier.width(8.dp))
+@Composable private fun SearchBox(value: String, onChange: (String) -> Unit, onScan: () -> Unit, scanning: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)
+        .background(Panel, RoundedCornerShape(14.dp)).animateContentSize().padding(start = 14.dp, end = 7.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Search, null, tint = Green)
+        Spacer(Modifier.width(10.dp))
         BasicTextField(value, onChange, modifier = Modifier.weight(1f), singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Cream, fontSize = 14.sp),
-            decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = Cream.copy(alpha = .4f), fontSize = 14.sp); inner() })
-        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = Cream) }
+            decorationBox = { inner ->
+                if (value.isEmpty()) Text("Search tracks, artists, albums, folders", color = Cream.copy(alpha = .42f), fontSize = 13.sp)
+                inner()
+            })
+        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Close, "Clear search", tint = Cream) }
+        IconButton(onClick = onScan, modifier = Modifier.size(34.dp)) {
+            if (scanning) CircularProgressIndicator(Modifier.size(17.dp), color = Amber, strokeWidth = 2.dp)
+            else Icon(Icons.Default.Refresh, "Rescan library", tint = Amber)
+        }
     }
 }
 @Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
@@ -354,7 +371,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(number.toString().padStart(2, '0'), color = Amber.copy(alpha = .7f), fontSize = 11.sp, modifier = Modifier.width(32.dp))
         Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .48f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
