@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
             var monthly by remember { mutableStateOf(false) }
+            var smartMixes by remember { mutableStateOf(false) }
             var sleepDialog by remember { mutableStateOf(false) }
             var sleepTimerMinutes by remember { mutableIntStateOf(0) }
             var sleepAfterTrack by remember { mutableStateOf(false) }
@@ -164,6 +165,11 @@ class MainActivity : ComponentActivity() {
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(onBack = { effects = false })
                     monthly -> MonthlyWrappedScreen(onBack = { monthly = false })
+                    smartMixes -> SmartPlaylistsScreen(
+                        tracks = tracks, favorites = favorites,
+                        onBack = { smartMixes = false },
+                        onPlay = { mix -> play(mix, 0); smartMixes = false }
+                    )
                     settings -> HeadphoneSettingsScreen(
                         autoDetect = autoDetectHeadphones,
                         detectedOutput = detectedHeadphoneOutput,
@@ -188,6 +194,7 @@ class MainActivity : ComponentActivity() {
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
                             }, onEffects = { effects = true }, onSettings = { settings = true },
                                 onMonthly = { monthly = true }, onSleepTimer = { sleepDialog = true },
+                                onSmartMixes = { smartMixes = true },
                                 onScan = {
                                     scanScope.launch {
                                         scanBusy = true
@@ -395,13 +402,14 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit,
     onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit,
-    onMonthly: () -> Unit, onSleepTimer: () -> Unit) {
+    onMonthly: () -> Unit, onSleepTimer: () -> Unit, onSmartMixes: () -> Unit) {
     Column(Modifier.fillMaxWidth().animateContentSize().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
                 Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
             }
+            IconButton(onClick = onSmartMixes) { Icon(Icons.Default.AutoAwesome, "Smart playlists", tint = Green) }
             IconButton(onClick = onMonthly) { Icon(Icons.Default.BarChart, "Monthly listening recap", tint = Amber) }
             IconButton(onClick = onSleepTimer) { Icon(Icons.Default.Bedtime, "Sleep timer", tint = Green) }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }
