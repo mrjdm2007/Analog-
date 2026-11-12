@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, analog-library-shuffle-polish ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -20,6 +20,8 @@ jobs:
           java-version: '17'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses

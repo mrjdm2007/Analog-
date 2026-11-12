@@ -1,6 +1,7 @@
 package com.mrjdm2007.analog
 
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.AudioAttributes
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -9,7 +10,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build()
+        val player = ExoPlayer.Builder(this).build().apply {
+            // Let Android manage audio focus; leave the decoded source signal unmodified by default.
+            setAudioAttributes(AudioAttributes.DEFAULT, true)
+            setHandleAudioBecomingNoisy(true)
+        }
         mediaSession = MediaSession.Builder(this, player).build()
     }
 
