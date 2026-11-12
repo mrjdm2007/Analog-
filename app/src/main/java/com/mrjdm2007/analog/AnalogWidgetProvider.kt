@@ -45,6 +45,8 @@ class AnalogWidgetProvider : AppWidgetProvider() {
         const val ACTION_NEXT = "com.mrjdm2007.analog.widget.NEXT"
 
         fun refresh(context: Context) {
+            if (AppWidgetManager.getInstance(context)
+                    .getAppWidgetIds(ComponentName(context, AnalogWidgetProvider::class.java)).isEmpty()) return
             val future = MediaController.Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync()
             future.addListener({
                 runCatching {
