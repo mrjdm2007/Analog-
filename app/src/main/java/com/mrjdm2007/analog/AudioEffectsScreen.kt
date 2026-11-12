@@ -103,7 +103,14 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                         if (index >= 0) OutlinedButton(onClick = {
                             runCatching { eq?.usePreset(index.toShort()) }
                             val e = eq
-                            if (e != null) bands = (0 until minOf(5, e.numberOfBands.toInt())).map { e.getBandLevel(it.toShort()).toFloat() / 1500f }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                            if (e != null) {
+                                val range = e.bandLevelRange
+                                bands = (0 until e.numberOfBands.toInt()).map { band ->
+                                    val level = e.getBandLevel(band.toShort()).toFloat()
+                                    if (range[1] == range[0]) 0f else
+                                        ((level - range[0]) / (range[1] - range[0]) * 2f - 1f).coerceIn(-1f, 1f)
+                                }
+                            }
                         }, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
                     }
                 }
