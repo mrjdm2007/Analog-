@@ -19,6 +19,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.getSystemService
 
 private val SettingsInk = Color(0xFF10110F)
@@ -28,13 +31,30 @@ private val SettingsAmber = Color(0xFFFFB45B)
 private val SettingsGreen = Color(0xFFB5D69B)
 
 @Composable
+fun rememberAppResumed(): Boolean {
+    val owner = LocalLifecycleOwner.current
+    var resumed by remember(owner) {
+        mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            resumed = event == Lifecycle.Event.ON_RESUME
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return resumed
+}
+
+@Composable
 fun rememberHeadphoneOutput(autoDetect: Boolean): String {
     val context = LocalContext.current
+    val appResumed = rememberAppResumed()
     var route by remember { mutableStateOf("Detection is off") }
 
-    DisposableEffect(context, autoDetect) {
-        if (!autoDetect) {
-            route = "Detection is off"
+    DisposableEffect(context, autoDetect, appResumed) {
+        if (!autoDetect || !appResumed) {
+            route = if (autoDetect) "Monitoring paused while app is in background" else "Detection is off"
             onDispose { }
         } else {
             val audioManager = context.getSystemService<AudioManager>()
