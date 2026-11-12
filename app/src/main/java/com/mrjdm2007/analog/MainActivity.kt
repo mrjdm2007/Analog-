@@ -49,6 +49,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import androidx.media3.common.Player
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val Ink = Color(0xFF10110F)
 private val Panel = Color(0xFF1A1C18)
@@ -105,11 +109,38 @@ class MainActivity : ComponentActivity() {
             var nowPlaying by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
+            var monthly by remember { mutableStateOf(false) }
+            var sleepDialog by remember { mutableStateOf(false) }
+            var sleepTimerMinutes by remember { mutableIntStateOf(0) }
+            var sleepAfterTrack by remember { mutableStateOf(false) }
             var settings by remember { mutableStateOf(false) }
             var autoDetectHeadphones by remember {
                 mutableStateOf(getSharedPreferences("analog_settings", Context.MODE_PRIVATE).getBoolean("auto_detect_headphones", true))
             }
             val detectedHeadphoneOutput = rememberHeadphoneOutput(autoDetectHeadphones)
+            DisposableEffect(controller) {
+                val listener = object : Player.Listener {
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        val id = mediaItem?.mediaId?.toLongOrNull() ?: return
+                        val month = SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
+                        val prefs = getSharedPreferences("analog_monthly", Context.MODE_PRIVATE)
+                        val prefix = "$month:$id"
+                        prefs.edit().putInt("$prefix:count", prefs.getInt("$prefix:count", 0) + 1)
+                            .putString("$prefix:title", mediaItem.mediaMetadata.title?.toString().orEmpty())
+                            .putString("$prefix:artist", mediaItem.mediaMetadata.artist?.toString().orEmpty()).apply()
+                        if (sleepAfterTrack) { controller?.pause(); sleepAfterTrack = false }
+                    }
+                }
+                controller?.addListener(listener)
+                onDispose { controller?.removeListener(listener) }
+            }
+            LaunchedEffect(sleepTimerMinutes) {
+                if (sleepTimerMinutes > 0) {
+                    delay(sleepTimerMinutes * 60_000L)
+                    controller?.pause()
+                    sleepTimerMinutes = 0
+                }
+            }
 
             LaunchedEffect(libraryAllowed, scanFolders) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary(scanFolders) } }
             LaunchedEffect(libraryAllowed, folderSetupShown) {
@@ -120,6 +151,7 @@ class MainActivity : ComponentActivity() {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(onBack = { effects = false })
+                    monthly -> MonthlyWrappedScreen(onBack = { monthly = false })
                     settings -> HeadphoneSettingsScreen(
                         autoDetect = autoDetectHeadphones,
                         detectedOutput = detectedHeadphoneOutput,
@@ -143,6 +175,7 @@ class MainActivity : ComponentActivity() {
                                 visualizer = true
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
                             }, onEffects = { effects = true }, onSettings = { settings = true },
+                                onMonthly = { monthly = true }, onSleepTimer = { sleepDialog = true },
                                 onScan = {
                                     scanScope.launch {
                                         scanBusy = true
@@ -159,11 +192,13 @@ class MainActivity : ComponentActivity() {
                                     scanBusy = false
                                 }
                             }, scanning = scanBusy)
-                            val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
+                            val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists", "MONTHLY")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
                             }
-                            if (tab in listOf("Albums", "Artists", "Folders")) {
+                            if (tab == "MONTHLY") {
+                                MonthlyWrappedScreen(onBack = { tab = "Songs" }, embedded = true)
+                            } else if (tab in listOf("Albums", "Artists", "Folders")) {
                                 val groups = when (tab) {
                                     "Albums" -> tracks.groupBy { it.album }
                                     "Artists" -> tracks.groupBy { it.artist }
@@ -206,6 +241,19 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             MiniPlayer(controller) { nowPlaying = true }
+                        }
+                        if (sleepDialog) {
+                            AlertDialog(onDismissRequest = { sleepDialog = false }, containerColor = Panel,
+                                title = { Text("SLEEP TIMER", color = Amber, letterSpacing = 1.5.sp) },
+                                text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Fade-out and stop playback after:", color = Cream.copy(alpha = .75f), fontSize = 12.sp)
+                                    listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                                        TextButton(onClick = { sleepTimerMinutes = minutes; sleepAfterTrack = false; sleepDialog = false }) { Text("$minutes minutes", color = Cream) }
+                                    }
+                                    TextButton(onClick = { sleepAfterTrack = true; sleepTimerMinutes = 0; sleepDialog = false }) { Text("After this song", color = Cream) }
+                                    if (sleepTimerMinutes > 0 || sleepAfterTrack) TextButton(onClick = { sleepTimerMinutes = 0; sleepAfterTrack = false }) { Text("CANCEL ACTIVE TIMER", color = Amber) }
+                                } },
+                                confirmButton = { TextButton(onClick = { sleepDialog = false }) { Text("DONE") } })
                         }
                         if (folderDialog) {
                             AlertDialog(onDismissRequest = {
@@ -285,7 +333,7 @@ class MainActivity : ComponentActivity() {
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         c.setMediaItems(list.map { track ->
-            MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
+            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artworkUri).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
