@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -330,7 +332,7 @@ class MainActivity : ComponentActivity() {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
         album = player.mediaMetadata.albumTitle?.toString().orEmpty()
-        artworkUri = player.mediaMetadata.artworkUri
+        artworkUri = player.mediaMetadata.artworkUri ?: tracks.firstOrNull { it.title == title && it.artist == artist }?.artworkUri
         playing = player.isPlaying
         duration = player.duration.coerceAtLeast(1).toFloat()
         position = player.currentPosition.toFloat().coerceIn(0f, duration)
