@@ -90,7 +90,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
                 Text("Allow audio visualizer access to animate with your music. Analog uses this only to display playback levels; it does not record or save audio.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
             }
         } else {
-            Text(if (mode == "SPECTRUM") "FREQUENCY ANALYZER" else "DUAL CHANNEL LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
+            Text(if (mode == "SPECTRUM") "FREQUENCY ANALYZER" else "OUTPUT LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
             Box(Modifier.fillMaxWidth().weight(1f).background(Color(0xFF101610), RoundedCornerShape(12.dp)).padding(14.dp)) {
                 Canvas(Modifier.fillMaxSize()) {
@@ -139,14 +139,11 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
             Spacer(Modifier.height(28.dp))
             Text("ANALOG LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
-            repeat(2) { channel ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (channel == 0) "L" else "R", color = Color(0xFFFFB45B), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(22.dp))
-                    Box(Modifier.weight(1f).height(12.dp).background(Color(0xFF263126), RoundedCornerShape(3.dp))) {
-                        Box(Modifier.fillMaxWidth((peak * if (channel == 0) 0.94f else 0.86f).coerceIn(.02f, 1f)).fillMaxHeight().background(Color(0xFFB5D69B), RoundedCornerShape(3.dp)))
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("OUT", color = Color(0xFFFFB45B), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
+                Box(Modifier.weight(1f).height(12.dp).background(Color(0xFF263126), RoundedCornerShape(3.dp))) {
+                    Box(Modifier.fillMaxWidth(peak.coerceIn(.02f, 1f)).fillMaxHeight().background(Color(0xFFB5D69B), RoundedCornerShape(3.dp)))
                 }
-                Spacer(Modifier.height(8.dp))
             }
             Text("LIVE OUTPUT MIX  •  FFT", color = Color(0xFF71806B), fontSize = 9.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 18.dp, bottom = 20.dp))
         }
