@@ -44,7 +44,8 @@ class PlaybackService : MediaSessionService() {
                     player.volume = 1f
                     return
                 }
-                val gain = metadata.entries.firstNotNullOfOrNull { entry ->
+                val gain = (0 until metadata.length()).firstNotNullOfOrNull { index ->
+                    val entry = metadata[index]
                     val value = when (entry) {
                         is TextInformationFrame ->
                             if (entry.description.equals("REPLAYGAIN_TRACK_GAIN", true)) entry.values.firstOrNull() else null
