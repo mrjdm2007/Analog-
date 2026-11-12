@@ -36,9 +36,9 @@ fun SmartPlaylistsScreen(
 ) {
     val context = LocalContext.current
     val monthPrefix = remember { SimpleDateFormat("yyyy-MM", Locale.US).format(Date()) }
-    val playCounts = remember(tracks, monthPrefix) {
-        val prefs = context.getSharedPreferences("analog_monthly", Context.MODE_PRIVATE)
-        tracks.associate { track -> track.id to prefs.getInt("$monthPrefix:${track.id}:count", 0) }
+    val playCounts = tracks.associate { track ->
+        track.id to context.getSharedPreferences("analog_monthly", Context.MODE_PRIVATE)
+            .getInt("$monthPrefix:${track.id}:count", 0)
     }
     data class Mix(val title: String, val subtitle: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val songs: List<Track>)
     val mixes = listOf(
