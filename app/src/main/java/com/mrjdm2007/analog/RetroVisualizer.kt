@@ -43,11 +43,12 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
     var peak by remember { mutableFloatStateOf(0.025f) }
     var mode by remember { mutableStateOf("SPECTRUM") }
     var signalSeen by remember { mutableStateOf(false) }
+    val appResumed = rememberAppResumed()
 
-    DisposableEffect(audioPermissionGranted) {
+    DisposableEffect(audioPermissionGranted, appResumed) {
         var capture: Visualizer? = null
         val mainHandler = Handler(Looper.getMainLooper())
-        if (audioPermissionGranted) {
+        if (audioPermissionGranted && appResumed) {
             runCatching {
                 capture = Visualizer(0).apply {
                     captureSize = Visualizer.getCaptureSizeRange()[1]
