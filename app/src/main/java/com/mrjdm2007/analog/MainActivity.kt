@@ -296,6 +296,7 @@ class MainActivity : ComponentActivity() {
     var duration by remember { mutableFloatStateOf(1f) }
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
+    var showQueue by remember { mutableStateOf(false) }
     LaunchedEffect(player) { while (player != null) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
@@ -309,6 +310,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
             Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
         }
         Spacer(Modifier.weight(1f))
@@ -335,6 +337,34 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = { player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = Green) }
         }
         Spacer(Modifier.weight(1f))
+    }
+    if (showQueue) {
+        AlertDialog(
+            onDismissRequest = { showQueue = false },
+            containerColor = Panel,
+            title = { Text("PLAYBACK QUEUE", color = Amber, fontSize = 14.sp, letterSpacing = 1.5.sp) },
+            text = {
+                if (player == null || player.mediaItemCount == 0) {
+                    Text("The queue is empty.", color = Cream)
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(player.mediaItemCount) { index ->
+                            val item = player.getMediaItemAt(index)
+                            Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); showQueue = false }.padding(vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = Amber, modifier = Modifier.width(30.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = Cream, maxLines = 1)
+                                    Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+                                }
+                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = Cream.copy(alpha = .6f)) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } }
+        )
     }
 }
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
