@@ -67,6 +67,11 @@ class MainActivity : ComponentActivity() {
             val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
             var tracks by remember { mutableStateOf(emptyList<Track>()) }
             var selectedTab by remember { mutableStateOf("Songs") }
+            var showVisualizer by remember { mutableStateOf(false) }
+            var audioGranted by remember {
+                mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            }
+            val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { audioGranted = it }
             LaunchedEffect(granted) { if (granted) tracks = loadTracks() }
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Amber, onPrimary = Ink, background = Ink, surface = Panel,
@@ -82,9 +87,17 @@ class MainActivity : ComponentActivity() {
                             Button(onClick = { permission.launch(Manifest.permission.READ_MEDIA_AUDIO) }) { Text("ALLOW MUSIC LIBRARY") }
                         }
                     }
+                } else if (showVisualizer) {
+                    RetroVisualizerScreen(
+                        onBack = { showVisualizer = false },
+                        audioPermissionGranted = audioGranted
+                    )
                 } else {
                     Column(Modifier.fillMaxSize().background(Ink)) {
-                        Header()
+                        Header(onVisualizerClick = {
+                            showVisualizer = true
+                            if (!audioGranted) audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+                        })
                         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             listOf("Songs", "Albums", "Artists").forEach { tab ->
                                 Text(tab, color = if (selectedTab == tab) Amber else Cream.copy(alpha = .55f),
@@ -147,12 +160,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Header() {
+private fun Header(onVisualizerClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
             Spacer(Modifier.weight(1f))
-            Icon(Icons.Default.GraphicEq, contentDescription = "Visualizer", tint = Green)
+            IconButton(onClick = onVisualizerClick) { Icon(Icons.Default.GraphicEq, contentDescription = "Visualizer", tint = Green) }
         }
         Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 10.sp, letterSpacing = 2.5.sp)
     }
