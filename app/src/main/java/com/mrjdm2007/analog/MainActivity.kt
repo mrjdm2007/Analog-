@@ -428,6 +428,7 @@ class MainActivity : ComponentActivity() {
     } }
     BoxWithConstraints(Modifier.fillMaxSize().background(Ink)) {
         val artSize = minOf(maxWidth * .78f, maxHeight * .37f, 330.dp)
+        Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
@@ -435,9 +436,9 @@ class MainActivity : ComponentActivity() {
                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
                 IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
             }
-            Spacer(Modifier.height(8.dp))
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             AlbumArtwork(artworkUri, Modifier.size(artSize))
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2)
@@ -453,6 +454,8 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.weight(1f))
                 Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
             }
+
+            }
             Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 24.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { shuffle = !shuffle; player?.shuffleModeEnabled = shuffle }) { Icon(Icons.Default.Shuffle, null, tint = if (shuffle) Amber else Green) }
                 IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(34.dp)) }
@@ -462,7 +465,8 @@ class MainActivity : ComponentActivity() {
                 IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(34.dp)) }
                 IconButton(onClick = { repeat = (repeat + 1) % 3; player?.repeatMode = repeat }) { Icon(if (repeat == 2) Icons.Default.RepeatOne else Icons.Default.Repeat, null, tint = if (repeat == 0) Green else Amber) }
             }
-            Spacer(Modifier.height(12.dp))
+
+            Spacer(Modifier.height(8.dp))
         }
     }
     if (showQueue) AlertDialog(onDismissRequest = { showQueue = false }, containerColor = Panel,
