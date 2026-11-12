@@ -192,13 +192,11 @@ class MainActivity : ComponentActivity() {
                                     scanBusy = false
                                 }
                             }, scanning = scanBusy)
-                            val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists", "MONTHLY")
+                            val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
                             }
-                            if (tab == "MONTHLY") {
-                                MonthlyWrappedScreen(onBack = { tab = "Songs" }, embedded = true)
-                            } else if (tab in listOf("Albums", "Artists", "Folders")) {
+                            if (tab in listOf("Albums", "Artists", "Folders")) {
                                 val groups = when (tab) {
                                     "Albums" -> tracks.groupBy { it.album }
                                     "Artists" -> tracks.groupBy { it.artist }
@@ -384,15 +382,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit,
-    onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit) {
+    onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit,
+    onMonthly: () -> Unit, onSleepTimer: () -> Unit) {
     Column(Modifier.fillMaxWidth().animateContentSize().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
                 Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
             }
+            IconButton(onClick = onMonthly) { Icon(Icons.Default.BarChart, "Monthly listening recap", tint = Amber) }
+            IconButton(onClick = onSleepTimer) { Icon(Icons.Default.Bedtime, "Sleep timer", tint = Green) }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }
-            IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }
+            IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio engine", tint = Cream) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
