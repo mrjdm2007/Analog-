@@ -337,18 +337,30 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit,
     onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onShuffleAll) { Icon(Icons.Default.Shuffle, "Shuffle all songs", tint = Green) }
-            IconButton(onClick = onScan) { Icon(Icons.Default.Refresh, "Scan for new music", tint = Cream) }
-            IconButton(onClick = onFolders) { Icon(Icons.Default.FolderOpen, "Choose music folders", tint = Cream) }
+            Column(Modifier.weight(1f)) {
+                Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+                Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
+            }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }
             IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
         }
-        Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onShuffleAll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                Icon(Icons.Default.Shuffle, null, tint = Green, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                Text("SHUFFLE ALL", color = Green, fontSize = 9.sp, letterSpacing = .8.sp)
+            }
+            TextButton(onClick = onScan, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                Icon(Icons.Default.Refresh, null, tint = Cream, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                Text("SCAN NEW", color = Cream, fontSize = 9.sp, letterSpacing = .8.sp)
+            }
+            TextButton(onClick = onFolders, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                Icon(Icons.Default.FolderOpen, null, tint = Cream, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
+                Text("FOLDERS", color = Cream, fontSize = 9.sp, letterSpacing = .8.sp)
+            }
+        }
     }
 }
 @Composable private fun SearchBox(value: String, onChange: (String) -> Unit, onScan: () -> Unit, scanning: Boolean) {
