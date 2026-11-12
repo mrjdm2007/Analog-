@@ -13,6 +13,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - User-created playlists persisted locally, with add-to-playlist actions
 - Full now-playing screen with seek, previous/next, shuffle, and repeat controls
 - Compact player controls
+- Playback queue viewer with jump-to-track and remove-from-queue controls
 - Full-screen retro FFT spectrum visualizer
 - Analog needle VU meter display
 - Audio effects screen with system equalizer, bass boost, and virtualizer controls (device/output support varies)
