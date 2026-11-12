@@ -12,6 +12,7 @@ import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
+@androidx.media3.common.util.UnstableApi
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
