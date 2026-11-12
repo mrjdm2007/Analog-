@@ -3,6 +3,8 @@ package com.mrjdm2007.analog
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -12,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -27,6 +32,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,6 +44,8 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Ink = Color(0xFF10110F)
 private val Panel = Color(0xFF1A1C18)
@@ -44,7 +53,7 @@ private val Cream = Color(0xFFE8E1CF)
 private val Amber = Color(0xFFFFB45B)
 private val Green = Color(0xFFB5D69B)
 
-data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String)
+data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val artworkUri: Uri?)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
@@ -74,13 +83,27 @@ class MainActivity : ComponentActivity() {
             var nowPlaying by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
+            var settings by remember { mutableStateOf(false) }
+            var autoDetectHeadphones by remember {
+                mutableStateOf(getSharedPreferences("analog_settings", Context.MODE_PRIVATE).getBoolean("auto_detect_headphones", true))
+            }
+            val detectedHeadphoneOutput = rememberHeadphoneOutput(autoDetectHeadphones)
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
-                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
+                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(onBack = { effects = false })
+                    settings -> HeadphoneSettingsScreen(
+                        autoDetect = autoDetectHeadphones,
+                        detectedOutput = detectedHeadphoneOutput,
+                        onAutoDetectChange = { enabled ->
+                            autoDetectHeadphones = enabled
+                            getSharedPreferences("analog_settings", Context.MODE_PRIVATE).edit().putBoolean("auto_detect_headphones", enabled).apply()
+                        },
+                        onBack = { settings = false }
+                    )
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
@@ -94,7 +117,7 @@ class MainActivity : ComponentActivity() {
                             TopHeader(onVisualizer = {
                                 visualizer = true
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
-                            }, onEffects = { effects = true })
+                            }, onEffects = { effects = true }, onSettings = { settings = true })
                             SearchBox(search) { search = it }
                             val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
@@ -186,7 +209,7 @@ class MainActivity : ComponentActivity() {
         val c = controller ?: return
         c.setMediaItems(list.map { track ->
             MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
-                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).build()).build()
+                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artworkUri).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
     }
@@ -194,7 +217,7 @@ class MainActivity : ComponentActivity() {
     private fun scanLibrary(): List<Track> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA)
+            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.ALBUM_ID)
         val found = mutableListOf<Track>()
         contentResolver.query(uri, columns, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
             val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -203,11 +226,13 @@ class MainActivity : ComponentActivity() {
             val album = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val duration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val data = c.getColumnIndex(MediaStore.Audio.Media.DATA)
+            val albumId = c.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
             while (c.moveToNext()) {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
-                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" })
+                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" },
+                    if (albumId >= 0 && c.getLong(albumId) > 0) ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), c.getLong(albumId)) else null)
             }
         }
         return found
@@ -232,11 +257,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit) {
+@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
-            Spacer(Modifier.weight(1f)); IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
+            Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream.copy(alpha = .8f)) }; IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
         }
         Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
@@ -272,12 +297,13 @@ class MainActivity : ComponentActivity() {
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
     var playing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(player) { while (player != null) {
+    val appResumed = rememberAppResumed()
+    LaunchedEffect(player, appResumed) { while (player != null && appResumed) {
         title = player.mediaMetadata.title?.toString() ?: "Choose a track"
         artist = player.mediaMetadata.artist?.toString() ?: "ANALOG • OFFLINE"
         playing = player.isPlaying
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
-        delay(300)
+        delay(1_000)
     } }
     Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
         LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
@@ -292,79 +318,93 @@ class MainActivity : ComponentActivity() {
 @Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
     var title by remember { mutableStateOf("Nothing playing") }
     var artist by remember { mutableStateOf("Choose a song from your library") }
+    var album by remember { mutableStateOf("") }
+    var artworkUri by remember { mutableStateOf<Uri?>(null) }
     var playing by remember { mutableStateOf(false) }
     var duration by remember { mutableFloatStateOf(1f) }
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
-    LaunchedEffect(player) { while (player != null) {
+    var shuffle by remember { mutableStateOf(false) }
+    var repeat by remember { mutableIntStateOf(0) }
+    val appResumed = rememberAppResumed()
+    LaunchedEffect(player, appResumed) { while (player != null && appResumed) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
+        album = player.mediaMetadata.albumTitle?.toString().orEmpty()
+        artworkUri = player.mediaMetadata.artworkUri ?: tracks.firstOrNull { it.title == title && it.artist == artist }?.artworkUri
         playing = player.isPlaying
         duration = player.duration.coerceAtLeast(1).toFloat()
         position = player.currentPosition.toFloat().coerceIn(0f, duration)
         trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
-        delay(250)
+        delay(500)
     } }
-    Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
-            Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
-            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
-        }
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Panel, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Album, null, tint = Amber, modifier = Modifier.size(104.dp))
-                Text("A N A L O G", color = Green, fontSize = 10.sp, letterSpacing = 3.sp)
+    BoxWithConstraints(Modifier.fillMaxSize().background(Ink)) {
+        val artSize = minOf(maxWidth * .78f, maxHeight * .37f, 330.dp)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
+                Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
+                IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
             }
-        }
-        Spacer(Modifier.height(26.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = Cream.copy(alpha = .55f), fontSize = 13.sp) }
-            IconButton(onClick = { trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber) }
-        }
-        Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = Amber, activeTrackColor = Amber))
-        Row { Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
-        Row(Modifier.fillMaxWidth().padding(vertical = 22.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = Green) }
-            IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
-            FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Amber)) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Ink, modifier = Modifier.size(38.dp))
+            Spacer(Modifier.height(8.dp))
+            AlbumArtwork(artworkUri, Modifier.size(artSize))
+            Spacer(Modifier.height(22.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                    Text(artist, color = Cream.copy(alpha = .62f), fontSize = 14.sp, maxLines = 1)
+                    if (album.isNotBlank()) Text(album, color = Green.copy(alpha = .8f), fontSize = 11.sp, maxLines = 1)
+                }
+                IconButton(onClick = { trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber) }
             }
-            IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
-            IconButton(onClick = { player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = Green) }
+            Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) },
+                valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = Amber, activeTrackColor = Amber, inactiveTrackColor = Panel))
+            Row(Modifier.fillMaxWidth()) {
+                Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+                Spacer(Modifier.weight(1f))
+                Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 24.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { shuffle = !shuffle; player?.shuffleModeEnabled = shuffle }) { Icon(Icons.Default.Shuffle, null, tint = if (shuffle) Amber else Green) }
+                IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(34.dp)) }
+                FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Amber)) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Ink, modifier = Modifier.size(40.dp))
+                }
+                IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(34.dp)) }
+                IconButton(onClick = { repeat = (repeat + 1) % 3; player?.repeatMode = repeat }) { Icon(if (repeat == 2) Icons.Default.RepeatOne else Icons.Default.Repeat, null, tint = if (repeat == 0) Green else Amber) }
+            }
+            Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.weight(1f))
     }
-    if (showQueue) {
-        AlertDialog(
-            onDismissRequest = { showQueue = false },
-            containerColor = Panel,
-            title = { Text("PLAYBACK QUEUE", color = Amber, fontSize = 14.sp, letterSpacing = 1.5.sp) },
-            text = {
-                if (player == null || player.mediaItemCount == 0) {
-                    Text("The queue is empty.", color = Cream)
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(player.mediaItemCount) { index ->
-                            val item = player.getMediaItemAt(index)
-                            Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); showQueue = false }.padding(vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = Amber, modifier = Modifier.width(30.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = Cream, maxLines = 1)
-                                    Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = Cream.copy(alpha = .5f), fontSize = 10.sp)
-                                }
-                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = Cream.copy(alpha = .6f)) }
-                            }
-                        }
+    if (showQueue) AlertDialog(onDismissRequest = { showQueue = false }, containerColor = Panel,
+        title = { Text("PLAYBACK QUEUE", color = Amber, fontSize = 14.sp, letterSpacing = 1.5.sp) },
+        text = { if (player == null || player.mediaItemCount == 0) Text("The queue is empty.", color = Cream)
+            else LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(player.mediaItemCount) { index ->
+                    val item = player.getMediaItemAt(index)
+                    Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); showQueue = false }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = Amber, modifier = Modifier.width(30.dp))
+                        Column(Modifier.weight(1f)) { Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = Cream, maxLines = 1); Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
+                        IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = Cream.copy(alpha = .6f)) }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } }
-        )
+            } }, confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } })
+}
+
+@Composable fun AlbumArtwork(uri: Uri?, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var bitmap by remember(uri) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(uri) { bitmap = if (uri == null) null else withContext(Dispatchers.IO) {
+        runCatching { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }.getOrNull()
+    } }
+    Box(modifier.background(Panel, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+        if (bitmap != null) Image(bitmap!!.asImageBitmap(), contentDescription = "Album artwork", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Album, null, tint = Amber, modifier = Modifier.size(76.dp))
+            Spacer(Modifier.height(8.dp)); Text("A N A L O G", color = Green, fontSize = 10.sp, letterSpacing = 3.sp)
+        }
     }
 }
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
