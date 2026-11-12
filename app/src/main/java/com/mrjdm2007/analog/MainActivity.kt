@@ -134,10 +134,22 @@ class MainActivity : ComponentActivity() {
                 controller?.addListener(listener)
                 onDispose { controller?.removeListener(listener) }
             }
-            LaunchedEffect(sleepTimerMinutes) {
+            LaunchedEffect(sleepTimerMinutes, controller) {
                 if (sleepTimerMinutes > 0) {
-                    delay(sleepTimerMinutes * 60_000L)
-                    controller?.pause()
+                    val fadeSeconds = 20
+                    delay((sleepTimerMinutes * 60L - fadeSeconds).coerceAtLeast(0L) * 1000L)
+                    val player = controller
+                    val originalVolume = player?.volume ?: 1f
+                    if (player != null && player.isCommandAvailable(Player.COMMAND_SET_VOLUME)) {
+                        repeat(fadeSeconds) { step ->
+                            delay(1000)
+                            player.volume = originalVolume * (1f - (step + 1) / fadeSeconds.toFloat())
+                        }
+                        player.pause()
+                        player.volume = originalVolume
+                    } else {
+                        player?.pause()
+                    }
                     sleepTimerMinutes = 0
                 }
             }
