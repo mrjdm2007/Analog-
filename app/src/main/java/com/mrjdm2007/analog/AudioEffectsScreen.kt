@@ -32,6 +32,11 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
     var spaceLevel by remember { mutableFloatStateOf(0f) }
     var enabled by remember { mutableStateOf(true) }
     var presets by remember { mutableStateOf(emptyList<String>()) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var replayGainEnabled by remember {
+        mutableStateOf(context.getSharedPreferences("analog_audio", android.content.Context.MODE_PRIVATE)
+            .getBoolean("replaygain_enabled", true))
+    }
 
     DisposableEffect(Unit) {
         runCatching {
@@ -68,6 +73,19 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                 runCatching { eq?.enabled = value; bass?.enabled = value; virtualizer?.enabled = value; loudness?.enabled = value }
             })
         }
+        Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18), androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("REPLAYGAIN NORMALIZATION", color = Color(0xFFE8E1CF), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Text("Read track-gain tags and reduce loud tracks to help keep playback levels consistent.", color = Color(0xFF8E9687), fontSize = 10.sp)
+            }
+            Switch(checked = replayGainEnabled, onCheckedChange = {
+                replayGainEnabled = it
+                context.getSharedPreferences("analog_audio", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean("replaygain_enabled", it).apply()
+            })
+        }
+        Spacer(Modifier.height(18.dp))
         if (!available) {
             Text("Audio effects are not available on this device or output route.", color = Color(0xFFE8E1CF))
         } else {
