@@ -16,136 +16,137 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
+import androidx.media3.session.MediaController
+import kotlinx.coroutines.delay
+import kotlin.math.sqrt
+
+private val VisBg = Color(0xFF10110F)
+private val VisPanel = Color(0xFF1A1C18)
+private val VisAmber = Color(0xFFFFB45B)
+private val VisGreen = Color(0xFFB5D69B)
+private val VisCream = Color(0xFFE8E1CF)
+private val VisMuted = Color(0xFF89877D)
 
 @Composable
-fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
-    val bars = remember { mutableStateListOf<Float>().apply { repeat(48) { add(0.035f) } } }
-    var peak by remember { mutableFloatStateOf(0.08f) }
-    var mode by remember { mutableStateOf("SPECTRUM") }
-
-    DisposableEffect(audioPermissionGranted) {
-        var visualizer: Visualizer? = null
-        if (audioPermissionGranted) {
-            runCatching {
-                visualizer = Visualizer(0).apply {
-                    captureSize = Visualizer.getCaptureSizeRange()[1]
-                    scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-                    setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(v: Visualizer?, waveform: ByteArray?, samplingRate: Int) = Unit
-
-                        override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, samplingRate: Int) {
-                            if (fft == null) return
-                            val next = (0 until 48).map { i ->
-                                val bin = (2 + i * 2).coerceAtMost(fft.size - 2)
-                                val real = fft[bin].toInt()
-                                val imaginary = fft[bin + 1].toInt()
-                                ((abs(real) + abs(imaginary)) / 150f).coerceIn(0.035f, 1f)
-                            }
-                            val level = next.maxOrNull() ?: 0.08f
-                            Handler(Looper.getMainLooper()).post {
-                                bars.indices.forEach { i ->
-                                    bars[i] = maxOf(next[i], bars[i] * 0.72f)
-                                }
-                                peak = maxOf(level, peak * 0.88f)
-                            }
+fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, player: MediaController?, tracks: List<Track>) {
+    val bars = remember { mutableStateListOf<Float>().apply { repeat(48) { add(.035f) } } }
+    var title by remember { mutableStateOf("Nothing playing") }
+    var artist by remember { mutableStateOf("Choose a track from your library") }
+    var album by remember { mutableStateOf("") }
+    var art by remember { mutableStateOf<android.net.Uri?>(null) }
+    var playing by remember { mutableStateOf(false) }
+    val resumed = rememberAppResumed()
+    LaunchedEffect(player, resumed) {
+        while (player != null && resumed) {
+            title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
+            artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
+            album = player.mediaMetadata.albumTitle?.toString().orEmpty()
+            art = player.mediaMetadata.artworkUri ?: tracks.firstOrNull { it.title == title && it.artist == artist }?.artworkUri
+            playing = player.isPlaying
+            delay(650)
+        }
+    }
+    DisposableEffect(audioPermissionGranted, resumed) {
+        var capture: Visualizer? = null
+        val handler = Handler(Looper.getMainLooper())
+        if (audioPermissionGranted && resumed) runCatching {
+            capture = Visualizer(0).apply {
+                captureSize = Visualizer.getCaptureSizeRange()[1]
+                scalingMode = Visualizer.SCALING_MODE_NORMALIZED
+                setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(v: Visualizer?, data: ByteArray?, rate: Int) = Unit
+                    override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, rate: Int) {
+                        if (fft == null || fft.size < 8) return
+                        val values = (0 until 48).map { i ->
+                            val bin = (2 + i * i * (fft.size - 4) / (48 * 48)).coerceAtMost(fft.size - 2)
+                            val re = fft[bin].toInt()
+                            val im = fft[bin + 1].toInt()
+                            (sqrt((re * re + im * im).toFloat()) / 170f).coerceIn(.025f, 1f)
                         }
-                    }, Visualizer.getMaxCaptureRate() / 2, false, true)
-                    enabled = true
-                }
+                        handler.post { values.indices.forEach { bars[it] = maxOf(values[it], bars[it] * .82f) } }
+                    }
+                }, minOf(Visualizer.getMaxCaptureRate() / 5, 6_000), false, true)
+                enabled = true
             }
         }
         onDispose {
-            runCatching {
-                visualizer?.enabled = false
-                visualizer?.release()
-            }
+            handler.removeCallbacksAndMessages(null)
+            runCatching { capture?.enabled = false; capture?.setDataCaptureListener(null, 0, false, false); capture?.release() }
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF080B08)).padding(horizontal = 20.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFFE8E1CF)) }
+    Column(Modifier.fillMaxSize().background(VisBg).padding(horizontal = 20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = VisCream) }
             Column(Modifier.weight(1f)) {
-                Text("ANALOG / VISUALIZER", color = Color(0xFFFFB45B), fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("REAL-TIME AUDIO DISPLAY", color = Color(0xFF91A987), fontSize = 9.sp, letterSpacing = 1.5.sp)
+                Text("ANALOG / VISUALIZER", color = VisAmber, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+                Text("LIVE FREQUENCY DISPLAY", color = VisMuted, fontSize = 9.sp, letterSpacing = 1.2.sp)
             }
-            Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Color(0xFFB5D69B))
+            Icon(Icons.Default.GraphicEq, null, tint = VisGreen)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("SPECTRUM", "VU METER").forEach { item ->
-                FilterChip(selected = mode == item, onClick = { mode = item }, label = { Text(item, fontSize = 10.sp) })
+        Row(Modifier.fillMaxWidth().background(VisPanel, RoundedCornerShape(18.dp)).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            AlbumArtwork(art, Modifier.size(76.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("NOW PLAYING", color = VisGreen, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                Text(title, color = VisCream, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                Text(artist, color = VisMuted, fontSize = 12.sp, maxLines = 1)
+                if (album.isNotBlank()) Text(album, color = VisMuted, fontSize = 10.sp, maxLines = 1)
             }
+            Text(if (playing) "●" else "Ⅱ", color = VisAmber, fontSize = 15.sp)
         }
-        Spacer(Modifier.height(26.dp))
-        if (!audioPermissionGranted) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Text("Allow audio visualizer access to animate with your music. Analog uses this only to display playback levels; it does not record or save audio.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
-            }
-        } else {
-            Text(if (mode == "SPECTRUM") "FREQUENCY ANALYZER" else "OUTPUT LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().weight(1f).background(Color(0xFF101610), RoundedCornerShape(12.dp)).padding(14.dp)) {
-                Canvas(Modifier.fillMaxSize()) {
-                    if (mode == "SPECTRUM") {
-                        val count = bars.size
-                        val gap = size.width * 0.009f
-                        val barWidth = (size.width - gap * (count - 1)) / count
-                        for (i in 0 until 5) {
-                            val y = size.height * i / 5f
-                            drawLine(Color(0xFF31402E).copy(alpha = .45f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
-                        }
-                        bars.forEachIndexed { index, value ->
-                            val h = value * size.height * .92f
-                            val x = index * (barWidth + gap)
-                            drawLine(Color(0xFFFFB45B), Offset(x + barWidth / 2, size.height), Offset(x + barWidth / 2, size.height - h), barWidth, StrokeCap.Round)
-                            if (h > 5.dp.toPx()) {
-                                drawLine(Color(0xFFFFD39A), Offset(x + barWidth / 2, size.height - h), Offset(x + barWidth / 2, size.height - h - 2.dp.toPx()), barWidth, StrokeCap.Round)
-                            }
-                        }
-                    } else {
-                        val arcSize = Size(size.width * .84f, size.height * .72f)
-                        val arcTop = Offset(size.width * .08f, size.height * .12f)
-                        drawArc(Color(0xFFB5D69B), 180f, 180f, false, arcTop, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
-                        val center = Offset(size.width / 2f, arcTop.y + arcSize.height * .78f)
-                        val radius = arcSize.width * .48f
-                        for (tick in 0..10) {
-                            val angle = Math.toRadians((180f - tick * 18f).toDouble())
-                            val inner = radius * .84f
-                            val outer = radius * .98f
-                            drawLine(
-                                Color(0xFFFFB45B),
-                                Offset(center.x + cos(angle).toFloat() * inner, center.y - sin(angle).toFloat() * inner),
-                                Offset(center.x + cos(angle).toFloat() * outer, center.y - sin(angle).toFloat() * outer),
-                                2.dp.toPx()
-                            )
-                        }
-                        val needleAngle = Math.toRadians((180f - peak * 180f).toDouble())
-                        drawLine(Color(0xFFFFB45B), center,
-                            Offset(center.x + cos(needleAngle).toFloat() * radius * .82f, center.y - sin(needleAngle).toFloat() * radius * .82f),
-                            4.dp.toPx(), StrokeCap.Round)
-                        drawCircle(Color(0xFFE8E1CF), 7.dp.toPx(), center)
-                        drawCircle(Color(0xFFFFB45B), 4.dp.toPx(), center)
-                    }
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("SPECTRUM", color = VisGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            Text(if (playing) "LIVE" else "PAUSED", color = VisAmber, fontSize = 9.sp, letterSpacing = 1.sp)
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().weight(1f).background(
+            Brush.verticalGradient(listOf(Color(0xFF1D2A20), Color(0xFF0D130F), Color(0xFF111711))),
+            RoundedCornerShape(20.dp)).padding(14.dp)) {
+            Canvas(Modifier.fillMaxSize()) {
+                val grid = VisGreen.copy(alpha = .12f)
+                for (i in 0..8) {
+                    val x = size.width * i / 8f
+                    drawLine(grid, Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+                }
+                for (i in 0..8) {
+                    val y = size.height * i / 8f
+                    drawLine(grid, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+                }
+                val gap = size.width * .009f
+                val bw = (size.width - gap * (bars.size - 1)) / bars.size
+                bars.forEachIndexed { i, level ->
+                    val h = (level * size.height * .82f).coerceAtLeast(3.dp.toPx())
+                    val x = i * (bw + gap)
+                    drawRoundRect(VisAmber.copy(alpha = .16f), Offset(x - 1.dp.toPx(), size.height - h - 3.dp.toPx()),
+                        Size(bw + 2.dp.toPx(), h + 3.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()))
+                    drawRoundRect(Brush.verticalGradient(listOf(Color(0xFFFFD99A), VisAmber, VisGreen)),
+                        Offset(x, size.height - h), Size(bw, h), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
+                    drawLine(VisCream.copy(alpha = .7f), Offset(x, size.height - h - 4.dp.toPx()),
+                        Offset(x + bw, size.height - h - 4.dp.toPx()), 1.5.dp.toPx())
                 }
             }
-            Spacer(Modifier.height(28.dp))
-            Text("ANALOG LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("OUT", color = Color(0xFFFFB45B), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
-                Box(Modifier.weight(1f).height(12.dp).background(Color(0xFF263126), RoundedCornerShape(3.dp))) {
-                    Box(Modifier.fillMaxWidth(peak.coerceIn(.02f, 1f)).fillMaxHeight().background(Color(0xFFB5D69B), RoundedCornerShape(3.dp)))
-                }
-            }
-            Text("LIVE OUTPUT MIX  •  FFT", color = Color(0xFF71806B), fontSize = 9.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 18.dp, bottom = 20.dp))
         }
+        Spacer(Modifier.height(14.dp))
+        Text("LOW     〰     MID     〰     HIGH", color = VisMuted, fontSize = 9.sp, letterSpacing = 1.6.sp,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth().background(VisPanel, RoundedCornerShape(14.dp)).padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("ANALOG SPECTRUM", color = VisCream, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("Real-time audio frequency response", color = VisMuted, fontSize = 9.sp)
+            }
+            Text("48 BANDS", color = VisAmber, fontSize = 10.sp, letterSpacing = 1.sp)
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
