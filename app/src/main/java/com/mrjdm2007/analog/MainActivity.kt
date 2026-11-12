@@ -568,3 +568,55 @@ class MainActivity : ComponentActivity() {
     }
 }
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
+
+private data class MonthlyPlay(val title: String, val artist: String, val count: Int)
+@Composable private fun MonthlyWrappedScreen(onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val month = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date()) }
+    val prefix = remember { SimpleDateFormat("yyyy-MM", Locale.US).format(Date()) }
+    val songs = remember {
+        val prefs = context.getSharedPreferences("analog_monthly", Context.MODE_PRIVATE)
+        prefs.all.keys.filter { it.startsWith("$prefix:") && it.endsWith(":count") }.mapNotNull { key ->
+            val idPart = key.removePrefix("$prefix:").removeSuffix(":count")
+            val count = prefs.getInt(key, 0)
+            if (count <= 0) null else MonthlyPlay(
+                prefs.getString("$prefix:$idPart:title", "Unknown track") ?: "Unknown track",
+                prefs.getString("$prefix:$idPart:artist", "Unknown artist") ?: "Unknown artist",
+                count
+            )
+        }.sortedByDescending { it.count }.take(10)
+    }
+    Column(Modifier.fillMaxSize().background(Ink).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
+            Text("YOUR MONTH IN MUSIC", color = Amber, fontSize = 12.sp, letterSpacing = 1.8.sp)
+        }
+        Text("THE SOUNDTRACK", color = Green, fontSize = 10.sp, letterSpacing = 3.sp)
+        Text(month.uppercase(), color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(10.dp))
+        Text("Your most-played tracks, counted privately on this device.", color = Cream.copy(alpha = .6f), fontSize = 12.sp)
+        Spacer(Modifier.height(26.dp))
+        if (songs.isEmpty()) {
+            Box(Modifier.fillMaxWidth().height(180.dp).background(Panel, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+                Text("Your monthly recap will appear as you listen.", color = Cream.copy(alpha = .6f), fontSize = 12.sp)
+            }
+        } else {
+            Text("TOP 10 TRACKS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Spacer(Modifier.height(10.dp))
+            songs.forEachIndexed { index, song ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("%02d".format(index + 1), color = Amber, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(42.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(song.title, color = Cream, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(song.artist, color = Cream.copy(alpha = .55f), fontSize = 11.sp, maxLines = 1)
+                    }
+                    Text("${song.count} plays", color = Green, fontSize = 10.sp)
+                }
+                HorizontalDivider(color = Panel)
+            }
+        }
+        Spacer(Modifier.height(26.dp))
+        Text("Stats are stored locally. Analog does not upload your listening history.", color = Cream.copy(alpha = .45f), fontSize = 10.sp)
+        Spacer(Modifier.height(28.dp))
+    }
+}
