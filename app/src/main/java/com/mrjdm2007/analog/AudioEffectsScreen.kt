@@ -43,7 +43,7 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
                 }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
-                presets = (0 until e.numberOfPresets).map { e.getPresetName(it.toShort()) }
+                presets = (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
             }
         }
         onDispose {
@@ -80,7 +80,7 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                                 val effect = eq ?: return@runCatching
                                 val range = effect.bandLevelRange
                                 val level = (range[0] + ((v + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
-                                if (index < effect.numberOfBands) effect.setBandLevel(index.toShort(), level)
+                                if (index < effect.numberOfBands.toInt()) effect.setBandLevel(index.toShort(), level)
                             }
                         }, valueRange = -1f..1f, enabled = enabled, modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
