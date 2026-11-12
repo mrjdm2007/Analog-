@@ -33,6 +33,10 @@ class PlaybackService : MediaSessionService() {
                 AnalogWidgetProvider.refresh(this@PlaybackService)
             }
 
+            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                AnalogWidgetProvider.refresh(this@PlaybackService)
+            }
+
             override fun onMetadata(metadata: Metadata) {
                 val enabled = getSharedPreferences("analog_audio", MODE_PRIVATE)
                     .getBoolean("replaygain_enabled", true)
