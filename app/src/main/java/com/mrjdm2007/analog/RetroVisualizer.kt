@@ -48,7 +48,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, p
             title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
             artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
             album = player.mediaMetadata.albumTitle?.toString().orEmpty()
-            art = player.mediaMetadata.artworkUri
+            art = player.mediaMetadata.artworkUri ?: tracks.firstOrNull { it.title == title && it.artist == artist }?.artworkUri
             playing = player.isPlaying
             delay(650)
         }
