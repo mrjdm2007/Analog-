@@ -337,7 +337,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit, onSettings: () -> Unit,
     onScan: () -> Unit, onFolders: () -> Unit, onShuffleAll: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 2.dp)) {
+    Column(Modifier.fillMaxWidth().animateContentSize().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("ANALOG", color = Amber, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
@@ -383,7 +383,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber) }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) { Text(group.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = Cream.copy(alpha = .5f), fontSize = 11.sp) }
@@ -412,7 +412,7 @@ class MainActivity : ComponentActivity() {
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
         delay(1_000)
     } }
-    Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
+    Column(Modifier.fillMaxWidth().animateContentSize().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
         LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
@@ -510,7 +510,7 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(uri) { bitmap = if (uri == null) null else withContext(Dispatchers.IO) {
         runCatching { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } }.getOrNull()
     } }
-    Box(modifier.background(Panel, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+    Box(modifier.animateContentSize().background(Panel, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), contentDescription = "Album artwork", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Album, null, tint = Amber, modifier = Modifier.size(76.dp))
