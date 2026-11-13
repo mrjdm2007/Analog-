@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, onBack = { effects = false })
-                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), onBack = { recap = false })
+                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), onBack = { recap = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
                         playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
@@ -304,13 +304,8 @@ class MainActivity : ComponentActivity() {
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
-        val key = "plays:${selected.id}"
-        val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
-        prefs().edit().putInt(key, prefs().getInt(key, 0) + 1)
-            .putInt("month:$monthKey:${selected.id}", prefs().getInt("month:$monthKey:${selected.id}", 0) + 1)
-            .putLong("last_played:${selected.id}", System.currentTimeMillis()).apply()
         c.setMediaItems(list.map { track ->
-            MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
+            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
@@ -361,6 +356,11 @@ class MainActivity : ComponentActivity() {
     private fun currentMonthPlayCounts(): Map<Long, Int> {
         val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
         return prefs().all.filterKeys { it.startsWith("month:$monthKey:") }.mapNotNull { (key, value) -> key.substringAfterLast(":").toLongOrNull()?.let { it to ((value as? Int) ?: 0) } }.toMap()
+    }
+    private fun currentMonthListeningMs(): Map<Long, Long> {
+        val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
+        return prefs().all.filterKeys { it.startsWith("listened_ms:$monthKey:") }
+            .mapNotNull { (key, value) -> key.substringAfterLast(":").toLongOrNull()?.let { it to ((value as? Long) ?: 0L) } }.toMap()
     }
     private fun readIds(key: String) = prefs().getStringSet(key, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
     private fun storeIds(key: String, ids: Set<Long>) { prefs().edit().putStringSet(key, ids.map { it.toString() }.toSet()).apply() }
