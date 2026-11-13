@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun AudioEffectsScreen(outputRoute: String, onBack: () -> Unit) {
+fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> Unit) {
     var eq by remember { mutableStateOf<Equalizer?>(null) }
     var bass by remember { mutableStateOf<BassBoost?>(null) }
     var virtualizer by remember { mutableStateOf<Virtualizer?>(null) }
@@ -37,12 +37,16 @@ fun AudioEffectsScreen(outputRoute: String, onBack: () -> Unit) {
         "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
     }
 
-    DisposableEffect(deviceProfileKey) {
+    DisposableEffect(deviceProfileKey, audioSessionId) {
         runCatching {
-            eq = Equalizer(0, 0).apply { enabled = true }
-            bass = BassBoost(0, 0).apply { enabled = true }
-            virtualizer = Virtualizer(0, 0).apply { enabled = true }
-            available = eq != null
+            if (audioSessionId > 0) {
+                eq = Equalizer(0, audioSessionId).apply { enabled = true }
+                bass = BassBoost(0, audioSessionId).apply { enabled = true }
+                virtualizer = Virtualizer(0, audioSessionId).apply { enabled = true }
+                available = eq != null
+            } else {
+                available = false
+            }
             val e = eq
             if (e != null) {
                 val range = e.bandLevelRange
@@ -81,7 +85,7 @@ fun AudioEffectsScreen(outputRoute: String, onBack: () -> Unit) {
             })
         }
         if (!available) {
-            Text("Audio effects are not available on this device or output route.", color = Color(0xFFE8E1CF))
+            Text(if (audioSessionId <= 0) "Start playing a track, then reopen Audio Effects to attach the equalizer to the active audio session." else "Audio effects are not available on this device or output route.", color = Color(0xFFE8E1CF))
         } else {
             Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
