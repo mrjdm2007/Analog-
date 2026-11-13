@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
             var settings by remember { mutableStateOf(false) }
+            var playerStyle by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("player_style", "Analog Classic") ?: "Analog Classic") }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
             var playCountVersion by remember { mutableIntStateOf(0) }
@@ -111,12 +112,16 @@ class MainActivity : ComponentActivity() {
                     effects -> AudioEffectsScreen(onBack = { effects = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
+                        playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
                         playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious,
                         onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
+                    nowPlaying -> if (playerStyle == "iPod Inspired") IpodPlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
+                        onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
+                    else PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
                     else -> {
@@ -455,4 +460,73 @@ class MainActivity : ComponentActivity() {
         )
     }
 }
+
+@Composable private fun IpodPlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
+    var title by remember { mutableStateOf("Nothing playing") }
+    var artist by remember { mutableStateOf("Choose a song from your library") }
+    var playing by remember { mutableStateOf(false) }
+    var duration by remember { mutableFloatStateOf(1f) }
+    var position by remember { mutableFloatStateOf(0f) }
+    var trackId by remember { mutableStateOf<Long?>(null) }
+    var artColor by remember { mutableStateOf(DefaultAmber) }
+    LaunchedEffect(player) {
+        while (player != null) {
+            title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
+            artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
+            playing = player.isPlaying
+            duration = player.duration.coerceAtLeast(1).toFloat()
+            position = player.currentPosition.toFloat().coerceIn(0f, duration)
+            trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
+            delay(250)
+        }
+    }
+    val currentTrack = tracks.firstOrNull { it.id == trackId }
+    Column(Modifier.fillMaxSize().background(Color(0xFF090A09)).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
+            Text("iPod-inspired mode", color = Cream, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
+        }
+        Card(Modifier.fillMaxWidth().weight(1f).padding(top = 10.dp, bottom = 14.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFC9D0C5)), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth().background(Color(0xFF5C7C63), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("ANALOG", color = Color(0xFFF1F4E9), fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.5.sp)
+                    Spacer(Modifier.weight(1f)); Icon(Icons.Default.BatteryFull, null, tint = Color(0xFFF1F4E9), modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("NOW PLAYING", color = Color(0xFF344A38), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(title, color = Color(0xFF17251B), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 3)
+                        Text(artist, color = Color(0xFF344A38), fontSize = 11.sp, maxLines = 3)
+                        Spacer(Modifier.height(8.dp))
+                        Text(if (playing) "▶ PLAYING" else "Ⅱ PAUSED", color = Color(0xFF344A38), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(Modifier.size(112.dp).background(Color(0xFF9DAA9B), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
+                        if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
+                            onSuccess = { state -> val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap; if (bitmap != null) artColor = Color(Palette.from(bitmap).generate().getVibrantColor(DefaultAmber.value.toInt())) },
+                            onError = { artColor = DefaultAmber })
+                        else Icon(Icons.Default.Album, null, tint = artColor, modifier = Modifier.size(48.dp))
+                    }
+                }
+                Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration,
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFF344A38), activeTrackColor = Color(0xFF5C7C63), inactiveTrackColor = Color(0xFF9DAA9B)))
+                Row(Modifier.fillMaxWidth()) { Text(timeText(position.toLong()), color = Color(0xFF344A38), fontSize = 9.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Color(0xFF344A38), fontSize = 9.sp) }
+            }
+        }
+        Box(Modifier.padding(bottom = 22.dp).size(232.dp).background(Color(0xFFE2E4E0), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(180.dp).background(Color(0xFFD1D4D0), androidx.compose.foundation.shape.CircleShape))
+            Text("MENU", color = Color(0xFF303530), fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopCenter).padding(top = 26.dp).clickable { onBack() })
+            IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
+            IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)) { Icon(Icons.Default.SkipNext, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
+            IconButton(onClick = { player?.seekTo((player?.currentPosition ?: 0L) - 10000L) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
+            IconButton(onClick = { player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
+            FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFBEC3BC))) {
+                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color(0xFF303530), modifier = Modifier.size(32.dp))
+            }
+        }
+        currentTrack?.let { track -> TextButton(onClick = { onFavorite(track.id) }) { Icon(if (track.id in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = artColor); Text(if (track.id in favorites) "FAVORITED" else "FAVORITE", color = artColor) } }
+    }
+}
+
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
