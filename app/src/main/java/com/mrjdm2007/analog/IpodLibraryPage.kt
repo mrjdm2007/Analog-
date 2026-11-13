@@ -347,3 +347,59 @@ private fun ipodTime(ms: Long): String {
     val seconds = (ms / 1000L).coerceAtLeast(0L)
     return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }
+
+
+@Composable
+fun IpodSubscreenFrame(
+    title: String,
+    enabled: Boolean,
+    onMenu: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    if (!enabled) {
+        content()
+        return
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF020304)).padding(horizontal = 7.dp, vertical = 5.dp)) {
+        val wheelSize = minOf(maxWidth * .55f, maxHeight * .27f, 210.dp)
+        Column(
+            Modifier.fillMaxSize().background(IpodBlack, RoundedCornerShape(29.dp))
+                .border(1.5.dp, Color(0xFF4B5054), RoundedCornerShape(29.dp))
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("ANALOG", color = Color(0xFFE7EBE8), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Default.BatteryFull, null, tint = Color(0xFFD8E0D9), modifier = Modifier.size(17.dp))
+            }
+            Card(
+                Modifier.fillMaxWidth().weight(1f).padding(top = 4.dp, bottom = 8.dp)
+                    .border(2.dp, Color(0xFF60676A), RoundedCornerShape(9.dp)),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = IpodScreen)
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(Modifier.fillMaxWidth().background(IpodGreen).padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text("ANALOG", color = Color.White.copy(alpha = .8f), fontSize = 8.sp)
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+                }
+            }
+            Box(
+                Modifier.padding(top = 3.dp, bottom = 2.dp).size(wheelSize)
+                    .background(Color(0xFF191C1F), CircleShape).border(2.dp, Color(0xFF555B60), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(wheelSize * .39f).background(Color(0xFF303438), CircleShape).border(1.dp, Color(0xFF697075), CircleShape))
+                Text("MENU", color = Color(0xFFE6E8EA), fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = wheelSize * .105f).clickable { onMenu() })
+                Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFFE6E8EA), modifier = Modifier.align(Alignment.CenterStart).padding(start = 13.dp).size(22.dp))
+                Icon(Icons.Default.SkipNext, null, tint = Color(0xFFE6E8EA), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 13.dp).size(22.dp))
+                Icon(Icons.Default.PlayArrow, null, tint = Color(0xFFE6E8EA), modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).size(20.dp))
+            }
+        }
+    }
+}
