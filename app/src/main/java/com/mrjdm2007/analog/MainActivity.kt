@@ -120,16 +120,24 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
-                val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                val refreshHandler = Handler(Looper.getMainLooper())
+                val refreshTask = Runnable {
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        val updated = scanLibrary()
+                        withContext(Dispatchers.Main) { tracks = updated }
+                    }
+                }
+                val observer = object : ContentObserver(refreshHandler) {
                     override fun onChange(selfChange: Boolean) {
-                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                            val updated = scanLibrary()
-                            withContext(Dispatchers.Main) { tracks = updated }
-                        }
+                        refreshHandler.removeCallbacks(refreshTask)
+                        refreshHandler.postDelayed(refreshTask, 450L)
                     }
                 }
                 contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
-                onDispose { contentResolver.unregisterContentObserver(observer) }
+                onDispose {
+                    refreshHandler.removeCallbacks(refreshTask)
+                    contentResolver.unregisterContentObserver(observer)
+                }
             }
             DisposableEffect(headphoneDetectionEnabled) {
                 val manager = getSystemService(AudioManager::class.java)
