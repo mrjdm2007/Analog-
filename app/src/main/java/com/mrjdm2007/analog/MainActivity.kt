@@ -120,7 +120,12 @@ class MainActivity : ComponentActivity() {
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
                 val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-                    override fun onChange(selfChange: Boolean) { launchLibraryRefresh() }
+                    override fun onChange(selfChange: Boolean) {
+                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                            val updated = scanLibrary()
+                            withContext(Dispatchers.Main) { tracks = updated }
+                        }
+                    }
                 }
                 contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
                 onDispose { contentResolver.unregisterContentObserver(observer) }
@@ -317,13 +322,6 @@ class MainActivity : ComponentActivity() {
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
-    }
-
-    private fun launchLibraryRefresh() {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            val result = scanLibrary()
-            withContext(Dispatchers.Main) { tracks = result }
-        }
     }
 
     private fun scanLibrary(): List<Track> {
