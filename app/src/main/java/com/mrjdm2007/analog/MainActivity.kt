@@ -3,6 +3,10 @@ package com.mrjdm2007.analog
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.content.ContentUris
 import android.graphics.drawable.BitmapDrawable
 import androidx.palette.graphics.Palette
@@ -10,6 +14,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -90,6 +96,8 @@ class MainActivity : ComponentActivity() {
             var nowPlaying by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
+            var recap by remember { mutableStateOf(false) }
+            var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var settings by remember { mutableStateOf(false) }
             var playerStyle by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("player_style", "Analog Classic") ?: "Analog Classic") }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
@@ -100,12 +108,22 @@ class MainActivity : ComponentActivity() {
             var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            DisposableEffect(Unit) {
+                val manager = getSystemService(AudioManager::class.java)
+                val callback = object : AudioDeviceCallback() {
+                    override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
+                    override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
+                }
+                manager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+                onDispose { manager.unregisterAudioDeviceCallback(callback) }
+            }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            BackHandler(enabled = settings || visualizer || effects || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+            BackHandler(enabled = settings || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
                     settings -> settings = false
                     visualizer -> visualizer = false
                     effects -> effects = false
+                    recap -> recap = false
                     nowPlaying -> nowPlaying = false
                     tab == "Playlists" && activePlaylist != null -> activePlaylist = null
                 }
@@ -115,13 +133,17 @@ class MainActivity : ComponentActivity() {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
                     effects -> AudioEffectsScreen(onBack = { effects = false })
+                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), onBack = { recap = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
                         playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
-                        playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious,
+                        playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious, outputRoute = outputRoute,
                         onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
-                        onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { settings = false })
+                        onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
+                        onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
+                        onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
                     nowPlaying -> if (playerStyle == "iPod Inspired") IpodPlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
@@ -252,7 +274,10 @@ class MainActivity : ComponentActivity() {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
         val key = "plays:${selected.id}"
-        prefs().edit().putInt(key, prefs().getInt(key, 0) + 1).apply()
+        val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
+        prefs().edit().putInt(key, prefs().getInt(key, 0) + 1)
+            .putInt("month:$monthKey:${selected.id}", prefs().getInt("month:$monthKey:${selected.id}", 0) + 1)
+            .putLong("last_played:${selected.id}", System.currentTimeMillis()).apply()
         c.setMediaItems(list.map { track ->
             MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
@@ -284,6 +309,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun prefs() = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+    private fun currentAudioRoute(): String {
+        val manager = getSystemService(AudioManager::class.java)
+        val device = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET) }
+        return device?.productName?.toString()?.takeIf { it.isNotBlank() }?.let { "Connected: $it" } ?: "Phone speaker / other output"
+    }
+    private fun currentMonthPlayCounts(): Map<Long, Int> {
+        val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
+        return prefs().all.filterKeys { it.startsWith("month:$monthKey:") }.mapNotNull { (key, value) -> key.substringAfterLast(":").toLongOrNull()?.let { it to ((value as? Int) ?: 0) } }.toMap()
+    }
     private fun readIds(key: String) = prefs().getStringSet(key, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
     private fun storeIds(key: String, ids: Set<Long>) { prefs().edit().putStringSet(key, ids.map { it.toString() }.toSet()).apply() }
     private fun readPlaylists(): Map<String, Set<Long>> = prefs().all.filterKeys { it.startsWith("playlist:") }
