@@ -6,24 +6,26 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.RemoteViews
 
 class AnalogWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { id -> updateOne(context, manager, id, "Choose a track", "ANALOG • OFFLINE", false) }
+        ids.forEach { id -> updateOne(context, manager, id, "Choose a track", "ANALOG • OFFLINE", false, null) }
     }
 
     companion object {
-        fun update(context: Context, title: String, artist: String, isPlaying: Boolean) {
+        fun update(context: Context, title: String, artist: String, isPlaying: Boolean, artworkUri: Uri?) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, AnalogWidgetProvider::class.java)
-            manager.getAppWidgetIds(component).forEach { updateOne(context, manager, it, title, artist, isPlaying) }
+            manager.getAppWidgetIds(component).forEach { updateOne(context, manager, it, title, artist, isPlaying, artworkUri) }
         }
 
-        private fun updateOne(context: Context, manager: AppWidgetManager, id: Int, title: String, artist: String, isPlaying: Boolean) {
+        private fun updateOne(context: Context, manager: AppWidgetManager, id: Int, title: String, artist: String, isPlaying: Boolean, artworkUri: Uri?) {
             val views = RemoteViews(context.packageName, R.layout.widget_analog)
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.widget_artist, artist)
+            if (artworkUri != null) views.setImageViewUri(R.id.widget_art, artworkUri) else views.setImageViewResource(R.id.widget_art, android.R.drawable.ic_menu_gallery)
             views.setImageViewResource(R.id.widget_play, if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
             views.setOnClickPendingIntent(R.id.widget_previous, serviceIntent(context, PlaybackService.ACTION_WIDGET_PREVIOUS, 1))
             views.setOnClickPendingIntent(R.id.widget_play, serviceIntent(context, PlaybackService.ACTION_WIDGET_PLAY_PAUSE, 2))
