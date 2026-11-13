@@ -3,6 +3,7 @@ package com.mrjdm2007.analog
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -14,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -49,7 +51,7 @@ private val Cream = Color(0xFFE8E1CF)
 private val Amber = Color(0xFFFFB45B)
 private val Green = Color(0xFFB5D69B)
 
-data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String)
+data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)\nprivate fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse(\"content://media/external/audio/albumart\"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
@@ -78,7 +80,7 @@ class MainActivity : ComponentActivity() {
             var playlistName by remember { mutableStateOf("") }
             var nowPlaying by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
-            var effects by remember { mutableStateOf(false) }
+            var effects by remember { mutableStateOf(false) }\n            var settings by remember { mutableStateOf(false) }\n            var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getStringSet(\"selected_folders\", emptySet())?.toSet() ?: emptySet()) }\n            var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_play_pause\", \"Play/Pause\") ?: \"Play/Pause\") }\n            var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_next\", \"Next track\") ?: \"Next track\")\n            var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_previous\", \"Previous track\") ?: \"Previous track\") }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
             BackHandler(enabled = visualizer || effects || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
@@ -93,12 +95,12 @@ class MainActivity : ComponentActivity() {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
-                    effects -> AudioEffectsScreen(onBack = { effects = false })
+                    effects -> AudioEffectsScreen(onBack = { effects = false })\n                    settings -> SettingsPage(\n                        folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,\n                        onFoldersChanged = { selectedFolders = it; getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).edit().putStringSet(\"selected_folders\", it).apply() },\n                        playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious,\n                        onHeadsetSetting = { key, value -> getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { \"headset_play_pause\" -> headsetPlayPause = value; \"headset_next\" -> headsetNext = value; \"headset_previous\" -> headsetPrevious = value } },\n                        onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { settings = false })
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
                     else -> {
-                        val currentTracks = when (tab) {
+                        val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }\n                        val currentTracks = when (tab) {
                             "Favorites" -> tracks.filter { it.id in favorites }
                             "Playlists" -> activePlaylist?.let { name -> tracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
                             else -> tracks
@@ -208,7 +210,7 @@ class MainActivity : ComponentActivity() {
         val c = controller ?: return
         c.setMediaItems(list.map { track ->
             MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
-                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).build()).build()
+                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
     }
@@ -224,7 +226,7 @@ class MainActivity : ComponentActivity() {
             val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val album = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val duration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val data = c.getColumnIndex(MediaStore.Audio.Media.DATA)
+            val data = c.getColumnIndex(MediaStore.Audio.Media.DATA)\n            val albumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             while (c.moveToNext()) {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
@@ -254,7 +256,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onVisualizer: () -> Unit, onEffects: () -> Unit) {
+@Composable private fun TopHeader(onSettings: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
@@ -274,7 +276,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().animateContentSize(tween(220)).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber) }
+        Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {\n            val art = group.tracks.firstOrNull()?.artUri()\n            if (art != null) AsyncImage(model = art, contentDescription = group.title, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Album, null, tint = Amber)\n        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) { Text(group.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = Cream.copy(alpha = .5f), fontSize = 11.sp) }
         Icon(Icons.Default.ChevronRight, null, tint = Green)
@@ -282,7 +284,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
     Row(Modifier.fillMaxWidth().animateContentSize(tween(180)).clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(number.toString().padStart(2, '0'), color = Amber.copy(alpha = .7f), fontSize = 11.sp, modifier = Modifier.width(32.dp))
+        Box(Modifier.size(42.dp).background(Panel, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize()); }\n        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .48f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
         IconButton(onClick = onFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (favorite) Amber else Cream.copy(alpha = .5f)) }
