@@ -3,6 +3,7 @@ package com.mrjdm2007.analog
 import android.media.audiofx.BassBoost
 import android.content.Context
 import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import androidx.compose.ui.platform.LocalContext
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
@@ -36,7 +37,7 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
     val deviceProfileKey = remember(context) {
         val audioManager = context.getSystemService(AudioManager::class.java)
         val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        val route = outputs.firstOrNull { it.type == AudioManager.DEVICE_OUT_WIRED_HEADPHONES || it.type == AudioManager.DEVICE_OUT_WIRED_HEADSET || it.type == AudioManager.DEVICE_OUT_BLUETOOTH_A2DP || it.type == AudioManager.DEVICE_OUT_BLE_HEADSET || it.type == AudioManager.DEVICE_OUT_USB_HEADSET }?.productName?.toString() ?: "device-default"
+        val route = outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }?.productName?.toString() ?: "device-default"
         "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
     }
 
