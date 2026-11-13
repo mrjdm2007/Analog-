@@ -156,6 +156,8 @@ class PlaybackService : MediaSessionService() {
         when (intent?.action) {
             ACTION_SLEEP_TIMER -> {
                 sleepTimer?.let(timerHandler::removeCallbacks)
+                sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+                sleepEndListener = null
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
                 sleepTimer = Runnable { mediaSession?.player?.pause(); sleepTimer = null }
                 timerHandler.postDelayed(sleepTimer!!, minutes * 60_000L)
