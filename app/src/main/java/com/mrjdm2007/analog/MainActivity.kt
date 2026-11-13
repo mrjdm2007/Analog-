@@ -52,7 +52,7 @@ private val Amber = Color(0xFFFFB45B)
 private val Green = Color(0xFFB5D69B)
 
 data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)
-private fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse(\"content://media/external/audio/albumart\"), albumId)
+private fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
@@ -83,10 +83,10 @@ class MainActivity : ComponentActivity() {
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
             var settings by remember { mutableStateOf(false) }
-            var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getStringSet(\"selected_folders\", emptySet())?.toSet() ?: emptySet()) }
-            var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_play_pause\", \"Play/Pause\") ?: \"Play/Pause\") }
-            var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_next\", \"Next track\") ?: \"Next track\")
-            var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).getString(\"headset_previous\", \"Previous track\") ?: \"Previous track\") }
+            var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
+            var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_play_pause", "Play/Pause") ?: "Play/Pause") }
+            var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_next", "Next track") ?: "Next track") }
+            var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
             BackHandler(enabled = settings || visualizer || effects || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
@@ -109,17 +109,11 @@ class MainActivity : ComponentActivity() {
                         playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious,
                         onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { settings = false })
-                    settings -> SettingsPage(
-                        folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
-                        onFoldersChanged = { selectedFolders = it; getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).edit().putStringSet(\"selected_folders\", it).apply() },
-                        playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious,
-                        onHeadsetSetting = { key, value -> getSharedPreferences(\"analog_library\", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { \"headset_play_pause\" -> headsetPlayPause = value; \"headset_next\" -> headsetNext = value; \"headset_previous\" -> headsetPrevious = value } },
-                        onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { settings = false })
+
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
                     else -> {
-                        val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
                             "Favorites" -> libraryTracks.filter { it.id in favorites }
