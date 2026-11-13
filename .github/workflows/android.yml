@@ -10,10 +10,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      PATH: /usr/local/lib/android/sdk/cmdline-tools/16.0/bin:/usr/local/lib/android/sdk/platform-tools:/usr/local/bin:/usr/bin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +18,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify Android SDK
-        run: |
-          sdkmanager --version
-          yes | sdkmanager --licenses
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" package has been removed from Google's SDK repo.
+          # Explicitly install only current SDK packages.
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
