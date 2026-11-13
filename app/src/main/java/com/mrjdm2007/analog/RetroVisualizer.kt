@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 @Composable
-fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, player: MediaController?, tracks: List<Track>) {
+fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, audioSessionId: Int, player: MediaController?, tracks: List<Track>) {
     val bars = remember { mutableStateListOf<Float>().apply { repeat(48) { add(0.035f) } } }
     var peak by remember { mutableFloatStateOf(0.08f) }
     var title by remember { mutableStateOf("Nothing playing") }
@@ -44,11 +44,11 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, p
     }
     val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
-    DisposableEffect(audioPermissionGranted) {
+    DisposableEffect(audioPermissionGranted, audioSessionId) {
         var visualizer: Visualizer? = null
         if (audioPermissionGranted) {
             runCatching {
-                visualizer = Visualizer(0).apply {
+                if (audioSessionId > 0) visualizer = Visualizer(audioSessionId).apply {
                     captureSize = Visualizer.getCaptureSizeRange()[1]
                     scalingMode = Visualizer.SCALING_MODE_NORMALIZED
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
@@ -108,6 +108,10 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, p
         if (!audioPermissionGranted) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text("Allow audio visualizer access to animate with your music. Analog uses this only to display playback levels; it does not record or save audio.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
+            }
+        } else if (audioSessionId <= 0) {
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("Start playback, then reopen the visualizer to connect to Analog's active audio session.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
             }
         } else {
             Text("48-BAND FREQUENCY ANALYZER", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
