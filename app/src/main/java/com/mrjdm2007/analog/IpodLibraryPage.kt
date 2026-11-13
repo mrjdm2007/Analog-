@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -305,7 +306,11 @@ private fun IpodRows(
     onActivate: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(modifier) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selected, rows.size) {
+        if (rows.isNotEmpty()) listState.animateScrollToItem(selected.coerceIn(0, rows.lastIndex))
+    }
+    LazyColumn(state = listState, modifier = modifier) {
         items(rows.size) { index ->
             val active = index == selected
             val detail = details.getOrNull(index)?.second
