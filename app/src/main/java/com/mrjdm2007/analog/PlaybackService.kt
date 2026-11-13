@@ -138,6 +138,7 @@ class PlaybackService : MediaSessionService() {
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 if (audioSessionId > 0) {
+                    getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", audioSessionId).apply()
                     runCatching { loudnessEnhancer?.release(); loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true } }
                     applyReplayGain()
                 }
