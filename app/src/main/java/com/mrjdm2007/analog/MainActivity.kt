@@ -35,6 +35,10 @@ import kotlin.math.atan2
 import kotlin.math.PI
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +53,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -521,8 +526,10 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
-    var artAccent by remember { mutableStateOf(Amber) }
-    LaunchedEffect(trackId) { artAccent = DefaultAmber; Amber = DefaultAmber }
+    var artAccent by remember { mutableStateOf(DefaultAmber) }
+    var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
+    var currentQueueIndex by remember { mutableIntStateOf(-1) }
+    var swipeDistance by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(player) { while (player != null) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
@@ -530,9 +537,10 @@ class MainActivity : ComponentActivity() {
         duration = player.duration.coerceAtLeast(1).toFloat()
         position = player.currentPosition.toFloat().coerceIn(0f, duration)
         trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
+        currentQueueIndex = player.currentMediaItemIndex
         delay(500)
     } }
-    Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().background(dynamicBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
             Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
@@ -540,14 +548,60 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
         }
         Spacer(Modifier.height(20.dp))
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(artAccent.copy(alpha = .14f), RoundedCornerShape(18.dp)).animateContentSize(tween(350)), contentAlignment = Alignment.Center) {
-            val currentTrack = tracks.firstOrNull { it.id == trackId }
-            if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
-                onSuccess = { state ->
-                    artAccent = DefaultAmber
+        val currentTrack = tracks.firstOrNull { it.id == trackId }
+        val previousTrack = if (player != null && currentQueueIndex > 0) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex - 1).mediaId.toLongOrNull() } else null
+        val nextTrack = if (player != null && currentQueueIndex >= 0 && currentQueueIndex < player.mediaItemCount - 1) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex + 1).mediaId.toLongOrNull() } else null
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().aspectRatio(1.12f).clipToBounds()
+                .pointerInput(trackId) {
+                    detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> swipeDistance += amount }, onDragEnd = {
+                        if (swipeDistance < -55f) player?.seekToNext()
+                        else if (swipeDistance > 55f) player?.seekToPrevious()
+                        swipeDistance = 0f
+                    }, onDragCancel = { swipeDistance = 0f })
                 },
-                onError = { artAccent = DefaultAmber })
-            else Icon(Icons.Default.Album, null, tint = DefaultAmber, modifier = Modifier.size(104.dp))
+            contentAlignment = Alignment.Center
+        ) {
+            val sideWidth = maxWidth * .31f
+            val centerWidth = maxWidth * .56f
+            Row(
+                Modifier.width(maxWidth * 1.18f).fillMaxHeight().offset(x = -maxWidth * .09f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(maxWidth * .02f)
+            ) {
+                Box(Modifier.width(sideWidth).fillMaxHeight(.72f).background(artAccent.copy(alpha = .10f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    if (previousTrack != null) AsyncImage(model = previousTrack.artUri(), contentDescription = "Previous: ${previousTrack.title}", modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)), alpha = .42f)
+                    else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .18f))
+                }
+                AnimatedContent(
+                    targetState = trackId,
+                    transitionSpec = {
+                        if (targetState != initialState) slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                        else slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                    },
+                    label = "track-artwork-slide"
+                ) { _ ->
+                    Box(Modifier.width(centerWidth).fillMaxHeight(.96f).background(artAccent.copy(alpha = .16f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                        if (currentTrack != null) AsyncImage(
+                            model = currentTrack.artUri(), contentDescription = currentTrack.album,
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
+                            onSuccess = { state ->
+                                val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
+                                if (bitmap != null) Palette.from(bitmap).generate { palette ->
+                                    val accent = palette?.vibrantSwatch?.rgb ?: palette?.lightVibrantSwatch?.rgb ?: palette?.mutedSwatch?.rgb
+                                    val background = palette?.darkMutedSwatch?.rgb ?: palette?.darkVibrantSwatch?.rgb
+                                    if (accent != null) artAccent = Color(accent)
+                                    if (background != null) dynamicBackground = Color(background)
+                                }
+                            }
+                        ) else Icon(Icons.Default.Album, null, tint = artAccent, modifier = Modifier.size(104.dp))
+                    }
+                }
+                Box(Modifier.width(sideWidth).fillMaxHeight(.72f).background(artAccent.copy(alpha = .10f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    if (nextTrack != null) AsyncImage(model = nextTrack.artUri(), contentDescription = "Next: ${nextTrack.title}", modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)), alpha = .42f)
+                    else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .18f))
+                }
+            }
         }
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
