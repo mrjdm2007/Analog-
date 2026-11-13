@@ -37,6 +37,8 @@ fun SettingsPage(
     outputRoute: String,
     headphoneDetectionEnabled: Boolean,
     onHeadphoneDetectionChanged: (Boolean) -> Unit,
+    replayGainEnabled: Boolean,
+    onReplayGainChanged: (Boolean) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
@@ -95,6 +97,14 @@ fun SettingsPage(
             }
             item {
                 Spacer(Modifier.height(12.dp))
+                Text("AUDIO ENGINE", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp, modifier = Modifier.padding(top = 12.dp))
+                Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("ReplayGain normalization", color = SettingsCream, fontSize = 12.sp)
+                        Text("Reads ReplayGain track / album gain tags when available.", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
+                    }
+                    Switch(checked = replayGainEnabled, onCheckedChange = onReplayGainChanged)
+                }
                 Text("LISTENING TOOLS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(Modifier.padding(12.dp)) {
