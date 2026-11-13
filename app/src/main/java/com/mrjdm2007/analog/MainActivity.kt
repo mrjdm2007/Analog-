@@ -50,7 +50,7 @@ import kotlinx.coroutines.delay
 private val Ink = Color(0xFF10110F)
 private val Panel = Color(0xFF1A1C18)
 private val Cream = Color(0xFFE8E1CF)
-private val Amber = Color(0xFFFFB45B)
+private var Amber by mutableStateOf(Color(0xFFFFB45B))
 private val Green = Color(0xFFB5D69B)
 
 data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)
@@ -363,7 +363,7 @@ class MainActivity : ComponentActivity() {
             if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
                     val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) artAccent = Color(Palette.from(bitmap).generate().getVibrantColor(0xFFFFB45B.toInt()))
+                    if (bitmap != null) { val extracted = Color(Palette.from(bitmap).generate().getVibrantColor(0xFFFFB45B.toInt())); artAccent = extracted; Amber = extracted }
                 })
             else Icon(Icons.Default.Album, null, tint = artAccent, modifier = Modifier.size(104.dp))
         }
