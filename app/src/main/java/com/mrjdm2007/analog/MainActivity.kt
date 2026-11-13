@@ -9,11 +9,16 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -76,6 +81,14 @@ class MainActivity : ComponentActivity() {
             var effects by remember { mutableStateOf(false) }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            BackHandler(enabled = visualizer || effects || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+                when {
+                    visualizer -> visualizer = false
+                    effects -> effects = false
+                    nowPlaying -> nowPlaying = false
+                    tab == "Playlists" && activePlaylist != null -> activePlaylist = null
+                }
+            }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
@@ -90,13 +103,22 @@ class MainActivity : ComponentActivity() {
                             "Playlists" -> activePlaylist?.let { name -> tracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
                             else -> tracks
                         }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) }
-                        Column(Modifier.fillMaxSize().background(Ink)) {
+                        val swipeTabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
+                        Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(280)).pointerInput(tab) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> drag += amount }, onDragEnd = {
+                                val current = swipeTabs.indexOf(tab).coerceAtLeast(0)
+                                if (drag < -70f && current < swipeTabs.lastIndex) { tab = swipeTabs[current + 1]; activePlaylist = null }
+                                else if (drag > 70f && current > 0) { tab = swipeTabs[current - 1]; activePlaylist = null }
+                                drag = 0f
+                            }, onDragCancel = { drag = 0f })
+                        }) {
                             TopHeader(onVisualizer = {
                                 visualizer = true
                                 if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO)
                             }, onEffects = { effects = true })
                             SearchBox(search) { search = it }
-                            val tabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
+                            val tabs = swipeTabs
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
                             }
@@ -251,7 +273,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().animateContentSize(tween(220)).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber) }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) { Text(group.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = Cream.copy(alpha = .5f), fontSize = 11.sp) }
@@ -259,7 +281,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().animateContentSize(tween(180)).clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(number.toString().padStart(2, '0'), color = Amber.copy(alpha = .7f), fontSize = 11.sp, modifier = Modifier.width(32.dp))
         Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .48f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
@@ -313,8 +335,8 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
         }
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Panel, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+        Spacer(Modifier.height(20.dp))
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Panel, RoundedCornerShape(18.dp)).animateContentSize(tween(350)), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.Album, null, tint = Amber, modifier = Modifier.size(104.dp))
                 Text("A N A L O G", color = Green, fontSize = 10.sp, letterSpacing = 3.sp)
@@ -327,7 +349,8 @@ class MainActivity : ComponentActivity() {
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = Amber, activeTrackColor = Amber))
         Row { Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
-        Row(Modifier.fillMaxWidth().padding(vertical = 22.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.weight(.45f))
+        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = Green) }
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Amber)) {
@@ -336,7 +359,7 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = Green) }
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.weight(.55f))
     }
     if (showQueue) {
         AlertDialog(
