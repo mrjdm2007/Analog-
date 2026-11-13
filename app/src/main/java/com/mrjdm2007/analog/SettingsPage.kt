@@ -104,7 +104,7 @@ fun SettingsPage(
                 Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("ReplayGain normalization", color = SettingsCream, fontSize = 12.sp)
-                        Text("Reads ReplayGain track / album gain tags when available.", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
+                        Text("Reads ID3 ReplayGain track / album gain tags when available.", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
                     }
                     Switch(checked = replayGainEnabled, onCheckedChange = onReplayGainChanged)
                 }
