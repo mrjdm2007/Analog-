@@ -347,6 +347,7 @@ private fun NowPlayingInfo(
 ) {
     val id = player?.currentMediaItem?.mediaId?.toLongOrNull()
     val track = tracks.firstOrNull { it.id == id }
+    var artworkFailed by remember(track?.albumId) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().clickable(onClick = onOpen).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(if (playing) "PLAYING" else "PAUSED", color = IpodGreen, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
@@ -357,10 +358,11 @@ private fun NowPlayingInfo(
         Spacer(Modifier.height(5.dp))
         Text(previousTitle?.let { "‹  $it" } ?: "‹  —", color = IpodMuted.copy(alpha = .42f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp).background(Color(0xFFCAD4CB), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-            if (track != null && track.albumId > 0L) AsyncImage(
+            if (track != null && track.albumId > 0L && !artworkFailed) AsyncImage(
                 model = track.artUri(), contentDescription = track.album,
                 modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(3.dp)),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                onError = { artworkFailed = true }
             ) else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
         }
         Text(title, color = IpodInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
