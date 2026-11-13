@@ -120,14 +120,20 @@ class MainActivity : ComponentActivity() {
                 contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
                 onDispose { contentResolver.unregisterContentObserver(observer) }
             }
-            DisposableEffect(Unit) {
+            DisposableEffect(headphoneDetectionEnabled) {
                 val manager = getSystemService(AudioManager::class.java)
-                val callback = object : AudioDeviceCallback() {
-                    override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
-                    override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
+                if (headphoneDetectionEnabled) {
+                    outputRoute = currentAudioRoute()
+                    val callback = object : AudioDeviceCallback() {
+                        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
+                        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { outputRoute = currentAudioRoute() }
+                    }
+                    manager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+                    onDispose { manager.unregisterAudioDeviceCallback(callback) }
+                } else {
+                    outputRoute = "Automatic detection disabled"
+                    onDispose { }
                 }
-                manager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
-                onDispose { manager.unregisterAudioDeviceCallback(callback) }
             }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
             BackHandler(enabled = settings || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
