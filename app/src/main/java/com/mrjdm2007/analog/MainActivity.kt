@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
                         onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
+                        onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
