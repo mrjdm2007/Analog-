@@ -20,6 +20,11 @@ import androidx.compose.foundation.background
 import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
+import kotlin.math.atan2
+import kotlin.math.PI
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -481,6 +486,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     val currentTrack = tracks.firstOrNull { it.id == trackId }
+    val wheelView = LocalView.current
     Column(Modifier.fillMaxSize().background(Color(0xFF090A09)).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
@@ -514,7 +520,41 @@ class MainActivity : ComponentActivity() {
                 Row(Modifier.fillMaxWidth()) { Text(timeText(position.toLong()), color = Color(0xFF344A38), fontSize = 9.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Color(0xFF344A38), fontSize = 9.sp) }
             }
         }
-        Box(Modifier.padding(bottom = 22.dp).size(232.dp).background(Color(0xFFE2E4E0), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+        var lastWheelAngle by remember { mutableFloatStateOf(Float.NaN) }
+        var wheelAngleAccumulator by remember { mutableFloatStateOf(0f) }
+        Box(Modifier.padding(bottom = 22.dp).size(232.dp)
+            .background(Color(0xFFE2E4E0), androidx.compose.foundation.shape.CircleShape)
+            .pointerInput(player) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        lastWheelAngle = atan2(offset.y - size.height / 2f, offset.x - size.width / 2f)
+                        wheelAngleAccumulator = 0f
+                    },
+                    onDrag = { change, _ ->
+                        val angle = atan2(change.position.y - size.height / 2f, change.position.x - size.width / 2f)
+                        if (!lastWheelAngle.isNaN()) {
+                            var delta = angle - lastWheelAngle
+                            while (delta > PI.toFloat()) delta -= 2f * PI.toFloat()
+                            while (delta < -PI.toFloat()) delta += 2f * PI.toFloat()
+                            wheelAngleAccumulator += delta
+                            val tickAngle = 15f * PI.toFloat() / 180f
+                            if (kotlin.math.abs(wheelAngleAccumulator) >= tickAngle) {
+                                val direction = if (wheelAngleAccumulator > 0f) 1 else -1
+                                val ticks = (kotlin.math.abs(wheelAngleAccumulator) / tickAngle).toInt().coerceAtMost(4)
+                                repeat(ticks) {
+                                    player?.let { p -> p.seekTo((p.currentPosition + direction * 2000L).coerceIn(0L, p.duration.coerceAtLeast(0L))) }
+                                    wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                                wheelAngleAccumulator -= direction * ticks * tickAngle
+                            }
+                        }
+                        lastWheelAngle = angle
+                        change.consume()
+                    },
+                    onDragEnd = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f },
+                    onDragCancel = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f }
+                )
+            }.background(Color.Transparent), contentAlignment = Alignment.Center) {
             Box(Modifier.size(180.dp).background(Color(0xFFD1D4D0), androidx.compose.foundation.shape.CircleShape))
             Text("MENU", color = Color(0xFF303530), fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopCenter).padding(top = 26.dp).clickable { onBack() })
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
