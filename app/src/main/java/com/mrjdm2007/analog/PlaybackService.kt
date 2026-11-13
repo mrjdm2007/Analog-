@@ -8,6 +8,9 @@ import android.widget.RemoteViews
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.media.audiofx.LoudnessEnhancer
+import android.net.Uri
+import java.util.concurrent.Executors
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -28,6 +31,8 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimer: Runnable? = null
+    private val replayGainExecutor = Executors.newSingleThreadExecutor()
+    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -63,9 +68,18 @@ class PlaybackService : MediaSessionService() {
             }
         }
         player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) { updateWidget() }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                updateWidget()
+                applyReplayGain()
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) { updateWidget() }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId > 0) {
+                    runCatching { loudnessEnhancer?.release(); loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true } }
+                    applyReplayGain()
+                }
+            }
         })
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val sessionActivity = launchIntent?.let { PendingIntent.getActivity(this, 90, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
@@ -92,6 +106,28 @@ class PlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
+    private fun applyReplayGain() {
+        val player = mediaSession?.player ?: return
+        val uri: Uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        val uriKey = uri.toString()
+        if (!getSharedPreferences("analog_library", MODE_PRIVATE).getBoolean("replay_gain_enabled", true)) {
+            runCatching { loudnessEnhancer?.setTargetGain(0) }
+            return
+        }
+        replayGainExecutor.execute {
+            val gain = ReplayGainReader.trackGainMilliBel(contentResolver, uri) ?: 0
+            timerHandler.post {
+                val currentUri = mediaSession?.player?.currentMediaItem?.localConfiguration?.uri?.toString()
+                if (currentUri == uriKey) runCatching {
+                    if (loudnessEnhancer == null && player.audioSessionId > 0) {
+                        loudnessEnhancer = LoudnessEnhancer(player.audioSessionId).apply { enabled = true }
+                    }
+                    loudnessEnhancer?.setTargetGain(gain)
+                }
+            }
+        }
+    }
+
     private fun updateWidget() {
         val player = mediaSession?.player
         val title = player?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a track"
@@ -104,6 +140,9 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepTimer = null
+        replayGainExecutor.shutdownNow()
+        runCatching { loudnessEnhancer?.release() }
+        loudnessEnhancer = null
         mediaSession?.run {
             player.release()
             release()
