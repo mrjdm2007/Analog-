@@ -638,12 +638,12 @@ class MainActivity : ComponentActivity() {
                 )
             }.background(Color.Transparent), contentAlignment = Alignment.Center) {
             Box(Modifier.size(180.dp).background(Color(0xFFD1D4D0), androidx.compose.foundation.shape.CircleShape))
-            Text("MENU", color = Color(0xFF303530), fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopCenter).padding(top = 26.dp).clickable { onBack() })
-            IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
-            IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)) { Icon(Icons.Default.SkipNext, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
-            IconButton(onClick = { player?.seekTo((player?.currentPosition ?: 0L) - 10000L) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
-            IconButton(onClick = { player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
-            FilledIconButton(onClick = { if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFBEC3BC))) {
+            Text("MENU", color = Color(0xFF303530), fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopCenter).padding(top = 26.dp).clickable { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onBack() })
+            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
+            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)) { Icon(Icons.Default.SkipNext, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
+            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo(((player?.currentPosition ?: 0L) - 10000L).coerceAtLeast(0L)) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
+            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
+            FilledIconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFBEC3BC))) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color(0xFF303530), modifier = Modifier.size(32.dp))
             }
         }
