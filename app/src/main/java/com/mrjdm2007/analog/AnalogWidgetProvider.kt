@@ -17,7 +17,7 @@ class AnalogWidgetProvider : AppWidgetProvider() {
         fun update(context: Context, title: String, artist: String, isPlaying: Boolean) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, AnalogWidgetProvider::class.java)
-            manager.getAppWidgetIds(component).forEach { updateOne(context, manager, it, title, artist) }
+            manager.getAppWidgetIds(component).forEach { updateOne(context, manager, it, title, artist, isPlaying) }
         }
 
         private fun updateOne(context: Context, manager: AppWidgetManager, id: Int, title: String, artist: String, isPlaying: Boolean) {
