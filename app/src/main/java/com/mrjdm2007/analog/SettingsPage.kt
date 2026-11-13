@@ -31,9 +31,11 @@ fun SettingsPage(
     onFoldersChanged: (Set<String>) -> Unit,
     playerStyle: String,
     onPlayerStyleChanged: (String) -> Unit,
-    playPause: String,
-    next: String,
-    previous: String,
+    singlePress: String,
+    doublePress: String,
+    triplePress: String,
+    visibleSections: Set<String>,
+    onVisibleSectionsChanged: (Set<String>) -> Unit,
     outputRoute: String,
     headphoneDetectionEnabled: Boolean,
     onHeadphoneDetectionChanged: (Boolean) -> Unit,
@@ -67,7 +69,17 @@ fun SettingsPage(
             }
             item {
                 Text("MUSIC LIBRARY", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
-                Text("Choose which folders appear in the library. If none are selected, all folders are included.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
+                Text("Choose which folders and library sections appear. Your selection is saved.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
+                Text("VISIBLE LIBRARY SECTIONS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.4.sp, modifier = Modifier.padding(top = 10.dp))
+                listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists").forEach { section ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(section, color = SettingsCream, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                        Checkbox(checked = section in visibleSections, onCheckedChange = { checked ->
+                            val updated = if (checked) visibleSections + section else visibleSections - section
+                            onVisibleSectionsChanged(updated.ifEmpty { setOf("Songs") })
+                        }, colors = CheckboxDefaults.colors(checkedColor = SettingsAmber))
+                    }
+                }
                 TextButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) { Text("SCAN FOR NEW SONGS", color = SettingsAmber) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { onFoldersChanged(emptySet()) }) { Text("ALL FOLDERS", color = SettingsAmber) }
@@ -94,10 +106,10 @@ fun SettingsPage(
                     }
                     Switch(checked = headphoneDetectionEnabled, onCheckedChange = onHeadphoneDetectionChanged)
                 }
-                Text("Choose the action assigned to media-button presses. Support can vary by headset and Android.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
-                ActionDropdown("Play / pause button", playPause, listOf("Play/Pause", "Next track", "Previous track", "No action")) { onHeadsetSetting("headset_play_pause", it) }
-                ActionDropdown("Next button", next, listOf("Next track", "Play/Pause", "Previous track", "No action")) { onHeadsetSetting("headset_next", it) }
-                ActionDropdown("Previous button", previous, listOf("Previous track", "Play/Pause", "Next track", "No action")) { onHeadsetSetting("headset_previous", it) }
+                Text("For a single-button earphone, assign an action to each press pattern. Some Bluetooth headsets send their own media commands, so exact triple-press support depends on the headset firmware.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
+                ActionDropdown("Single press", singlePress, listOf("Play/Pause", "Next track", "Previous track", "No action")) { onHeadsetSetting("headset_single", it) }
+                ActionDropdown("Double press", doublePress, listOf("Next track", "Play/Pause", "Previous track", "No action")) { onHeadsetSetting("headset_double", it) }
+                ActionDropdown("Triple press", triplePress, listOf("Previous track", "Play/Pause", "Next track", "No action")) { onHeadsetSetting("headset_triple", it) }
             }
             item {
                 Spacer(Modifier.height(12.dp))
