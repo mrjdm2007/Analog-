@@ -30,6 +30,10 @@ import coil.compose.AsyncImage
 import androidx.media3.session.MediaController
 import kotlin.math.atan2
 import kotlin.math.PI
+import kotlin.random.Random
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 private val IpodBlack = Color(0xFF080A0C)
@@ -63,6 +67,24 @@ fun IpodLibraryPage(
     var isPlaying by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    var dayKey by remember { mutableStateOf(SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val nextDay = java.util.Calendar.getInstance().apply {
+                timeInMillis = now
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            delay((nextDay - now).coerceAtLeast(1000L))
+            dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+        }
+    }
+    val dailyTracks = remember(tracks, dayKey) { tracks.shuffled(Random(dayKey.hashCode())) }
 
     LaunchedEffect(player) {
         while (player != null) {
@@ -75,34 +97,30 @@ fun IpodLibraryPage(
         }
     }
 
-    val filtered = remember(tracks, query) {
-        tracks.filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true) }
+    val filtered = remember(dailyTracks, query) {
+        dailyTracks.filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) }
     }
     val menuItems = when (page) {
-        "Main Menu" -> listOf("Now Playing", "Music", "Playlists", "Artists", "Albums", "Songs", "Favorites", "Search", "Listening Recap", "Equalizer", "Visualizer", "Settings")
-        "Music" -> listOf("Songs", "Artists", "Albums", "Genres", "Folders", "Favorites", "Search")
+        "Main Menu" -> listOf("Now Playing", "Songs", "Favorites", "Search", "Playlists", "Listening Recap", "Equalizer", "Visualizer", "Settings")
         "Playlists" -> playlists.keys.sorted().ifEmpty { listOf("No playlists yet") }
         else -> emptyList()
     }
     val entries = when (page) {
-        "Songs" -> filtered.map { it.title to "${it.artist}  •  ${it.album}" }
+        "Songs" -> filtered.map { it.title to it.artist }
         "Favorites" -> filtered.filter { it.id in favorites }.map { it.title to it.artist }
-        "Albums" -> filtered.groupBy { it.album }.keys.sorted().map { it to "${filtered.count { t -> t.album == it }} songs" }
-        "Artists" -> filtered.groupBy { it.artist }.keys.sorted().map { it to "${filtered.count { t -> t.artist == it }} songs" }
-        "Folders" -> filtered.groupBy { it.folder }.keys.sorted().map { it to "${filtered.count { t -> t.folder == it }} tracks" }
-        "Search" -> filtered.map { it.title to "${it.artist}  •  ${it.album}" }
+        "Search" -> filtered.map { it.title to it.artist }
         "Playlists" -> emptyList()
         else -> emptyList()
     }
-    val rows = if (page in listOf("Main Menu", "Music", "Playlists")) menuItems else entries.map { it.first }
+    val rows = if (page in listOf("Main Menu", "Playlists")) menuItems else entries.map { it.first }
     val safeSelected = selected.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
     LaunchedEffect(page, rows.size) { selected = 0 }
 
     fun back() {
         page = when (page) {
             "Main Menu" -> "Main Menu"
-            "Music", "Playlists" -> "Main Menu"
-            else -> "Music"
+            "Playlists" -> "Main Menu"
+            else -> "Main Menu"
         }
         selected = 0
     }
@@ -113,14 +131,13 @@ fun IpodLibraryPage(
         when (page) {
             "Main Menu" -> when (item) {
                 "Now Playing" -> onPlayer()
-                "Music", "Playlists" -> { page = item; selected = 0 }
+                "Playlists" -> { page = item; selected = 0 }
                 "Listening Recap" -> onRecap()
                 "Equalizer" -> onSettings()
                 "Visualizer" -> onVisualizer()
                 "Settings" -> onSettings()
                 else -> { page = item; selected = 0 }
             }
-            "Music" -> { page = item; selected = 0 }
             "Playlists" -> if (item != "No playlists yet") {
                 val ids = playlists[item].orEmpty()
                 val list = tracks.filter { it.id in ids }
@@ -130,13 +147,10 @@ fun IpodLibraryPage(
                 val target = when (page) {
                     "Songs", "Search" -> filtered
                     "Favorites" -> filtered.filter { it.id in favorites }
-                    "Albums" -> filtered.filter { it.album == item }
-                    "Artists" -> filtered.filter { it.artist == item }
-                    "Folders" -> filtered.filter { it.folder == item }
                     else -> filtered
                 }
-                val track = target.getOrNull(index) ?: return
-                onPlay(target, if (page in listOf("Albums", "Artists", "Folders")) 0 else index)
+                target.getOrNull(index) ?: return
+                onPlay(target, index)
             }
         }
     }
@@ -176,7 +190,10 @@ fun IpodLibraryPage(
                         Text("${tracks.size} TRACKS", color = Color.White.copy(alpha = .82f), fontSize = 8.sp)
                     }
                     if (page == "Now Playing") {
-                        NowPlayingInfo(player, tracks, currentTitle, currentArtist, isPlaying, position, duration, onPlayer)
+                        val queueIndex = player?.currentMediaItemIndex ?: -1
+                        val previousTitle = if (player != null && queueIndex > 0) tracks.firstOrNull { it.id == player.getMediaItemAt(queueIndex - 1).mediaId.toLongOrNull() }?.title else null
+                        val nextTitle = if (player != null && queueIndex >= 0 && queueIndex < player.mediaItemCount - 1) tracks.firstOrNull { it.id == player.getMediaItemAt(queueIndex + 1).mediaId.toLongOrNull() }?.title else null
+                        NowPlayingInfo(player, tracks, currentTitle, currentArtist, previousTitle, nextTitle, isPlaying, position, duration, onPlayer)
                     } else if (page == "Search") {
                         Row(Modifier.fillMaxWidth().padding(8.dp).background(Color.White, RoundedCornerShape(4.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Search, null, tint = IpodMuted, modifier = Modifier.size(16.dp))
@@ -186,7 +203,7 @@ fun IpodLibraryPage(
                                 singleLine = true, decorationBox = { inner -> if (query.isEmpty()) Text("Search your music", color = IpodMuted, fontSize = 13.sp); inner() })
                         }
                         IpodRows(rows, entries, safeSelected, onActivate = ::activate, modifier = Modifier.weight(1f))
-                    } else if (page == "Main Menu" || page == "Music" || page == "Playlists") {
+                    } else if (page == "Main Menu" || page == "Playlists") {
                         Column(Modifier.weight(1f)) {
                             if (page == "Main Menu") {
                                 Row(Modifier.fillMaxWidth().padding(9.dp).background(Color(0xFFCBD6CC), RoundedCornerShape(5.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -237,7 +254,7 @@ fun IpodLibraryPage(
             Box(
                 Modifier.padding(top = 5.dp, bottom = 3.dp).size(wheelSize)
                     .background(Color(0xFF191C1F), CircleShape).border(2.dp, Color(0xFF555B60), CircleShape)
-                    .pointerInput(rows, safeSelected) {
+                    .pointerInput(rows.size) {
                         detectDragGestures(
                             onDragStart = { p -> wheelAngle = atan2(p.y - size.height / 2f, p.x - size.width / 2f); wheelDelta = 0f },
                             onDrag = { change, _ ->
@@ -247,12 +264,14 @@ fun IpodLibraryPage(
                                     while (d > PI.toFloat()) d -= 2f * PI.toFloat()
                                     while (d < -PI.toFloat()) d += 2f * PI.toFloat()
                                     wheelDelta += d
-                                    val tick = (17f * PI.toFloat() / 180f)
+                                    val tick = (8f * PI.toFloat() / 180f)
                                     if (kotlin.math.abs(wheelDelta) >= tick) {
-                                        val steps = (kotlin.math.abs(wheelDelta) / tick).toInt().coerceAtMost(6)
-                                        selected = (selected + if (wheelDelta > 0) steps else -steps).coerceIn(0, rows.lastIndex)
-                                        wheelDelta = 0f
-                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        val steps = (kotlin.math.abs(wheelDelta) / tick).toInt()
+                                        val direction = if (wheelDelta > 0f) 1 else -1
+                                        val oldSelected = selected
+                                        selected = (selected + direction * steps).coerceIn(0, rows.lastIndex)
+                                        wheelDelta -= direction * steps * tick
+                                        if (selected != oldSelected) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                     }
                                 }
                                 wheelAngle = a
@@ -312,6 +331,8 @@ private fun NowPlayingInfo(
     tracks: List<Track>,
     title: String,
     artist: String,
+    previousTitle: String?,
+    nextTitle: String?,
     playing: Boolean,
     position: Long,
     duration: Long,
@@ -332,8 +353,10 @@ private fun NowPlayingInfo(
             else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
         }
         Spacer(Modifier.height(8.dp))
+        Text(previousTitle?.let { "‹  $it" } ?: "• • •", color = IpodMuted.copy(alpha = .48f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(title, color = IpodInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(artist, color = IpodMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(nextTitle?.let { "$it  ›" } ?: "• • •", color = IpodMuted.copy(alpha = .48f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(7.dp))
         LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(4.dp), color = IpodGreen, trackColor = Color(0xFFB9C5BB))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
