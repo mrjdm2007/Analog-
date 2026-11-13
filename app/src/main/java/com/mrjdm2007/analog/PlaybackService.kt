@@ -29,6 +29,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_WIDGET_PLAY_PAUSE = "com.mrjdm2007.analog.WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_NEXT = "com.mrjdm2007.analog.WIDGET_NEXT"
         const val ACTION_WIDGET_PREVIOUS = "com.mrjdm2007.analog.WIDGET_PREVIOUS"
+        const val ACTION_TILE_PLAY = "com.mrjdm2007.analog.TILE_PLAY"
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
         const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
         const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
@@ -213,6 +214,7 @@ class PlaybackService : MediaSessionService() {
                     activePlayer.addListener(listener)
                 }
             }
+            ACTION_TILE_PLAY -> startLastPlayedFromTile()
             ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { if (it.isPlaying) it.pause() else it.play() }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
@@ -227,6 +229,63 @@ class PlaybackService : MediaSessionService() {
         }
         updateWidget()
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun startLastPlayedFromTile() {
+        val player = mediaSession?.player ?: return
+        if (player.mediaItemCount == 0) {
+            val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+            val columns = arrayOf(
+                MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID
+            )
+            val items = mutableListOf<Pair<Long, androidx.media3.common.MediaItem>>()
+            runCatching {
+                contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns,
+                    "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
+                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                    val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                    val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val albumId = cursor.getLong(albumIdCol)
+                        val artwork = if (albumId > 0L) Uri.withAppendedPath(
+                            Uri.parse("content://media/external/audio/albumart"), albumId.toString()
+                        ) else null
+                        val metadata = androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(cursor.getString(titleCol) ?: "Unknown title")
+                            .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
+                            .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
+                            .setArtworkUri(artwork)
+                            .build()
+                        val media = androidx.media3.common.MediaItem.Builder()
+                            .setMediaId(id.toString())
+                            .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
+                            .setMediaMetadata(metadata)
+                            .build()
+                        items += id to media
+                    }
+                }
+            }
+            if (items.isEmpty()) return
+            val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
+                ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
+            val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
+            player.setMediaItems(items.map { it.second }, startIndex, 0L)
+            player.prepare()
+        } else if (player.playbackState == Player.STATE_ENDED) {
+            player.seekTo(0L)
+        } else if (player.playbackState == Player.STATE_IDLE) {
+            player.prepare()
+        }
+        player.play()
+        updateWidget()
     }
 
     private fun runCrossfadeTick() {
