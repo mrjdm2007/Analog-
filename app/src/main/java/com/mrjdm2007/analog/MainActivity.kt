@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
-                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
+                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, onBack = { effects = false })
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), onBack = { recap = false })
                     settings -> SettingsPage(
