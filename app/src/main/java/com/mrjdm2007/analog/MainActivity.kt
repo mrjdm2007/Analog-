@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity() {
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
+            var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
             var settings by remember { mutableStateOf(false) }
             var playerStyle by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("player_style", "Analog Classic") ?: "Analog Classic") }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
@@ -152,6 +153,7 @@ class MainActivity : ComponentActivity() {
                         playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious, outputRoute = if (headphoneDetectionEnabled) outputRoute else "Automatic detection disabled",
                         headphoneDetectionEnabled = headphoneDetectionEnabled, onHeadphoneDetectionChanged = { enabled -> headphoneDetectionEnabled = enabled; prefs().edit().putBoolean("headphone_detection_enabled", enabled).apply(); outputRoute = currentAudioRoute() },
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
+                        crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
                         onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
