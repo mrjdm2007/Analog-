@@ -44,7 +44,34 @@ class PlaybackService : MediaSessionService() {
     private var crossfadeTargetIndex = -1
     private var crossfadeInProgress = false
     private var crossfadeForIndex = -1
+    private val listeningTick = object : Runnable {
+        override fun run() {
+            val player = mediaSession?.player
+            if (player?.isPlaying == true) {
+                val trackId = player.currentMediaItem?.mediaId?.toLongOrNull()
+                if (trackId != null) {
+                    val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
+                    val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    prefs.edit()
+                        .putLong("listened_ms:$monthKey:$trackId", prefs.getLong("listened_ms:$monthKey:$trackId", 0L) + 1000L)
+                        .apply()
+                }
+                timerHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
     private val crossfadeTick = object : Runnable { override fun run() { runCrossfadeTick() } }
+
+    private fun recordTrackStart(mediaItem: androidx.media3.common.MediaItem?) {
+        val trackId = mediaItem?.mediaId?.toLongOrNull() ?: return
+        val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        prefs.edit()
+            .putInt("plays:$trackId", prefs.getInt("plays:$trackId", 0) + 1)
+            .putInt("month:$monthKey:$trackId", prefs.getInt("month:$monthKey:$trackId", 0) + 1)
+            .putLong("last_played:$trackId", System.currentTimeMillis())
+            .apply()
+    }
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -89,15 +116,19 @@ class PlaybackService : MediaSessionService() {
                     cancelCrossfade()
                     mediaSession?.player?.volume = 1f
                 }
+                recordTrackStart(mediaItem)
                 updateWidget()
                 applyReplayGain()
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateWidget()
                 if (isPlaying) {
+                    timerHandler.removeCallbacks(listeningTick)
+                    timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
                     timerHandler.post(crossfadeTick)
                 } else {
+                    timerHandler.removeCallbacks(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
                     cancelCrossfade()
                 }
@@ -265,6 +296,7 @@ class PlaybackService : MediaSessionService() {
         sleepEndListener = null
         replayGainExecutor.shutdownNow()
         timerHandler.removeCallbacks(crossfadeTick)
+        timerHandler.removeCallbacks(listeningTick)
         cancelCrossfade()
         runCatching { crossfadePlayer?.release() }
         crossfadePlayer = null
