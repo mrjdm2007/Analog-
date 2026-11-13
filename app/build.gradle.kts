@@ -38,6 +38,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
-    implementation("androidx.media3:media3-common:1.5.1")\n    implementation("io.coil-kt:coil-compose:2.7.0")\n    implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.media3:media3-common:1.5.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.palette:palette-ktx:1.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
