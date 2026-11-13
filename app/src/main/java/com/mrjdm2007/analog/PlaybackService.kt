@@ -253,7 +253,7 @@ class PlaybackService : MediaSessionService() {
         val player = mediaSession?.player
         val title = player?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a track"
         val artist = player?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() } ?: "ANALOG • OFFLINE"
-        AnalogWidgetProvider.update(this, title, artist, player?.isPlaying == true)
+        AnalogWidgetProvider.update(this, title, artist, player?.isPlaying == true, player?.mediaMetadata?.artworkUri)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
