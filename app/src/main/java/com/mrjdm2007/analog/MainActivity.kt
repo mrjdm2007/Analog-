@@ -24,6 +24,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -584,7 +585,9 @@ class MainActivity : ComponentActivity() {
     var duration by remember { mutableFloatStateOf(1f) }
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
-    var artColor by remember { mutableStateOf(DefaultAmber) }
+    val wheelView = LocalView.current
+    var lastWheelAngle by remember { mutableFloatStateOf(Float.NaN) }
+    var wheelAngleAccumulator by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(player) {
         while (player != null) {
             title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
@@ -597,86 +600,103 @@ class MainActivity : ComponentActivity() {
         }
     }
     val currentTrack = tracks.firstOrNull { it.id == trackId }
-    val wheelView = LocalView.current
-    Column(Modifier.fillMaxSize().background(Color(0xFF090A09)).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
-            Text("iPod-inspired mode", color = Cream, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
-        }
-        Card(Modifier.fillMaxWidth().weight(1f).padding(top = 10.dp, bottom = 14.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFC9D0C5)), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(Modifier.fillMaxWidth().background(Color(0xFF5C7C63), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("ANALOG", color = Color(0xFFF1F4E9), fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.5.sp)
-                    Spacer(Modifier.weight(1f)); Icon(Icons.Default.BatteryFull, null, tint = Color(0xFFF1F4E9), modifier = Modifier.size(16.dp))
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("NOW PLAYING", color = Color(0xFF344A38), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text(title, color = Color(0xFF17251B), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 3)
-                        Text(artist, color = Color(0xFF344A38), fontSize = 11.sp, maxLines = 3)
-                        Spacer(Modifier.height(8.dp))
-                        Text(if (playing) "▶ PLAYING" else "Ⅱ PAUSED", color = Color(0xFF344A38), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Box(Modifier.size(112.dp).background(Color(0xFF9DAA9B), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
-                        if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
-                            onSuccess = { artColor = DefaultAmber }, onError = { artColor = DefaultAmber })
-                        else Icon(Icons.Default.Album, null, tint = artColor, modifier = Modifier.size(48.dp))
-                    }
-                }
-                Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration,
-                    colors = SliderDefaults.colors(thumbColor = Color(0xFF344A38), activeTrackColor = Color(0xFF5C7C63), inactiveTrackColor = Color(0xFF9DAA9B)))
-                Row(Modifier.fillMaxWidth()) { Text(timeText(position.toLong()), color = Color(0xFF344A38), fontSize = 9.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Color(0xFF344A38), fontSize = 9.sp) }
+    val shell = Color(0xFF090A0B)
+    val wheelText = Color(0xFFE6E8EA)
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF030405)).padding(horizontal = 8.dp, vertical = 5.dp)) {
+        val wheelSize = minOf(maxWidth * 0.76f, maxHeight * 0.34f, 270.dp)
+        Column(
+            Modifier.fillMaxSize().background(shell, RoundedCornerShape(30.dp))
+                .border(1.5.dp, Color(0xFF45494D), RoundedCornerShape(30.dp))
+                .padding(horizontal = 15.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.ArrowBack, null, tint = wheelText) }
+                Text("ANALOG", color = Color(0xFFE7E9EB), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.2.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton(onClick = onVisualizer, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.GraphicEq, null, tint = Color(0xFFB8C4C9)) }
             }
-        }
-        var lastWheelAngle by remember { mutableFloatStateOf(Float.NaN) }
-        var wheelAngleAccumulator by remember { mutableFloatStateOf(0f) }
-        Box(Modifier.padding(bottom = 22.dp).size(232.dp)
-            .background(Color(0xFFE2E4E0), androidx.compose.foundation.shape.CircleShape)
-            .pointerInput(player) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        lastWheelAngle = atan2(offset.y - size.height / 2f, offset.x - size.width / 2f)
-                        wheelAngleAccumulator = 0f
-                    },
-                    onDrag = { change, _ ->
-                        val angle = atan2(change.position.y - size.height / 2f, change.position.x - size.width / 2f)
-                        if (!lastWheelAngle.isNaN()) {
-                            var delta = angle - lastWheelAngle
-                            while (delta > PI.toFloat()) delta -= 2f * PI.toFloat()
-                            while (delta < -PI.toFloat()) delta += 2f * PI.toFloat()
-                            wheelAngleAccumulator += delta
-                            val tickAngle = 15f * PI.toFloat() / 180f
-                            if (kotlin.math.abs(wheelAngleAccumulator) >= tickAngle) {
-                                val direction = if (wheelAngleAccumulator > 0f) 1 else -1
-                                val ticks = (kotlin.math.abs(wheelAngleAccumulator) / tickAngle).toInt().coerceAtMost(4)
-                                repeat(ticks) {
-                                    player?.let { p -> p.seekTo((p.currentPosition + direction * 2000L).coerceIn(0L, p.duration.coerceAtLeast(0L))) }
-                                    wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                                wheelAngleAccumulator -= direction * ticks * tickAngle
-                            }
+            Card(
+                Modifier.fillMaxWidth().weight(1f).padding(top = 5.dp, bottom = 12.dp).border(2.dp, Color(0xFF555A5F), RoundedCornerShape(13.dp)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFD6DED8)),
+                shape = RoundedCornerShape(11.dp)
+            ) {
+                Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 9.dp)) {
+                    Row(Modifier.fillMaxWidth().background(Color(0xFF65756B), RoundedCornerShape(3.dp)).padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("NOW PLAYING", color = Color(0xFFF2F4EF), fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.3.sp)
+                        Spacer(Modifier.weight(1f))
+                        Icon(Icons.Default.BatteryFull, null, tint = Color(0xFFF2F4EF), modifier = Modifier.size(16.dp))
+                    }
+                    Row(Modifier.fillMaxWidth().weight(1f).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(end = 9.dp)) {
+                            Text(if (playing) "PLAYING" else "PAUSED", color = Color(0xFF53645A), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(title, color = Color(0xFF17221B), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 3)
+                            Text(artist, color = Color(0xFF435349), fontSize = 11.sp, maxLines = 2)
                         }
-                        lastWheelAngle = angle
-                        change.consume()
-                    },
-                    onDragEnd = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f },
-                    onDragCancel = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f }
-                )
-            }.background(Color.Transparent), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(180.dp).background(Color(0xFFD1D4D0), androidx.compose.foundation.shape.CircleShape))
-            Text("MENU", color = Color(0xFF303530), fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.TopCenter).padding(top = 26.dp).clickable { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onBack() })
-            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = 22.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
-            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)) { Icon(Icons.Default.SkipNext, null, tint = Color(0xFF303530), modifier = Modifier.size(30.dp)) }
-            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo(((player?.currentPosition ?: 0L) - 10000L).coerceAtLeast(0L)) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
-            IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 56.dp)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = Color(0xFF303530), modifier = Modifier.size(28.dp)) }
-            FilledIconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFBEC3BC))) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color(0xFF303530), modifier = Modifier.size(32.dp))
+                        val artSize = minOf(108.dp, maxWidth * 0.29f)
+                        Box(Modifier.size(artSize).border(1.dp, Color(0xFF8E9A91), RoundedCornerShape(3.dp)).background(Color(0xFFBEC9C0), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
+                            if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize())
+                            else Icon(Icons.Default.Album, null, tint = Color(0xFF526258), modifier = Modifier.size(42.dp))
+                        }
+                    }
+                    Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFF35463B), activeTrackColor = Color(0xFF64796A), inactiveTrackColor = Color(0xFFAAB5AC)))
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(timeText(position.toLong()), color = Color(0xFF45564B), fontSize = 9.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text(timeText(duration.toLong()), color = Color(0xFF45564B), fontSize = 9.sp)
+                    }
+                }
             }
+            Box(
+                Modifier.padding(bottom = 7.dp).size(wheelSize).background(Color(0xFF181A1C), androidx.compose.foundation.shape.CircleShape)
+                    .border(2.dp, Color(0xFF55595D), androidx.compose.foundation.shape.CircleShape)
+                    .pointerInput(player) {
+                        detectDragGestures(
+                            onDragStart = { offset -> lastWheelAngle = atan2(offset.y - size.height / 2f, offset.x - size.width / 2f); wheelAngleAccumulator = 0f },
+                            onDrag = { change, _ ->
+                                val angle = atan2(change.position.y - size.height / 2f, change.position.x - size.width / 2f)
+                                if (!lastWheelAngle.isNaN()) {
+                                    var delta = angle - lastWheelAngle
+                                    while (delta > PI.toFloat()) delta -= 2f * PI.toFloat()
+                                    while (delta < -PI.toFloat()) delta += 2f * PI.toFloat()
+                                    wheelAngleAccumulator += delta
+                                    val tick = 15f * PI.toFloat() / 180f
+                                    if (kotlin.math.abs(wheelAngleAccumulator) >= tick) {
+                                        val direction = if (wheelAngleAccumulator > 0f) 1 else -1
+                                        val count = (kotlin.math.abs(wheelAngleAccumulator) / tick).toInt().coerceAtMost(4)
+                                        repeat(count) {
+                                            player?.let { p -> p.seekTo((p.currentPosition + direction * 2000L).coerceIn(0L, p.duration.coerceAtLeast(0L))) }
+                                            wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        }
+                                        wheelAngleAccumulator -= direction * count * tick
+                                    }
+                                }
+                                lastWheelAngle = angle
+                                change.consume()
+                            },
+                            onDragEnd = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f },
+                            onDragCancel = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(wheelSize * 0.39f).background(Color(0xFF303438), androidx.compose.foundation.shape.CircleShape).border(1.dp, Color(0xFF666B70), androidx.compose.foundation.shape.CircleShape))
+                Text("MENU", color = wheelText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = wheelSize * 0.105f).clickable { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onBack() })
+                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = wheelSize * 0.075f).size(wheelSize * 0.22f)) { Icon(Icons.Default.SkipPrevious, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.16f)) }
+                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = wheelSize * 0.075f).size(wheelSize * 0.22f)) { Icon(Icons.Default.SkipNext, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.16f)) }
+                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo(((player?.currentPosition ?: 0L) - 10000L).coerceAtLeast(0L)) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = wheelSize * 0.19f).size(wheelSize * 0.18f)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.15f)) }
+                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = wheelSize * 0.19f).size(wheelSize * 0.18f)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.15f)) }
+                FilledIconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(wheelSize * 0.29f), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF454A4F))) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color(0xFFF1F2F3), modifier = Modifier.size(wheelSize * 0.14f))
+                }
+            }
+            currentTrack?.let { track ->
+                TextButton(onClick = { onFavorite(track.id) }, modifier = Modifier.height(35.dp)) {
+                    Icon(if (track.id in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (track.id in favorites) Color(0xFFE07A80) else Color(0xFFBFC4C8))
+                    Text(if (track.id in favorites) "FAVORITED" else "FAVORITE", color = Color(0xFFD9DDE0), fontSize = 10.sp, letterSpacing = 1.sp)
+                }
+            } ?: Spacer(Modifier.height(35.dp))
         }
-        currentTrack?.let { track -> TextButton(onClick = { onFavorite(track.id) }) { Icon(if (track.id in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = artColor); Text(if (track.id in favorites) "FAVORITED" else "FAVORITE", color = artColor) } }
     }
 }
-
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
