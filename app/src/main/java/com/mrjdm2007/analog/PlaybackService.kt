@@ -83,6 +83,10 @@ class PlaybackService : MediaSessionService() {
         }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                if (crossfadeInProgress && mediaSession?.player?.currentMediaItemIndex != crossfadeTargetIndex) {
+                    cancelCrossfade()
+                    mediaSession?.player?.volume = 1f
+                }
                 updateWidget()
                 applyReplayGain()
             }
@@ -216,7 +220,7 @@ class PlaybackService : MediaSessionService() {
         val player = mediaSession?.player
         val title = player?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a track"
         val artist = player?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() } ?: "ANALOG • OFFLINE"
-        AnalogWidgetProvider.update(this, title, artist)
+        AnalogWidgetProvider.update(this, title, artist, player?.isPlaying == true)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
