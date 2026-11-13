@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
                         val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
-                        Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(280)).pointerInput(tab) {
+                        Column(Modifier.fillMaxSize().background(if (playerStyle == "iPod Inspired") Color(0xFF101214) else Ink).animateContentSize(tween(220)).pointerInput(tab) {
                             var drag = 0f
                             detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> drag += amount }, onDragEnd = {
                                 val current = swipeTabs.indexOf(tab).coerceAtLeast(0)
@@ -224,10 +224,10 @@ class MainActivity : ComponentActivity() {
                                 drag = 0f
                             }, onDragCancel = { drag = 0f })
                         }) {
-                            TopHeader(onSettings = { settings = true })
-                            SearchBox(search) { search = it }
+                            TopHeader(onSettings = { settings = true }, ipodMode = playerStyle == "iPod Inspired")
+                            SearchBox(search, ipodMode = playerStyle == "iPod Inspired") { search = it }
                             val tabs = swipeTabs
-                            ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
+                            ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = if (playerStyle == "iPod Inspired") Color(0xFF171A1C) else Ink, contentColor = if (playerStyle == "iPod Inspired") Color(0xFFE4E9E5) else Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
                             }
                             if (tab in listOf("Albums", "Artists", "Folders")) {
@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
                                     .filter { search.isBlank() || it.title.contains(search, true) }
                                     .sortedBy { it.title.lowercase() }
                                 LazyColumn(Modifier.weight(1f)) {
-                                    items(groups) { group -> GroupRow(group) { play(group.tracks, 0); playCountVersion++ } }
+                                    items(groups) { group -> GroupRow(group, ipodMode = playerStyle == "iPod Inspired") { play(group.tracks, 0); playCountVersion++ } }
                                 }
                             } else if (tab == "Playlists" && activePlaylist == null) {
                                 Column(Modifier.weight(1f)) {
@@ -251,12 +251,12 @@ class MainActivity : ComponentActivity() {
                                         item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(listOf("Most played this month", "Favourites", "Quick Listen", "Long Listening", "Surprise Me")) { name ->
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
-                                            GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
+                                            GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks), ipodMode = playerStyle == "iPod Inspired") { activePlaylist = "smart:$name" }
                                         }
                                         item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(playlists.keys.sorted()) { name ->
                                             val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
-                                            GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
+                                            GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks), ipodMode = playerStyle == "iPod Inspired") { activePlaylist = name }
                                         }
                                     }
                                 }
@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
                                         itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
-                                            SongRow(track, i + 1, track.id in favorites,
+                                            SongRow(track, i + 1, track.id in favorites, ipodMode = playerStyle == "iPod Inspired", 
                                                 onPlay = { play(sortedTracks, i); playCountVersion++ },
                                                 onFavorite = { favorites = favorites.toMutableSet().apply { if (contains(track.id)) remove(track.id) else add(track.id) }; storeIds("favorites", favorites) },
                                                 onMore = { pendingTrack = track.id; playlistDialog = true })
@@ -283,7 +283,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            MiniPlayer(controller) { nowPlaying = true }
+                            MiniPlayer(controller, ipodMode = playerStyle == "iPod Inspired") { nowPlaying = true }
                         }
                         if (playlistDialog) {
                             AlertDialog(
@@ -415,13 +415,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onSettings: () -> Unit) {
+@Composable private fun TopHeader(onSettings: () -> Unit, ipodMode: Boolean = false) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
+            Text(if (ipodMode) "iPod" else "ANALOG", color = if (ipodMode) Color(0xFFE7EBE8) else Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = if (ipodMode) 1.2.sp else 5.sp)
             Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream) }
         }
-        Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
+        Text(if (ipodMode) "MUSIC LIBRARY" else "LOCAL MUSIC SYSTEM", color = (if (ipodMode) Color(0xFFE7EBE8) else Cream).copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
 }
 
@@ -437,16 +437,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun SearchBox(value: String, onChange: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).background(Panel, RoundedCornerShape(9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.Search, null, tint = Green); Spacer(Modifier.width(8.dp))
+@Composable private fun SearchBox(value: String, ipodMode: Boolean = false, onChange: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp) .background(if (ipodMode) Color(0xFFD4DDD6) else Panel, RoundedCornerShape(if (ipodMode) 5.dp else 9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Search, null, tint = if (ipodMode) Color(0xFF53675A) else Green); Spacer(Modifier.width(8.dp))
         BasicTextField(value, onChange, modifier = Modifier.weight(1f), singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(color = Cream, fontSize = 14.sp),
-            decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = Cream.copy(alpha = .4f), fontSize = 14.sp); inner() })
-        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = Cream) }
+            textStyle = androidx.compose.ui.text.TextStyle(color = if (ipodMode) Color(0xFF1C2920) else Cream, fontSize = 14.sp),
+            decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = (if (ipodMode) Color(0xFF1C2920) else Cream).copy(alpha = .48f), fontSize = 14.sp); inner() })
+        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = if (ipodMode) Color(0xFF1C2920) else Cream) }
     }
 }
-@Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
+@Composable private fun GroupRow(group: Group, ipodMode: Boolean = false, onClick: () -> Unit) {
     val hapticView = LocalView.current
     Row(Modifier.fillMaxWidth().animateContentSize(tween(220)).clickable { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onClick() }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
@@ -454,22 +454,22 @@ class MainActivity : ComponentActivity() {
             if (art != null) AsyncImage(model = art, contentDescription = group.title, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Album, null, tint = Amber)
         }
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) { Text(group.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = Cream.copy(alpha = .5f), fontSize = 11.sp) }
+        Column(Modifier.weight(1f)) { Text(group.title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = (if (ipodMode) Color(0xFF9EA9A2) else Cream).copy(alpha = .7f), fontSize = 11.sp) }
         Icon(Icons.Default.ChevronRight, null, tint = Green)
     }
 }
-@Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
+@Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, ipodMode: Boolean = false, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
     val hapticView = LocalView.current
     Row(Modifier.fillMaxWidth().animateContentSize(tween(180)).clickable { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onPlay() }.padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(42.dp).background(Panel, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber.copy(alpha = .35f), modifier = Modifier.size(20.dp)); AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize()); }
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .48f), fontSize = 11.sp, maxLines = 1) }
+        Column(Modifier.weight(1f)) { Text(track.title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = (if (ipodMode) Color(0xFFA7B1AA) else Cream).copy(alpha = .7f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onFavorite() }) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (favorite) Amber else Cream.copy(alpha = .5f)) }
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onMore() }) { Icon(Icons.Default.MoreVert, null, tint = Cream.copy(alpha = .6f)) }
     }
 }
-@Composable private fun MiniPlayer(player: MediaController?, onOpen: () -> Unit) {
+@Composable private fun MiniPlayer(player: MediaController?, ipodMode: Boolean = false, onOpen: () -> Unit) {
     val hapticView = LocalView.current
     var title by remember { mutableStateOf("Choose a track") }
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
@@ -482,10 +482,10 @@ class MainActivity : ComponentActivity() {
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
         delay(300)
     } }
-    Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
-        LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
+    Column(Modifier.fillMaxWidth().background(if (ipodMode) Color(0xFF171A1C) else Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
+        LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = if (ipodMode) Color(0xFFC8D2CB) else Amber, trackColor = Cream.copy(alpha = .12f))
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
+            Column(Modifier.weight(1f)) { Text(title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = if (ipodMode) Color(0xFFAEB9B1) else Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
