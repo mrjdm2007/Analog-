@@ -581,10 +581,13 @@ class MainActivity : ComponentActivity() {
                         else slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
                     },
                     label = "track-artwork-slide"
-                ) { _ ->
+                ) { animatedIndex ->
+                    val animatedTrack = if (player != null && animatedIndex in 0 until player.mediaItemCount) {
+                        tracks.firstOrNull { it.id == player.getMediaItemAt(animatedIndex).mediaId.toLongOrNull() }
+                    } else currentTrack
                     Box(Modifier.width(centerWidth).fillMaxHeight(.96f).background(artAccent.copy(alpha = .16f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                        if (currentTrack != null) AsyncImage(
-                            model = currentTrack.artUri(), contentDescription = currentTrack.album,
+                        if (animatedTrack != null) AsyncImage(
+                            model = animatedTrack.artUri(), contentDescription = animatedTrack.album,
                             modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
                             onSuccess = { state ->
                                 val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
