@@ -34,9 +34,14 @@ fun SettingsPage(
     playPause: String,
     next: String,
     previous: String,
+    outputRoute: String,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
+    onSleepTimer: (Int) -> Unit,
+    onCancelSleepTimer: () -> Unit,
+    onMonthlyRecap: () -> Unit,
+    onRescan: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().background(SettingsInk).padding(horizontal = 18.dp)) {
@@ -56,6 +61,7 @@ fun SettingsPage(
             item {
                 Text("MUSIC LIBRARY", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
                 Text("Choose which folders appear in the library. If none are selected, all folders are included.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
+                TextButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) { Text("SCAN FOR NEW SONGS", color = SettingsAmber) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { onFoldersChanged(emptySet()) }) { Text("ALL FOLDERS", color = SettingsAmber) }
                     TextButton(onClick = { onFoldersChanged(folders.toSet()) }) { Text("SELECT ALL", color = SettingsAmber) }
@@ -73,14 +79,28 @@ fun SettingsPage(
             item {
                 Spacer(Modifier.height(12.dp))
                 Text("HEADPHONE / EARPHONE BUTTONS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
-                Text("Choose the action assigned to media-button presses. Support can vary by headset and Android.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                Text("Output: $outputRoute", color = SettingsCream.copy(alpha = .7f), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                Text("Choose the action assigned to media-button presses. Support can vary by headset and Android.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
                 ActionDropdown("Play / pause button", playPause, listOf("Play/Pause", "Next track", "Previous track", "No action")) { onHeadsetSetting("headset_play_pause", it) }
                 ActionDropdown("Next button", next, listOf("Next track", "Play/Pause", "Previous track", "No action")) { onHeadsetSetting("headset_next", it) }
                 ActionDropdown("Previous button", previous, listOf("Previous track", "Play/Pause", "Next track", "No action")) { onHeadsetSetting("headset_previous", it) }
             }
             item {
                 Spacer(Modifier.height(12.dp))
-                Text("MORE", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
+                Text("LISTENING TOOLS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Sleep timer", color = SettingsCream, fontWeight = FontWeight.SemiBold)
+                        Text("Pause playback automatically after a chosen interval.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            listOf(15, 30, 45, 60).forEach { minutes -> TextButton(onClick = { onSleepTimer(minutes) }) { Text("${minutes}m", color = SettingsAmber) } }
+                        }
+                        TextButton(onClick = onCancelSleepTimer) { Text("CANCEL TIMER", color = SettingsCream.copy(alpha = .7f)) }
+                        Divider(color = SettingsCream.copy(alpha = .12f))
+                        TextButton(onClick = onMonthlyRecap, modifier = Modifier.fillMaxWidth()) { Text("MONTHLY LISTENING RECAP", color = SettingsAmber) }
+                    }
+                }
+                Text("MORE", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp, modifier = Modifier.padding(top = 12.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column {
                         TextButton(onClick = onEffects, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Icon(Icons.Default.GraphicEq, null); Spacer(Modifier.width(8.dp)); Text("Audio effects & equalizer") }
