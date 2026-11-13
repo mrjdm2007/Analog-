@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed)
-                    effects -> AudioEffectsScreen(onBack = { effects = false })
+                    effects -> AudioEffectsScreen(outputRoute = outputRoute, onBack = { effects = false })
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), onBack = { recap = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
