@@ -63,6 +63,26 @@ class PlaybackService : MediaSessionService() {
         }
     }
     private val crossfadeTick = object : Runnable { override fun run() { runCrossfadeTick() } }
+    private var headsetPressCount = 0
+    private var headsetPressPending: Runnable? = null
+    private val headsetPressWindowMs = 420L
+
+    private fun dispatchHeadsetAction(action: String, player: ExoPlayer) {
+        when (action) {
+            "Play/Pause" -> if (player.isPlaying) player.pause() else player.play()
+            "Next track" -> player.seekToNext()
+            "Previous track" -> player.seekToPrevious()
+        }
+    }
+
+    private fun flushHeadsetPresses(player: ExoPlayer) {
+        val count = headsetPressCount
+        headsetPressCount = 0
+        headsetPressPending = null
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        val key = when (count) { 1 -> "headset_single"; 2 -> "headset_double"; 3 -> "headset_triple"; else -> null }
+        key?.let { dispatchHeadsetAction(prefs.getString(it, when(count) { 1 -> "Play/Pause"; 2 -> "Next track"; else -> "Previous track" }) ?: "No action", player) }
+    }
 
     private fun recordTrackStart(mediaItem: androidx.media3.common.MediaItem?) {
         val trackId = mediaItem?.mediaId?.toLongOrNull() ?: return
@@ -94,22 +114,21 @@ class PlaybackService : MediaSessionService() {
             ): Boolean {
                 val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
                 if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return true
-                val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-                val configured = when (event.keyCode) {
-                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
-                        prefs.getString("headset_play_pause", "Play/Pause") ?: "Play/Pause"
-                    KeyEvent.KEYCODE_MEDIA_NEXT -> prefs.getString("headset_next", "Next track") ?: "Next track"
-                    KeyEvent.KEYCODE_MEDIA_PREVIOUS -> prefs.getString("headset_previous", "Previous track") ?: "Previous track"
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_HEADSETHOOK, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                        headsetPressCount = (headsetPressCount + 1).coerceAtMost(3)
+                        headsetPressPending?.let(timerHandler::removeCallbacks)
+                        val pending = Runnable { flushHeadsetPresses(player) }
+                        headsetPressPending = pending
+                        timerHandler.postDelayed(pending, headsetPressWindowMs)
+                        return true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); return true }
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); return true }
+                    KeyEvent.KEYCODE_MEDIA_NEXT -> { player.seekToNext(); return true }
+                    KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { player.seekToPrevious(); return true }
                     else -> return false
                 }
-                when (configured) {
-                    "Play/Pause" -> if (player.isPlaying) player.pause() else player.play()
-                    "Next track" -> player.seekToNext()
-                    "Previous track" -> player.seekToPrevious()
-                    "No action" -> Unit
-                    else -> return false
-                }
-                return true
             }
         }
         player.addListener(object : Player.Listener {
