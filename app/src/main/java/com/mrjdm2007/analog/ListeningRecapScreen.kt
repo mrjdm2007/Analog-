@@ -17,17 +17,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun ListeningRecapScreen(tracks: List<Track>, monthlyCounts: Map<Long, Int>, onBack: () -> Unit) {
+fun ListeningRecapScreen(tracks: List<Track>, monthlyCounts: Map<Long, Int>, monthlyListeningMs: Map<Long, Long>, onBack: () -> Unit) {
     val ranked = tracks.mapNotNull { track -> monthlyCounts[track.id]?.takeIf { it > 0 }?.let { track to it } }.sortedByDescending { it.second }
     val total = monthlyCounts.values.sum()
+    val listeningMs = monthlyListeningMs.values.sum()
+    val listeningLabel = if (listeningMs >= 3_600_000L) "${listeningMs / 3_600_000L}h ${(listeningMs % 3_600_000L) / 60_000L}m" else "${listeningMs / 60_000L}m"
     Column(Modifier.fillMaxSize().background(Color(0xFF10110F)).padding(horizontal = 20.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Color(0xFFE8E1CF)) }
             Column { Text("ANALOG / RECAP", color = Color(0xFFFFB45B), fontWeight = FontWeight.Black, letterSpacing = 2.sp); Text("YOUR MONTH IN MUSIC", color = Color(0xFFB5D69B), fontSize = 9.sp, letterSpacing = 1.5.sp) }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(16.dp)) { Text(total.toString(), color = Color(0xFFFFB45B), fontSize = 30.sp, fontWeight = FontWeight.Black); Text("PLAYS THIS MONTH", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
-            Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(16.dp)) { Text(ranked.size.toString(), color = Color(0xFFB5D69B), fontSize = 30.sp, fontWeight = FontWeight.Black); Text("TRACKS PLAYED", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(13.dp)) { Text(total.toString(), color = Color(0xFFFFB45B), fontSize = 27.sp, fontWeight = FontWeight.Black); Text("TRACK STARTS", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
+            Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(13.dp)) { Text(ranked.size.toString(), color = Color(0xFFB5D69B), fontSize = 27.sp, fontWeight = FontWeight.Black); Text("TRACKS PLAYED", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
+            Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(13.dp)) { Text(listeningLabel, color = Color(0xFFFFB45B), fontSize = 21.sp, fontWeight = FontWeight.Black); Text("LISTENING TIME", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
         }
         Text("MOST PLAYED", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(top = 24.dp, bottom = 10.dp))
         if (ranked.isEmpty()) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.MusicNote, null, tint = Color(0xFFFFB45B), modifier = Modifier.size(42.dp)); Text("Your monthly recap starts as you listen.", color = Color(0xFFE8E1CF)) } } }
