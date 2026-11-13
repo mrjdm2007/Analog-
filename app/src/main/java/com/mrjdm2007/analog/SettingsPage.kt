@@ -45,6 +45,7 @@ fun SettingsPage(
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
     onSleepTimer: (Int) -> Unit,
+    onSleepTimerEndTrack: () -> Unit,
     onCancelSleepTimer: () -> Unit,
     onMonthlyRecap: () -> Unit,
     onRescan: () -> Unit,
@@ -118,6 +119,7 @@ fun SettingsPage(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
                             listOf(15, 30, 45, 60).forEach { minutes -> TextButton(onClick = { onSleepTimer(minutes) }) { Text("${minutes}m", color = SettingsAmber) } }
                         }
+                        TextButton(onClick = onSleepTimerEndTrack) { Text("STOP AT END OF TRACK", color = SettingsAmber) }
                         TextButton(onClick = onCancelSleepTimer) { Text("CANCEL TIMER", color = SettingsCream.copy(alpha = .7f)) }
                         Divider(color = SettingsCream.copy(alpha = .12f))
                         TextButton(onClick = onMonthlyRecap, modifier = Modifier.fillMaxWidth()) { Text("MONTHLY LISTENING RECAP", color = SettingsAmber) }
