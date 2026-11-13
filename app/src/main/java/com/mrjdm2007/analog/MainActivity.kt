@@ -604,6 +604,7 @@ class MainActivity : ComponentActivity() {
     val wheelText = Color(0xFFE6E8EA)
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF030405)).padding(horizontal = 8.dp, vertical = 5.dp)) {
         val wheelSize = minOf(maxWidth * 0.76f, maxHeight * 0.34f, 270.dp)
+        val artworkWidthLimit = maxWidth * 0.29f
         Column(
             Modifier.fillMaxSize().background(shell, RoundedCornerShape(30.dp))
                 .border(1.5.dp, Color(0xFF45494D), RoundedCornerShape(30.dp))
@@ -632,7 +633,7 @@ class MainActivity : ComponentActivity() {
                             Text(title, color = Color(0xFF17221B), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 3)
                             Text(artist, color = Color(0xFF435349), fontSize = 11.sp, maxLines = 2)
                         }
-                        val artSize = minOf(108.dp, maxWidth * 0.29f)
+                        val artSize = minOf(108.dp, artworkWidthLimit)
                         Box(Modifier.size(artSize).border(1.dp, Color(0xFF8E9A91), RoundedCornerShape(3.dp)).background(Color(0xFFBEC9C0), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
                             if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize())
                             else Icon(Icons.Default.Album, null, tint = Color(0xFF526258), modifier = Modifier.size(42.dp))
