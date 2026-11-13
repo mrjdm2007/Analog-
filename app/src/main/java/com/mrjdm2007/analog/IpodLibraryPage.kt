@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import android.view.HapticFeedbackConstants
@@ -355,8 +357,11 @@ private fun NowPlayingInfo(
         Spacer(Modifier.height(5.dp))
         Text(previousTitle?.let { "‹  $it" } ?: "‹  —", color = IpodMuted.copy(alpha = .42f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp).background(Color(0xFFCAD4CB), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-            if (track != null) AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize())
-            else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
+            if (track != null && track.albumId > 0L) AsyncImage(
+                model = track.artUri(), contentDescription = track.album,
+                modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(3.dp)),
+                contentScale = ContentScale.Crop
+            ) else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
         }
         Text(title, color = IpodInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(artist, color = IpodMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
