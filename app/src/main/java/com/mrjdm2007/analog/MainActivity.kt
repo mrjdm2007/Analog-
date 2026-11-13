@@ -169,10 +169,16 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
-                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
-                    effects -> AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
-                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
-                    settings -> SettingsPage(
+                    visualizer -> IpodSubscreenFrame("VISUALIZER", enabled = playerStyle == "iPod Inspired", onMenu = { visualizer = false }) {
+                        RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
+                    }
+                    effects -> IpodSubscreenFrame("AUDIO EFFECTS", enabled = playerStyle == "iPod Inspired", onMenu = { effects = false }) {
+                        AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
+                    }
+                    recap -> IpodSubscreenFrame("LISTENING RECAP", enabled = playerStyle == "iPod Inspired", onMenu = { recap = false }) {
+                        ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
+                    }
+                    settings -> IpodSubscreenFrame("SETTINGS", enabled = playerStyle == "iPod Inspired", onMenu = { settings = false }) { SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
                         playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
@@ -188,6 +194,7 @@ class MainActivity : ComponentActivity() {
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
+                    }
 
                     nowPlaying -> if (playerStyle == "iPod Inspired") IpodPlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
