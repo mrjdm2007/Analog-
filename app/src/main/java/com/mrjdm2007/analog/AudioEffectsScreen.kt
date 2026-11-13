@@ -32,8 +32,15 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
     var spaceLevel by remember { mutableFloatStateOf(0f) }
     var enabled by remember { mutableStateOf(true) }
     var presets by remember { mutableStateOf(emptyList<String>()) }
+    val context = LocalContext.current
+    val deviceProfileKey = remember(context) {
+        val audioManager = context.getSystemService(AudioManager::class.java)
+        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val route = outputs.firstOrNull { it.type == AudioManager.DEVICE_OUT_WIRED_HEADPHONES || it.type == AudioManager.DEVICE_OUT_WIRED_HEADSET || it.type == AudioManager.DEVICE_OUT_BLUETOOTH_A2DP || it.type == AudioManager.DEVICE_OUT_BLE_HEADSET || it.type == AudioManager.DEVICE_OUT_USB_HEADSET }?.productName?.toString() ?: "device-default"
+        "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
+    }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(deviceProfileKey) {
         runCatching {
             eq = Equalizer(0, 0).apply { enabled = true }
             bass = BassBoost(0, 0).apply { enabled = true }
