@@ -1,6 +1,8 @@
 package com.mrjdm2007.analog
 
 import android.media.audiofx.Visualizer
+import androidx.media3.session.MediaController
+import coil.compose.AsyncImage
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.Canvas
@@ -22,14 +24,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 
 @Composable
-fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean) {
+fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, player: MediaController?, tracks: List<Track>) {
     val bars = remember { mutableStateListOf<Float>().apply { repeat(48) { add(0.035f) } } }
     var peak by remember { mutableFloatStateOf(0.08f) }
-    var mode by remember { mutableStateOf("SPECTRUM") }
+    var title by remember { mutableStateOf("Nothing playing") }
+    var artist by remember { mutableStateOf("Choose a song from your library") }
+    var album by remember { mutableStateOf("ANALOG • OFFLINE") }
+    var currentTrackId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(player) {
+        while (player != null) {
+            title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
+            artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
+            album = player.mediaMetadata.albumTitle?.toString() ?: "Unknown album"
+            currentTrackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
+            delay(500)
+        }
+    }
+    val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
     DisposableEffect(audioPermissionGranted) {
         var visualizer: Visualizer? = null
