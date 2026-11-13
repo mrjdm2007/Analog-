@@ -58,6 +58,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF10110F)
 private val DefaultAmber = Color(0xFFFFB45B)
@@ -107,15 +110,17 @@ class MainActivity : ComponentActivity() {
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
             var playCountVersion by remember { mutableIntStateOf(0) }
-            var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_play_pause", "Play/Pause") ?: "Play/Pause") }
-            var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_next", "Next track") ?: "Next track") }
-            var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
+            var headsetSingle by remember { mutableStateOf(prefs().getString("headset_single", "Play/Pause") ?: "Play/Pause") }
+            var headsetDouble by remember { mutableStateOf(prefs().getString("headset_double", "Next track") ?: "Next track") }
+            var headsetTriple by remember { mutableStateOf(prefs().getString("headset_triple", "Previous track") ?: "Previous track") }
+            val librarySections = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
+            var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
 
-            LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
                 val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-                    override fun onChange(selfChange: Boolean) { tracks = scanLibrary() }
+                    override fun onChange(selfChange: Boolean) { launchLibraryRefresh() }
                 }
                 contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
                 onDispose { contentResolver.unregisterContentObserver(observer) }
@@ -156,11 +161,13 @@ class MainActivity : ComponentActivity() {
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
                         playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
-                        playPause = headsetPlayPause, next = headsetNext, previous = headsetPrevious, outputRoute = if (headphoneDetectionEnabled) outputRoute else "Automatic detection disabled",
+                        singlePress = headsetSingle, doublePress = headsetDouble, triplePress = headsetTriple,
+                        visibleSections = visibleSections, onVisibleSectionsChanged = { visibleSections = it; prefs().edit().putStringSet("visible_sections", it).apply() },
+                        outputRoute = if (headphoneDetectionEnabled) outputRoute else "Automatic detection disabled",
                         headphoneDetectionEnabled = headphoneDetectionEnabled, onHeadphoneDetectionChanged = { enabled -> headphoneDetectionEnabled = enabled; prefs().edit().putBoolean("headphone_detection_enabled", enabled).apply(); outputRoute = currentAudioRoute() },
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
                         crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
-                        onHeadsetSetting = { key, value -> getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(key, value).apply(); when(key) { "headset_play_pause" -> headsetPlayPause = value; "headset_next" -> headsetNext = value; "headset_previous" -> headsetPrevious = value } },
+                        onHeadsetSetting = { key, value -> prefs().edit().putString(key, value).apply(); when(key) { "headset_single" -> headsetSingle = value; "headset_double" -> headsetDouble = value; "headset_triple" -> headsetTriple = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
@@ -192,7 +199,8 @@ class MainActivity : ComponentActivity() {
                             "Most played" -> currentTracks.sortedWith(compareByDescending<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
-                        val swipeTabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
+                        val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
+                        if (tab !in swipeTabs) tab = swipeTabs.first()
                         Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(280)).pointerInput(tab) {
                             var drag = 0f
                             detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> drag += amount }, onDragEnd = {
@@ -309,6 +317,13 @@ class MainActivity : ComponentActivity() {
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
         }, index, 0L)
         c.prepare(); c.play()
+    }
+
+    private fun launchLibraryRefresh() {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val result = scanLibrary()
+            withContext(Dispatchers.Main) { tracks = result }
+        }
     }
 
     private fun scanLibrary(): List<Track> {
@@ -488,9 +503,9 @@ class MainActivity : ComponentActivity() {
         duration = player.duration.coerceAtLeast(1).toFloat()
         position = player.currentPosition.toFloat().coerceIn(0f, duration)
         trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
-        delay(250)
+        delay(500)
     } }
-    Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp)) {
+    Column(Modifier.fillMaxSize().background(Ink).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
             Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
@@ -502,14 +517,9 @@ class MainActivity : ComponentActivity() {
             val currentTrack = tracks.firstOrNull { it.id == trackId }
             if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
-                    val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) {
-                        val palette = Palette.from(bitmap).generate()
-                        val extracted = palette.getVibrantColor(palette.getMutedColor(DefaultAmber.value.toInt()))
-                        artAccent = Color(extracted); Amber = Color(extracted)
-                    }
+                    artAccent = DefaultAmber
                 },
-                onError = { artAccent = DefaultAmber; Amber = DefaultAmber })
+                onError = { artAccent = DefaultAmber })
             else Icon(Icons.Default.Album, null, tint = DefaultAmber, modifier = Modifier.size(104.dp))
         }
         Spacer(Modifier.height(26.dp))
@@ -519,7 +529,7 @@ class MainActivity : ComponentActivity() {
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = artAccent, activeTrackColor = artAccent))
         Row { Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
-        Spacer(Modifier.weight(.45f))
+        Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = Green) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
@@ -529,7 +539,7 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = Green) }
         }
-        Spacer(Modifier.weight(.55f))
+        Spacer(Modifier.height(14.dp))
     }
     if (showQueue) {
         AlertDialog(
@@ -582,7 +592,7 @@ class MainActivity : ComponentActivity() {
     }
     val currentTrack = tracks.firstOrNull { it.id == trackId }
     val wheelView = LocalView.current
-    Column(Modifier.fillMaxSize().background(Color(0xFF090A09)).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF090A09)).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
             Text("iPod-inspired mode", color = Cream, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -605,8 +615,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(Modifier.size(112.dp).background(Color(0xFF9DAA9B), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
                         if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
-                            onSuccess = { state -> val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap; if (bitmap != null) artColor = Color(Palette.from(bitmap).generate().getVibrantColor(DefaultAmber.value.toInt())) },
-                            onError = { artColor = DefaultAmber })
+                            onSuccess = { artColor = DefaultAmber }, onError = { artColor = DefaultAmber })
                         else Icon(Icons.Default.Album, null, tint = artColor, modifier = Modifier.size(48.dp))
                     }
                 }
