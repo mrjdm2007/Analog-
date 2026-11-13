@@ -3,6 +3,7 @@ package com.mrjdm2007.analog
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.database.ContentObserver
 import android.content.Intent
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -108,6 +109,14 @@ class MainActivity : ComponentActivity() {
             var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            DisposableEffect(libraryAllowed) {
+                if (!libraryAllowed) return@DisposableEffect onDispose { }
+                val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) { tracks = scanLibrary() }
+                }
+                contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
+                onDispose { contentResolver.unregisterContentObserver(observer) }
+            }
             DisposableEffect(Unit) {
                 val manager = getSystemService(AudioManager::class.java)
                 val callback = object : AudioDeviceCallback() {
