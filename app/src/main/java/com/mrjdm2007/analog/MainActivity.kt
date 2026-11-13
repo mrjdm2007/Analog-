@@ -116,6 +116,7 @@ class MainActivity : ComponentActivity() {
             val librarySections = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
             var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
 
+            LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
@@ -205,7 +206,6 @@ class MainActivity : ComponentActivity() {
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
                         val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
-                        if (tab !in swipeTabs) tab = swipeTabs.first()
                         Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(280)).pointerInput(tab) {
                             var drag = 0f
                             detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> drag += amount }, onDragEnd = {
