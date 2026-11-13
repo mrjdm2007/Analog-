@@ -18,8 +18,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub-hosted Ubuntu runners already include Android command-line tools.
+      # Avoid android-actions/setup-android@v3 here: it still requests the
+      # removed legacy SDK package "tools", causing every build to stop pre-Gradle.
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses
