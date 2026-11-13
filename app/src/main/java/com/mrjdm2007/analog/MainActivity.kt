@@ -584,8 +584,8 @@ class MainActivity : ComponentActivity() {
                 },
             contentAlignment = Alignment.Center
         ) {
-            val sideWidth = maxWidth * .40f
-            val centerWidth = maxWidth * .56f
+            val sideWidth = maxWidth * .30f
+            val centerWidth = maxWidth * .70f
             fun trackAt(index: Int): Track? {
                 if (player == null || index !in 0 until player.mediaItemCount) return null
                 val id = player.getMediaItemAt(index).mediaId.toLongOrNull() ?: return null
@@ -610,8 +610,11 @@ class MainActivity : ComponentActivity() {
                 val previous = trackAt(animatedIndex - 1)
                 val center = trackAt(animatedIndex) ?: currentTrack
                 val next = trackAt(animatedIndex + 1)
+                var previousArtFailed by remember(previous?.albumId) { mutableStateOf(false) }
+                var centerArtFailed by remember(center?.albumId) { mutableStateOf(false) }
+                var nextArtFailed by remember(next?.albumId) { mutableStateOf(false) }
                 Row(
-                    Modifier.width(maxWidth * 1.40f).fillMaxHeight().offset(x = -maxWidth * .20f),
+                    Modifier.width(maxWidth * 1.34f).fillMaxHeight().offset(x = -maxWidth * .17f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(maxWidth * .02f)
                 ) {
@@ -621,9 +624,10 @@ class MainActivity : ComponentActivity() {
                             .clip(RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (previous != null && previous.albumId > 0L) AsyncImage(
+                        if (previous != null && previous.albumId > 0L && !previousArtFailed) AsyncImage(
                             model = previous.artUri(), contentDescription = "Previous: ${previous.title}",
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f,
+                            onError = { previousArtFailed = true }
                         ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
                     }
                     Box(
@@ -632,9 +636,10 @@ class MainActivity : ComponentActivity() {
                             .clip(RoundedCornerShape(17.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (center != null && center.albumId > 0L) AsyncImage(
+                        if (center != null && center.albumId > 0L && !centerArtFailed) AsyncImage(
                             model = center.artUri(), contentDescription = center.album,
                             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                            onError = { centerArtFailed = true },
                             onSuccess = { state ->
                                 val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
                                 if (bitmap != null) Palette.from(bitmap).generate { palette ->
@@ -652,9 +657,10 @@ class MainActivity : ComponentActivity() {
                             .clip(RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (next != null && next.albumId > 0L) AsyncImage(
+                        if (next != null && next.albumId > 0L && !nextArtFailed) AsyncImage(
                             model = next.artUri(), contentDescription = "Next: ${next.title}",
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f,
+                            onError = { nextArtFailed = true }
                         ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
                     }
                 }
