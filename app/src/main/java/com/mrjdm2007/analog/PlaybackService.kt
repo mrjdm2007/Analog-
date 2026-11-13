@@ -202,8 +202,9 @@ class PlaybackService : MediaSessionService() {
             timerHandler.post {
                 val currentUri = mediaSession?.player?.currentMediaItem?.localConfiguration?.uri?.toString()
                 if (currentUri == uriKey) runCatching {
-                    if (loudnessEnhancer == null && player.audioSessionId > 0) {
-                        loudnessEnhancer = LoudnessEnhancer(player.audioSessionId).apply { enabled = true }
+                    val sessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
+                    if (loudnessEnhancer == null && sessionId > 0) {
+                        loudnessEnhancer = LoudnessEnhancer(sessionId).apply { enabled = true }
                     }
                     loudnessEnhancer?.setTargetGain(gain)
                 }
