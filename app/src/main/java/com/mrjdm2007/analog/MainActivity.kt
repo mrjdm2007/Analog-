@@ -232,7 +232,7 @@ class MainActivity : ComponentActivity() {
     private fun scanLibrary(): List<Track> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA)
+            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.ALBUM_ID)
         val found = mutableListOf<Track>()
         contentResolver.query(uri, columns, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
             val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
-                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" })
+                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }, c.getLong(albumId))
             }
         }
         return found
