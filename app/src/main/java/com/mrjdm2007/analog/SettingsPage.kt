@@ -35,6 +35,8 @@ fun SettingsPage(
     next: String,
     previous: String,
     outputRoute: String,
+    headphoneDetectionEnabled: Boolean,
+    onHeadphoneDetectionChanged: (Boolean) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
@@ -79,7 +81,13 @@ fun SettingsPage(
             item {
                 Spacer(Modifier.height(12.dp))
                 Text("HEADPHONE / EARPHONE BUTTONS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
-                Text("Output: $outputRoute", color = SettingsCream.copy(alpha = .7f), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Auto-detect wired / Bluetooth headphones", color = SettingsCream, fontSize = 12.sp)
+                        Text(if (headphoneDetectionEnabled) "Monitoring while Analog is open • $outputRoute" else "Connection monitoring is disabled", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
+                    }
+                    Switch(checked = headphoneDetectionEnabled, onCheckedChange = onHeadphoneDetectionChanged)
+                }
                 Text("Choose the action assigned to media-button presses. Support can vary by headset and Android.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
                 ActionDropdown("Play / pause button", playPause, listOf("Play/Pause", "Next track", "Previous track", "No action")) { onHeadsetSetting("headset_play_pause", it) }
                 ActionDropdown("Next button", next, listOf("Next track", "Play/Pause", "Previous track", "No action")) { onHeadsetSetting("headset_next", it) }
