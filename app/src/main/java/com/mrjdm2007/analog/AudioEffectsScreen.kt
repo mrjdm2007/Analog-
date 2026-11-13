@@ -1,6 +1,9 @@
 package com.mrjdm2007.analog
 
 import android.media.audiofx.BassBoost
+import android.content.Context
+import android.media.AudioManager
+import androidx.compose.ui.platform.LocalContext
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import androidx.compose.foundation.background
@@ -39,10 +42,15 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
             val e = eq
             if (e != null) {
                 val range = e.bandLevelRange
-                bands = (0 until minOf(5, e.numberOfBands.toInt())).map { i ->
+                val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet(deviceProfileKey, null)?.mapNotNull { it.toFloatOrNull() }
+                bands = if (saved != null && saved.size >= 5) saved.take(5) else (0 until minOf(5, e.numberOfBands.toInt())).map { i ->
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
                 }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                bands.forEachIndexed { i, value -> if (i < e.numberOfBands.toInt()) {
+                    val level = (range[0] + ((value + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
+                    runCatching { e.setBandLevel(i.toShort(), level) }
+                } }
                 presets = (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
             }
         }
@@ -76,6 +84,7 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                         Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(54.dp))
                         Slider(value = value, onValueChange = { v ->
                             bands = bands.toMutableList().also { it[index] = v }
+                            context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
                             runCatching {
                                 val effect = eq ?: return@runCatching
                                 val range = effect.bandLevelRange
@@ -97,7 +106,7 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                         if (index >= 0) OutlinedButton(onClick = {
                             runCatching { eq?.usePreset(index.toShort()) }
                             val e = eq
-                            if (e != null) bands = (0 until minOf(5, e.numberOfBands.toInt())).map { e.getBandLevel(it.toShort()).toFloat() / 1500f }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                            if (e != null) { bands = (0 until minOf(5, e.numberOfBands.toInt())).map { e.getBandLevel(it.toShort()).toFloat() / 1500f }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply() }
                         }, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
                     }
                 }
