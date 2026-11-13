@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -562,10 +563,10 @@ class MainActivity : ComponentActivity() {
                 },
             contentAlignment = Alignment.Center
         ) {
-            val sideWidth = maxWidth * .31f
+            val sideWidth = maxWidth * .40f
             val centerWidth = maxWidth * .56f
             Row(
-                Modifier.width(maxWidth * 1.18f).fillMaxHeight().offset(x = -maxWidth * .09f),
+                Modifier.width(maxWidth * 1.40f).fillMaxHeight().offset(x = -maxWidth * .20f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(maxWidth * .02f)
             ) {
@@ -574,9 +575,9 @@ class MainActivity : ComponentActivity() {
                     else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .18f))
                 }
                 AnimatedContent(
-                    targetState = trackId,
+                    targetState = currentQueueIndex,
                     transitionSpec = {
-                        if (targetState != initialState) slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                        if (targetState > initialState) slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
                         else slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
                     },
                     label = "track-artwork-slide"
