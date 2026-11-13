@@ -4,28 +4,29 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Minimal, front-facing music player silhouette -->
     <path
-        android:fillColor="#FFFFB45B"
-        android:pathData="M54,14a40,40 0,1 0,0 80a40,40 0,1 0,0 -80" />
+        android:fillColor="#00000000"
+        android:strokeColor="#F2F4F1"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M34,15 L74,15 Q79,15 79,20 L79,88 Q79,93 74,93 L34,93 Q29,93 29,88 L29,20 Q29,15 34,15 Z" />
+
+    <!-- Quiet monochrome display -->
     <path
-        android:fillColor="#FF10110F"
-        android:pathData="M54,22a32,32 0,1 0,0 64a32,32 0,1 0,0 -64" />
+        android:fillColor="#AEBDB2"
+        android:pathData="M37,24 L71,24 L71,46 L37,46 Z" />
+
+    <!-- Signature click wheel -->
     <path
-        android:fillColor="#FFFFB45B"
-        android:pathData="M54,29a25,25 0,1 0,0 50a25,25 0,1 0,0 -50" />
+        android:fillColor="#00000000"
+        android:strokeColor="#F2F4F1"
+        android:strokeWidth="2.5"
+        android:pathData="M54,53 A16,16 0,1 0,54 85 A16,16 0,1 0,54 53" />
+
     <path
-        android:fillColor="#FF10110F"
-        android:pathData="M54,36a18,18 0,1 0,0 36a18,18 0,1 0,0 -36" />
-    <path
-        android:fillColor="#FFB5D69B"
-        android:pathData="M54,47a7,7 0,1 0,0 14a7,7 0,1 0,0 -14" />
-    <path
-        android:fillColor="#FFE8E1CF"
-        android:pathData="M20,72 L42,28 L52,28 L30,72 Z" />
-    <path
-        android:fillColor="#FFE8E1CF"
-        android:pathData="M36,72 L58,28 L68,28 L46,72 Z" />
-    <path
-        android:fillColor="#FF10110F"
-        android:pathData="M37,59 L47,59 L44,66 L34,66 Z" />
+        android:fillColor="#F2F4F1"
+        android:pathData="M51,61 L51,77 L63,69 Z" />
 </vector>
