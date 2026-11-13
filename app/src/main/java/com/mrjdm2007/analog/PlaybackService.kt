@@ -27,6 +27,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_WIDGET_PLAY_PAUSE = "com.mrjdm2007.analog.WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_NEXT = "com.mrjdm2007.analog.WIDGET_NEXT"
         const val ACTION_WIDGET_PREVIOUS = "com.mrjdm2007.analog.WIDGET_PREVIOUS"
+        const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
     }
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -101,6 +102,7 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { if (it.isPlaying) it.pause() else it.play() }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
+            ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
         }
         updateWidget()
         return super.onStartCommand(intent, flags, startId)
