@@ -1,6 +1,8 @@
 package com.mrjdm2007.analog
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -8,7 +10,14 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
 class PlaybackService : MediaSessionService() {
+    companion object {
+        const val ACTION_SLEEP_TIMER = "com.mrjdm2007.analog.SLEEP_TIMER"
+        const val ACTION_CANCEL_SLEEP_TIMER = "com.mrjdm2007.analog.CANCEL_SLEEP_TIMER"
+        const val EXTRA_MINUTES = "minutes"
+    }
     private var mediaSession: MediaSession? = null
+    private val timerHandler = Handler(Looper.getMainLooper())
+    private var sleepTimer: Runnable? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -43,9 +52,24 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player).setCallback(callback).build()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_SLEEP_TIMER -> {
+                sleepTimer?.let(timerHandler::removeCallbacks)
+                val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
+                sleepTimer = Runnable { mediaSession?.player?.pause(); sleepTimer = null }
+                timerHandler.postDelayed(sleepTimer!!, minutes * 60_000L)
+            }
+            ACTION_CANCEL_SLEEP_TIMER -> { sleepTimer?.let(timerHandler::removeCallbacks); sleepTimer = null }
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        sleepTimer?.let(timerHandler::removeCallbacks)
+        sleepTimer = null
         mediaSession?.run {
             player.release()
             release()
