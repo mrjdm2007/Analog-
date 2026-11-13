@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.widget.RemoteViews
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
@@ -28,12 +29,20 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_WIDGET_NEXT = "com.mrjdm2007.analog.WIDGET_NEXT"
         const val ACTION_WIDGET_PREVIOUS = "com.mrjdm2007.analog.WIDGET_PREVIOUS"
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
+        const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
+        const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
     }
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimer: Runnable? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var crossfadePlayer: ExoPlayer? = null
+    private var crossfadeStartMs = 0L
+    private var crossfadeTargetIndex = -1
+    private var crossfadeInProgress = false
+    private var crossfadeForIndex = -1
+    private val crossfadeTick = object : Runnable { override fun run() { runCrossfadeTick() } }
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -41,6 +50,10 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
+        }
+        crossfadePlayer = ExoPlayer.Builder(this).build().apply {
+            setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
+            volume = 0f
         }
         val callback = object : MediaSession.Callback {
             override fun onMediaButtonEvent(
@@ -73,7 +86,16 @@ class PlaybackService : MediaSessionService() {
                 updateWidget()
                 applyReplayGain()
             }
-            override fun onIsPlayingChanged(isPlaying: Boolean) { updateWidget() }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updateWidget()
+                if (isPlaying) {
+                    timerHandler.removeCallbacks(crossfadeTick)
+                    timerHandler.post(crossfadeTick)
+                } else {
+                    timerHandler.removeCallbacks(crossfadeTick)
+                    cancelCrossfade()
+                }
+            }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 if (audioSessionId > 0) {
@@ -103,9 +125,68 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
+            ACTION_SET_CROSSFADE -> {
+                val seconds = intent.getIntExtra(EXTRA_CROSSFADE_SECONDS, 0).coerceIn(0, 10)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("crossfade_seconds", seconds).apply()
+                cancelCrossfade()
+                mediaSession?.player?.volume = 1f
+                if (mediaSession?.player?.isPlaying == true) timerHandler.post(crossfadeTick)
+            }
         }
         updateWidget()
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun runCrossfadeTick() {
+        val primary = mediaSession?.player ?: return
+        val secondary = crossfadePlayer ?: return
+        val durationMs = getSharedPreferences("analog_library", MODE_PRIVATE).getInt("crossfade_seconds", 0) * 1000L
+        if (!primary.isPlaying || durationMs <= 0L) {
+            cancelCrossfade()
+            primary.volume = 1f
+            return
+        }
+        if (!crossfadeInProgress) {
+            val nextIndex = primary.nextMediaItemIndex
+            val currentDuration = primary.duration
+            if (nextIndex != C.INDEX_UNSET && currentDuration > 0L && currentDuration - primary.currentPosition <= durationMs && crossfadeForIndex != primary.currentMediaItemIndex) {
+                runCatching {
+                    secondary.stop()
+                    secondary.clearMediaItems()
+                    secondary.setMediaItem(primary.getMediaItemAt(nextIndex))
+                    secondary.prepare()
+                    secondary.volume = 0f
+                    secondary.play()
+                    crossfadeTargetIndex = nextIndex
+                    crossfadeForIndex = primary.currentMediaItemIndex
+                    crossfadeStartMs = SystemClock.elapsedRealtime()
+                    crossfadeInProgress = true
+                }
+            }
+        } else {
+            val progress = ((SystemClock.elapsedRealtime() - crossfadeStartMs).toFloat() / durationMs).coerceIn(0f, 1f)
+            primary.volume = 1f - progress
+            secondary.volume = progress
+            if (progress >= 1f) {
+                val nextPosition = secondary.currentPosition
+                primary.volume = 0f
+                primary.seekTo(crossfadeTargetIndex, nextPosition)
+                primary.play()
+                primary.volume = 1f
+                secondary.volume = 0f
+                secondary.pause()
+                secondary.clearMediaItems()
+                crossfadeInProgress = false
+                crossfadeTargetIndex = -1
+            }
+        }
+        if (primary.isPlaying) timerHandler.postDelayed(crossfadeTick, 50L)
+    }
+
+    private fun cancelCrossfade() {
+        crossfadeInProgress = false
+        crossfadeTargetIndex = -1
+        crossfadePlayer?.let { runCatching { it.volume = 0f; it.pause(); it.clearMediaItems() } }
     }
 
     private fun applyReplayGain() {
@@ -143,6 +224,10 @@ class PlaybackService : MediaSessionService() {
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepTimer = null
         replayGainExecutor.shutdownNow()
+        timerHandler.removeCallbacks(crossfadeTick)
+        cancelCrossfade()
+        runCatching { crossfadePlayer?.release() }
+        crossfadePlayer = null
         runCatching { loudnessEnhancer?.release() }
         loudnessEnhancer = null
         mediaSession?.run {
