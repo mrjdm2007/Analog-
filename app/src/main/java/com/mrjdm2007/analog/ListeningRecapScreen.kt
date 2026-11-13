@@ -17,8 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun ListeningRecapScreen(tracks: List<Track>, monthlyCounts: Map<Long, Int>, monthlyListeningMs: Map<Long, Long>, onBack: () -> Unit) {
+fun ListeningRecapScreen(tracks: List<Track>, monthlyCounts: Map<Long, Int>, monthlyListeningMs: Map<Long, Long>, listeningStreakDays: Int, onBack: () -> Unit) {
     val ranked = tracks.mapNotNull { track -> monthlyCounts[track.id]?.takeIf { it > 0 }?.let { track to it } }.sortedByDescending { it.second }
+    val topArtist = ranked.groupBy { it.first.artist }.maxByOrNull { entry -> entry.value.sumOf { it.second } }?.key ?: "—"
+    val topAlbum = ranked.groupBy { it.first.album }.maxByOrNull { entry -> entry.value.sumOf { it.second } }?.key ?: "—"
     val total = monthlyCounts.values.sum()
     val listeningMs = monthlyListeningMs.values.sum()
     val listeningLabel = if (listeningMs >= 3_600_000L) "${listeningMs / 3_600_000L}h ${(listeningMs % 3_600_000L) / 60_000L}m" else "${listeningMs / 60_000L}m"
@@ -32,7 +34,16 @@ fun ListeningRecapScreen(tracks: List<Track>, monthlyCounts: Map<Long, Int>, mon
             Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(13.dp)) { Text(ranked.size.toString(), color = Color(0xFFB5D69B), fontSize = 27.sp, fontWeight = FontWeight.Black); Text("TRACKS PLAYED", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
             Card(Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) { Column(Modifier.padding(13.dp)) { Text(listeningLabel, color = Color(0xFFFFB45B), fontSize = 21.sp, fontWeight = FontWeight.Black); Text("LISTENING TIME", color = Color(0xFFE8E1CF), fontSize = 9.sp) } }
         }
-        Text("MOST PLAYED", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(top = 24.dp, bottom = 10.dp))
+        Card(Modifier.fillMaxWidth().padding(top = 12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18))) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) { Text("TOP ARTIST", color = Color(0xFFB5D69B), fontSize = 9.sp, letterSpacing = 1.3.sp); Text(topArtist, color = Color(0xFFE8E1CF), fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                    Column(Modifier.weight(1f)) { Text("TOP ALBUM", color = Color(0xFFB5D69B), fontSize = 9.sp, letterSpacing = 1.3.sp); Text(topAlbum, color = Color(0xFFE8E1CF), fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                }
+                Text("$listeningStreakDays day listening streak", color = Color(0xFFFFB45B), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Text("MOST PLAYED", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(top = 20.dp, bottom = 10.dp))
         if (ranked.isEmpty()) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.MusicNote, null, tint = Color(0xFFFFB45B), modifier = Modifier.size(42.dp)); Text("Your monthly recap starts as you listen.", color = Color(0xFFE8E1CF)) } } }
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) { items(ranked.take(50), key = { it.first.id }) { (track, count) -> Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text("${ranked.indexOfFirst { it.first.id == track.id } + 1}", color = Color(0xFFFFB45B), modifier = Modifier.width(28.dp)); Column(Modifier.weight(1f)) { Text(track.title, color = Color(0xFFE8E1CF), fontWeight = FontWeight.SemiBold, maxLines = 1); Text(track.artist, color = Color(0xFFE8E1CF).copy(alpha = .55f), fontSize = 11.sp, maxLines = 1) }; Text("$count plays", color = Color(0xFFB5D69B), fontSize = 11.sp) } } }
     }
