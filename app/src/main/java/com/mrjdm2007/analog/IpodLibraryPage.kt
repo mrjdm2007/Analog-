@@ -192,8 +192,8 @@ fun IpodLibraryPage(
                     }
                     if (page == "Now Playing") {
                         val queueIndex = player?.currentMediaItemIndex ?: -1
-                        val previousTitle = if (player != null && queueIndex > 0) tracks.firstOrNull { it.id == player.getMediaItemAt(queueIndex - 1).mediaId.toLongOrNull() }?.title else null
-                        val nextTitle = if (player != null && queueIndex >= 0 && queueIndex < player.mediaItemCount - 1) tracks.firstOrNull { it.id == player.getMediaItemAt(queueIndex + 1).mediaId.toLongOrNull() }?.title else null
+                        val previousTitle = if (player != null && queueIndex > 0) player.getMediaItemAt(queueIndex - 1).mediaMetadata.title?.toString() else null
+                        val nextTitle = if (player != null && queueIndex >= 0 && queueIndex < player.mediaItemCount - 1) player.getMediaItemAt(queueIndex + 1).mediaMetadata.title?.toString() else null
                         NowPlayingInfo(player, tracks, currentTitle, currentArtist, previousTitle, nextTitle, isPlaying, position, duration, onPlayer)
                     } else if (page == "Search") {
                         Row(Modifier.fillMaxWidth().padding(8.dp).background(Color.White, RoundedCornerShape(4.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -352,16 +352,15 @@ private fun NowPlayingInfo(
             Icon(Icons.Default.Bluetooth, null, tint = IpodMuted, modifier = Modifier.size(13.dp))
             Text("  LOCAL", color = IpodMuted, fontSize = 8.sp)
         }
-        Spacer(Modifier.height(9.dp))
-        Box(Modifier.fillMaxWidth().weight(1f).background(Color(0xFFCAD4CB), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+        Spacer(Modifier.height(5.dp))
+        Text(previousTitle?.let { "‹  $it" } ?: "‹  —", color = IpodMuted.copy(alpha = .42f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp).background(Color(0xFFCAD4CB), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
             if (track != null) AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize())
             else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
         }
-        Spacer(Modifier.height(8.dp))
-        Text(previousTitle?.let { "‹  $it" } ?: "• • •", color = IpodMuted.copy(alpha = .48f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(title, color = IpodInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(artist, color = IpodMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(nextTitle?.let { "$it  ›" } ?: "• • •", color = IpodMuted.copy(alpha = .48f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(nextTitle?.let { "$it  ›" } ?: "—  ›", color = IpodMuted.copy(alpha = .42f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(7.dp))
         LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(4.dp), color = IpodGreen, trackColor = Color(0xFFB9C5BB))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
