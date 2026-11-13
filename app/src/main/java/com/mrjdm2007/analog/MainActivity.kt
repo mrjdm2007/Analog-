@@ -388,6 +388,7 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    var artAccent by remember { mutableStateOf(Amber) }
     LaunchedEffect(trackId) { artAccent = DefaultAmber; Amber = DefaultAmber }
     LaunchedEffect(player) { while (player != null) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
@@ -406,7 +407,6 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
         }
         Spacer(Modifier.height(20.dp))
-        var artAccent by remember { mutableStateOf(Amber) }
         Box(Modifier.fillMaxWidth().aspectRatio(1f).background(artAccent.copy(alpha = .14f), RoundedCornerShape(18.dp)).animateContentSize(tween(350)), contentAlignment = Alignment.Center) {
             val currentTrack = tracks.firstOrNull { it.id == trackId }
             if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
