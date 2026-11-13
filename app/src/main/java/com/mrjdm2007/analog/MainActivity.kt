@@ -374,6 +374,7 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    LaunchedEffect(trackId) { artAccent = DefaultAmber; Amber = DefaultAmber }
     LaunchedEffect(player) { while (player != null) {
         title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
         artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
@@ -397,9 +398,14 @@ class MainActivity : ComponentActivity() {
             if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
                     val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
-                    if (bitmap != null) { val extracted = Color(Palette.from(bitmap).generate().getVibrantColor(0xFFFFB45B.toInt())); artAccent = extracted; Amber = extracted }
-                })
-            else { artAccent = DefaultAmber; Amber = DefaultAmber; Icon(Icons.Default.Album, null, tint = DefaultAmber, modifier = Modifier.size(104.dp)) }
+                    if (bitmap != null) {
+                        val palette = Palette.from(bitmap).generate()
+                        val extracted = palette.getVibrantColor(palette.getMutedColor(DefaultAmber.value.toInt()))
+                        artAccent = Color(extracted); Amber = Color(extracted)
+                    }
+                },
+                onError = { artAccent = DefaultAmber; Amber = DefaultAmber })
+            else Icon(Icons.Default.Album, null, tint = DefaultAmber, modifier = Modifier.size(104.dp))
         }
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
