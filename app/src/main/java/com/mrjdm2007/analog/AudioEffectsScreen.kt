@@ -2,8 +2,6 @@ package com.mrjdm2007.analog
 
 import android.media.audiofx.BassBoost
 import android.content.Context
-import android.media.AudioManager
-import android.media.AudioDeviceInfo
 import androidx.compose.ui.platform.LocalContext
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
@@ -23,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun AudioEffectsScreen(onBack: () -> Unit) {
+fun AudioEffectsScreen(outputRoute: String, onBack: () -> Unit) {
     var eq by remember { mutableStateOf<Equalizer?>(null) }
     var bass by remember { mutableStateOf<BassBoost?>(null) }
     var virtualizer by remember { mutableStateOf<Virtualizer?>(null) }
@@ -34,10 +32,8 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
     var enabled by remember { mutableStateOf(true) }
     var presets by remember { mutableStateOf(emptyList<String>()) }
     val context = LocalContext.current
-    val deviceProfileKey = remember(context) {
-        val audioManager = context.getSystemService(AudioManager::class.java)
-        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        val route = outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }?.productName?.toString() ?: "device-default"
+    val deviceProfileKey = remember(context, outputRoute) {
+        val route = outputRoute.removePrefix("Connected: ").takeIf { outputRoute.startsWith("Connected: ") } ?: "device-default"
         "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
     }
 
@@ -61,6 +57,10 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
                 } }
                 presets = (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
             }
+            val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+            bassLevel = prefs.getFloat(deviceProfileKey + "_bass", 0f)
+            spaceLevel = prefs.getFloat(deviceProfileKey + "_space", 0f)
+            runCatching { bass?.setStrength((bassLevel * 10).toInt().toShort()); virtualizer?.setStrength((spaceLevel * 10).toInt().toShort()) }
         }
         onDispose {
             runCatching { eq?.release(); bass?.release(); virtualizer?.release() }
@@ -121,10 +121,10 @@ fun AudioEffectsScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(24.dp))
             Text("BASS BOOST", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-            Slider(value = bassLevel, onValueChange = { bassLevel = it; runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
+            Slider(value = bassLevel, onValueChange = { bassLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_bass", it).apply(); runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
                 valueRange = 0f..100f, enabled = enabled, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("VIRTUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-            Slider(value = spaceLevel, onValueChange = { spaceLevel = it; runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
+            Slider(value = spaceLevel, onValueChange = { spaceLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_space", it).apply(); runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
                 valueRange = 0f..100f, enabled = enabled, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("Effects availability and processing depend on the Android device and audio route.", color = Color(0xFF8E9687), fontSize = 10.sp, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
         }
