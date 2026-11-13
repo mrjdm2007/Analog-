@@ -1,12 +1,17 @@
 package com.mrjdm2007.analog
 
 import android.content.Intent
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.widget.RemoteViews
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -16,6 +21,9 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_SLEEP_TIMER = "com.mrjdm2007.analog.SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.mrjdm2007.analog.CANCEL_SLEEP_TIMER"
         const val EXTRA_MINUTES = "minutes"
+        const val ACTION_WIDGET_PLAY_PAUSE = "com.mrjdm2007.analog.WIDGET_PLAY_PAUSE"
+        const val ACTION_WIDGET_NEXT = "com.mrjdm2007.analog.WIDGET_NEXT"
+        const val ACTION_WIDGET_PREVIOUS = "com.mrjdm2007.analog.WIDGET_PREVIOUS"
     }
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -54,7 +62,17 @@ class PlaybackService : MediaSessionService() {
                 return true
             }
         }
-        mediaSession = MediaSession.Builder(this, player).setCallback(callback).build()
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) { updateWidget() }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { updateWidget() }
+            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
+        })
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val sessionActivity = launchIntent?.let { PendingIntent.getActivity(this, 90, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
+        val builder = MediaSession.Builder(this, player).setCallback(callback)
+        if (sessionActivity != null) builder.setSessionActivity(sessionActivity)
+        mediaSession = builder.build()
+        updateWidget()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -66,8 +84,19 @@ class PlaybackService : MediaSessionService() {
                 timerHandler.postDelayed(sleepTimer!!, minutes * 60_000L)
             }
             ACTION_CANCEL_SLEEP_TIMER -> { sleepTimer?.let(timerHandler::removeCallbacks); sleepTimer = null }
+            ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { if (it.isPlaying) it.pause() else it.play() }
+            ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
+            ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
         }
+        updateWidget()
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun updateWidget() {
+        val player = mediaSession?.player
+        val title = player?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a track"
+        val artist = player?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() } ?: "ANALOG • OFFLINE"
+        AnalogWidgetProvider.update(this, title, artist)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
