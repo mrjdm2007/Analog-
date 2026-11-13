@@ -39,6 +39,8 @@ fun SettingsPage(
     onHeadphoneDetectionChanged: (Boolean) -> Unit,
     replayGainEnabled: Boolean,
     onReplayGainChanged: (Boolean) -> Unit,
+    crossfadeSeconds: Int,
+    onCrossfadeChanged: (Int) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
@@ -104,6 +106,9 @@ fun SettingsPage(
                         Text("Reads ReplayGain track / album gain tags when available.", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
                     }
                     Switch(checked = replayGainEnabled, onCheckedChange = onReplayGainChanged)
+                }
+                ActionDropdown("Crossfade transition", if (crossfadeSeconds == 0) "Off" else "$crossfadeSeconds seconds", listOf("Off", "3 seconds", "5 seconds", "8 seconds", "10 seconds")) {
+                    onCrossfadeChanged(it.substringBefore(" ").toIntOrNull() ?: 0)
                 }
                 Text("LISTENING TOOLS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
