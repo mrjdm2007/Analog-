@@ -24,6 +24,7 @@ class PlaybackService : MediaSessionService() {
     companion object {
         const val ACTION_SLEEP_TIMER = "com.mrjdm2007.analog.SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.mrjdm2007.analog.CANCEL_SLEEP_TIMER"
+        const val ACTION_SLEEP_TIMER_END_TRACK = "com.mrjdm2007.analog.SLEEP_TIMER_END_TRACK"
         const val EXTRA_MINUTES = "minutes"
         const val ACTION_WIDGET_PLAY_PAUSE = "com.mrjdm2007.analog.WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_NEXT = "com.mrjdm2007.analog.WIDGET_NEXT"
@@ -35,6 +36,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimer: Runnable? = null
+    private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var crossfadePlayer: ExoPlayer? = null
@@ -124,7 +126,38 @@ class PlaybackService : MediaSessionService() {
                 sleepTimer = Runnable { mediaSession?.player?.pause(); sleepTimer = null }
                 timerHandler.postDelayed(sleepTimer!!, minutes * 60_000L)
             }
-            ACTION_CANCEL_SLEEP_TIMER -> { sleepTimer?.let(timerHandler::removeCallbacks); sleepTimer = null }
+            ACTION_CANCEL_SLEEP_TIMER -> {
+                sleepTimer?.let(timerHandler::removeCallbacks)
+                sleepTimer = null
+                sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+                sleepEndListener = null
+            }
+            ACTION_SLEEP_TIMER_END_TRACK -> {
+                sleepTimer?.let(timerHandler::removeCallbacks)
+                sleepTimer = null
+                sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+                val activePlayer = mediaSession?.player
+                if (activePlayer != null) {
+                    val listener = object : Player.Listener {
+                        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                                activePlayer.pause()
+                                activePlayer.removeListener(this)
+                                sleepEndListener = null
+                            }
+                        }
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            if (playbackState == Player.STATE_ENDED) {
+                                activePlayer.pause()
+                                activePlayer.removeListener(this)
+                                sleepEndListener = null
+                            }
+                        }
+                    }
+                    sleepEndListener = listener
+                    activePlayer.addListener(listener)
+                }
+            }
             ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { if (it.isPlaying) it.pause() else it.play() }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
@@ -228,6 +261,8 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepTimer = null
+        sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+        sleepEndListener = null
         replayGainExecutor.shutdownNow()
         timerHandler.removeCallbacks(crossfadeTick)
         cancelCrossfade()
