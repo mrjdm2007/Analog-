@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="analog_widget_description">Analog music playback controls</string>
+    <string name="analog_qs_tile_description">Start or resume Analog music in the background</string>
 </resources>
