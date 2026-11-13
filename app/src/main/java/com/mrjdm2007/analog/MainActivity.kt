@@ -195,6 +195,19 @@ class MainActivity : ComponentActivity() {
                     else PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
+                    playerStyle == "iPod Inspired" -> IpodLibraryPage(
+                        tracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders },
+                        favorites = favorites,
+                        playlists = playlists,
+                        player = controller,
+                        onPlay = { list, index -> play(list, index); playCountVersion++ },
+                        onPlayer = { nowPlaying = true },
+                        onSettings = { settings = true },
+                        onVisualizer = { visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onRecap = { recap = true },
+                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
+                        onMore = { id -> pendingTrack = id; playlistDialog = true }
+                    )
                     else -> {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
