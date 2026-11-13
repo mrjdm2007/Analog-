@@ -52,8 +52,10 @@ class PlaybackService : MediaSessionService() {
                 if (trackId != null) {
                     val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
                     val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
                     prefs.edit()
                         .putLong("listened_ms:$monthKey:$trackId", prefs.getLong("listened_ms:$monthKey:$trackId", 0L) + 1000L)
+                        .putLong("listened_day:$dayKey", prefs.getLong("listened_day:$dayKey", 0L) + 1000L)
                         .apply()
                 }
                 timerHandler.postDelayed(this, 1000L)
