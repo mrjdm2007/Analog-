@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
+            var playCountVersion by remember { mutableIntStateOf(0) }
             var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_play_pause", "Play/Pause") ?: "Play/Pause") }
             var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_next", "Next track") ?: "Next track") }
             var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
@@ -125,7 +126,7 @@ class MainActivity : ComponentActivity() {
                             "Playlists" -> activePlaylist?.let { name -> libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
                             else -> libraryTracks
                         }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) }
-                        val playCounts = remember(tracks) { prefs().all.filterKeys { it.startsWith("plays:") }.mapKeys { it.key.removePrefix("plays:").toLongOrNull() ?: -1L }.mapValues { (it.value as? Int) ?: 0 } }
+                        val playCounts = remember(tracks, playCountVersion) { prefs().all.filterKeys { it.startsWith("plays:") }.mapKeys { it.key.removePrefix("plays:").toLongOrNull() ?: -1L }.mapValues { (it.value as? Int) ?: 0 } }
                         val sortedTracks = when (sortMode) {
                             "Title (Z–A)" -> currentTracks.sortedByDescending { it.title.lowercase() }
                             "Artist" -> currentTracks.sortedBy { it.artist.lowercase() }
@@ -159,7 +160,7 @@ class MainActivity : ComponentActivity() {
                                     .filter { search.isBlank() || it.title.contains(search, true) }
                                     .sortedBy { it.title.lowercase() }
                                 LazyColumn(Modifier.weight(1f)) {
-                                    items(groups) { group -> GroupRow(group) { play(group.tracks, 0) } }
+                                    items(groups) { group -> GroupRow(group) { play(group.tracks, 0); playCountVersion++ } }
                                 }
                             } else if (tab == "Playlists" && activePlaylist == null) {
                                 Column(Modifier.weight(1f)) {
@@ -169,7 +170,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                     LazyColumn {
                                         items(playlists.keys.sorted()) { name ->
-                                            GroupRow(Group(name, "${playlists[name]?.size ?: 0} saved tracks", emptyList())) { activePlaylist = name }
+                                            val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
+                                            GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
                                         }
                                     }
                                 }
@@ -189,7 +191,7 @@ class MainActivity : ComponentActivity() {
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
                                         itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
                                             SongRow(track, i + 1, track.id in favorites,
-                                                onPlay = { play(sortedTracks, i) },
+                                                onPlay = { play(sortedTracks, i); playCountVersion++ },
                                                 onFavorite = { favorites = favorites.toMutableSet().apply { if (contains(track.id)) remove(track.id) else add(track.id) }; storeIds("favorites", favorites) },
                                                 onMore = { pendingTrack = track.id; playlistDialog = true })
                                         }
@@ -334,7 +336,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
     Row(Modifier.fillMaxWidth().animateContentSize(tween(180)).clickable(onClick = onPlay).padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(42.dp).background(Panel, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize()); }
+        Box(Modifier.size(42.dp).background(Panel, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber.copy(alpha = .35f), modifier = Modifier.size(20.dp)); AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize()); }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .48f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
