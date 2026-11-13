@@ -78,8 +78,9 @@ fun SettingsPage(
                 Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(folder, color = SettingsCream, modifier = Modifier.weight(1f), maxLines = 1)
                     Checkbox(checked = selectedFolders.isEmpty() || folder in selectedFolders, onCheckedChange = { checked ->
-                        val current = if (selectedFolders.isEmpty()) folders.toSet() else selectedFolders
-                        onFoldersChanged(if (checked) current + folder else current - folder)
+                        val current = if (selectedFolders.isEmpty()) folders.toSet() else selectedFolders - "__ANALOG_NONE__"
+                        val updated = if (checked) current + folder else current - folder
+                        onFoldersChanged(if (updated.isEmpty()) setOf("__ANALOG_NONE__") else updated)
                     }, colors = CheckboxDefaults.colors(checkedColor = SettingsAmber))
                 }
             }
