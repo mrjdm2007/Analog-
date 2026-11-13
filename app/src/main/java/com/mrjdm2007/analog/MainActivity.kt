@@ -166,7 +166,10 @@ class MainActivity : ComponentActivity() {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
                             "Favorites" -> libraryTracks.filter { it.id in favorites }
-                            "Playlists" -> activePlaylist?.let { name -> libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
+                            "Playlists" -> activePlaylist?.let { name ->
+                                if (name.startsWith("smart:")) smartPlaylistTracks(name.removePrefix("smart:"), libraryTracks, favorites)
+                                else libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
+                            } ?: emptyList()
                             else -> libraryTracks
                         }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) }
                         val playCounts = remember(tracks, playCountVersion) { prefs().all.filterKeys { it.startsWith("plays:") }.mapKeys { it.key.removePrefix("plays:").toLongOrNull() ?: -1L }.mapValues { (it.value as? Int) ?: 0 } }
@@ -212,6 +215,12 @@ class MainActivity : ComponentActivity() {
                                         TextButton(onClick = { pendingTrack = null; playlistDialog = true }) { Icon(Icons.Default.Add, null); Text("NEW") }
                                     }
                                     LazyColumn {
+                                        item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
+                                        items(listOf("Most played this month", "Favourites", "Quick Listen", "Long Listening", "Surprise Me")) { name ->
+                                            val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
+                                            GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
+                                        }
+                                        item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(playlists.keys.sorted()) { name ->
                                             val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
                                             GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
@@ -325,6 +334,19 @@ class MainActivity : ComponentActivity() {
         val device = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET) }
         return device?.productName?.toString()?.takeIf { it.isNotBlank() }?.let { "Connected: $it" } ?: "Phone speaker / other output"
     }
+    private fun smartPlaylistTracks(name: String, source: List<Track>, favorites: Set<Long>): List<Track> {
+        val counts = currentMonthPlayCounts()
+        val recentCutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
+        return when (name) {
+            "Most played this month" -> source.filter { (counts[it.id] ?: 0) > 0 }.sortedByDescending { counts[it.id] ?: 0 }
+            "Favourites" -> source.filter { it.id in favorites }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            "Surprise Me" -> source.shuffled()
+            else -> source.filter { prefs().getLong("last_played:${it.id}", 0L) >= recentCutoff }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+        }
+    }
+
     private fun currentMonthPlayCounts(): Map<Long, Int> {
         val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
         return prefs().all.filterKeys { it.startsWith("month:$monthKey:") }.mapNotNull { (key, value) -> key.substringAfterLast(":").toLongOrNull()?.let { it to ((value as? Int) ?: 0) } }.toMap()
