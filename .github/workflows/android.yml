@@ -10,6 +10,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      PATH: /usr/local/lib/android/sdk/cmdline-tools/16.0/bin:/usr/local/lib/android/sdk/platform-tools:/usr/local/bin:/usr/bin:/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,11 +22,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      # GitHub-hosted Ubuntu runners already include Android command-line tools.
-      # Avoid android-actions/setup-android@v3 here: it still requests the
-      # removed legacy SDK package "tools", causing every build to stop pre-Gradle.
-      - name: Install Android SDK packages
+      - name: Verify Android SDK
         run: |
+          sdkmanager --version
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Set up Gradle
