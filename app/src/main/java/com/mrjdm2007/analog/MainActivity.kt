@@ -48,9 +48,10 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
 
 private val Ink = Color(0xFF10110F)
+private val DefaultAmber = Color(0xFFFFB45B)
 private val Panel = Color(0xFF1A1C18)
 private val Cream = Color(0xFFE8E1CF)
-private var Amber by mutableStateOf(Color(0xFFFFB45B))
+private var Amber by mutableStateOf(DefaultAmber)
 private val Green = Color(0xFFB5D69B)
 
 data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)
@@ -86,11 +87,13 @@ class MainActivity : ComponentActivity() {
             var effects by remember { mutableStateOf(false) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
+            var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
             var headsetPlayPause by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_play_pause", "Play/Pause") ?: "Play/Pause") }
             var headsetNext by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_next", "Next track") ?: "Next track") }
             var headsetPrevious by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("headset_previous", "Previous track") ?: "Previous track") }
 
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = scanLibrary() }
+            LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
             BackHandler(enabled = settings || visualizer || effects || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
                     settings -> settings = false
@@ -122,6 +125,15 @@ class MainActivity : ComponentActivity() {
                             "Playlists" -> activePlaylist?.let { name -> libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) } } ?: emptyList()
                             else -> libraryTracks
                         }.filter { search.isBlank() || it.title.contains(search, true) || it.artist.contains(search, true) || it.album.contains(search, true) }
+                        val playCounts = remember(tracks) { prefs().all.filterKeys { it.startsWith("plays:") }.mapKeys { it.key.removePrefix("plays:").toLongOrNull() ?: -1L }.mapValues { (it.value as? Int) ?: 0 } }
+                        val sortedTracks = when (sortMode) {
+                            "Title (Z–A)" -> currentTracks.sortedByDescending { it.title.lowercase() }
+                            "Artist" -> currentTracks.sortedBy { it.artist.lowercase() }
+                            "Album" -> currentTracks.sortedBy { it.album.lowercase() }
+                            "Least played" -> currentTracks.sortedWith(compareBy<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+                            "Most played" -> currentTracks.sortedWith(compareByDescending<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+                            else -> currentTracks.sortedBy { it.title.lowercase() }
+                        }
                         val swipeTabs = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
                         Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(280)).pointerInput(tab) {
                             var drag = 0f
@@ -170,10 +182,14 @@ class MainActivity : ComponentActivity() {
                                         Text(if (tracks.isEmpty()) "No local audio found" else "Nothing here yet", color = Cream.copy(alpha = .5f))
                                     }
                                 } else {
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${sortedTracks.size} SONGS", color = Cream.copy(alpha = .45f), fontSize = 10.sp, modifier = Modifier.weight(1f))
+                                        SortDropdown(sortMode) { sortMode = it; prefs().edit().putString("sort_mode", it).apply() }
+                                    }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
-                                        itemsIndexed(currentTracks, key = { _, t -> t.id }) { i, track ->
+                                        itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
                                             SongRow(track, i + 1, track.id in favorites,
-                                                onPlay = { play(currentTracks, i) },
+                                                onPlay = { play(sortedTracks, i) },
                                                 onFavorite = { favorites = favorites.toMutableSet().apply { if (contains(track.id)) remove(track.id) else add(track.id) }; storeIds("favorites", favorites) },
                                                 onMore = { pendingTrack = track.id; playlistDialog = true })
                                         }
@@ -222,6 +238,9 @@ class MainActivity : ComponentActivity() {
 
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
+        val selected = list.getOrNull(index) ?: return
+        val key = "plays:${selected.id}"
+        prefs().edit().putInt(key, prefs().getInt(key, 0) + 1).apply()
         c.setMediaItems(list.map { track ->
             MediaItem.Builder().setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
@@ -275,11 +294,24 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
-            Spacer(Modifier.weight(1f)); IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Audio effects", tint = Cream) }; IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = Green) }
+            Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream) }
         }
         Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
 }
+
+@Composable private fun SortDropdown(selected: String, onSelected: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null, tint = Amber); Spacer(Modifier.width(4.dp)); Text(selected, color = Amber, fontSize = 11.sp) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Least played", "Most played").forEach { mode ->
+                DropdownMenuItem(text = { Text(mode) }, onClick = { onSelected(mode); expanded = false })
+            }
+        }
+    }
+}
+
 @Composable private fun SearchBox(value: String, onChange: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).background(Panel, RoundedCornerShape(9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.Search, null, tint = Green); Spacer(Modifier.width(8.dp))
@@ -365,7 +397,7 @@ class MainActivity : ComponentActivity() {
                     val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
                     if (bitmap != null) { val extracted = Color(Palette.from(bitmap).generate().getVibrantColor(0xFFFFB45B.toInt())); artAccent = extracted; Amber = extracted }
                 })
-            else Icon(Icons.Default.Album, null, tint = artAccent, modifier = Modifier.size(104.dp))
+            else { artAccent = DefaultAmber; Amber = DefaultAmber; Icon(Icons.Default.Album, null, tint = DefaultAmber, modifier = Modifier.size(104.dp)) }
         }
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
