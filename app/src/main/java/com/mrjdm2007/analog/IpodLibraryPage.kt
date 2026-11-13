@@ -1,6 +1,7 @@
 package com.mrjdm2007.analog
 
 import androidx.compose.animation.animateContentSize
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -135,7 +136,7 @@ fun IpodLibraryPage(
                     else -> filtered
                 }
                 val track = target.getOrNull(index) ?: return
-                onPlay(target, index)
+                onPlay(target, if (page in listOf("Albums", "Artists", "Folders")) 0 else index)
             }
         }
     }
