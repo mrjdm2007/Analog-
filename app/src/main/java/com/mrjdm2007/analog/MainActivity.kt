@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, onBack = { effects = false })
-                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), onBack = { recap = false })
+                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
                         playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
@@ -361,6 +361,19 @@ class MainActivity : ComponentActivity() {
         val monthKey = java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date())
         return prefs().all.filterKeys { it.startsWith("listened_ms:$monthKey:") }
             .mapNotNull { (key, value) -> key.substringAfterLast(":").toLongOrNull()?.let { it to ((value as? Long) ?: 0L) } }.toMap()
+    }
+    private fun currentListeningStreak(): Int {
+        val activeDays = prefs().all.keys.filter { it.startsWith("listened_day:") }
+            .mapNotNull { it.removePrefix("listened_day:").toLongOrNull() }.toSet()
+        val formatter = java.time.format.DateTimeFormatter.BASIC_ISO_DATE
+        var day = java.time.LocalDate.now()
+        if (day.format(formatter).toLong() !in activeDays) day = day.minusDays(1)
+        var streak = 0
+        while (day.format(formatter).toLong() in activeDays) {
+            streak++
+            day = day.minusDays(1)
+        }
+        return streak
     }
     private fun readIds(key: String) = prefs().getStringSet(key, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
     private fun storeIds(key: String, ids: Set<Long>) { prefs().edit().putStringSet(key, ids.map { it.toString() }.toSet()).apply() }
