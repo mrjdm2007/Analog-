@@ -1,6 +1,9 @@
 package com.mrjdm2007.analog
 
 import android.media.audiofx.Visualizer
+import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
 import coil.compose.AsyncImage
 import android.os.Handler
@@ -24,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
-import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.math.pow
 
@@ -40,14 +42,20 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     var currentTrackId by remember { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
     var liveAudioSessionId by remember(audioSessionId) { mutableIntStateOf(audioSessionId) }
-    LaunchedEffect(player) {
-        while (player != null) {
-            title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
-            artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
-            album = player.mediaMetadata.albumTitle?.toString() ?: "Unknown album"
-            currentTrackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
-            delay(500)
+    DisposableEffect(player, tracks) {
+        val syncMetadata = {
+            title = player?.mediaMetadata?.title?.toString() ?: "Nothing playing"
+            artist = player?.mediaMetadata?.artist?.toString() ?: "Unknown artist"
+            album = player?.mediaMetadata?.albumTitle?.toString() ?: "Unknown album"
+            currentTrackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         }
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncMetadata()
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncMetadata()
+        }
+        player?.addListener(listener)
+        syncMetadata()
+        onDispose { player?.removeListener(listener) }
     }
     val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
