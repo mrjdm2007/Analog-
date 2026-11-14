@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
