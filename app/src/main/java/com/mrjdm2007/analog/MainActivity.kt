@@ -545,6 +545,7 @@ class MainActivity : ComponentActivity() {
     )
     val themedBackground by animateColorAsState(dynamicBackground, tween(650), label = "album-background")
     val themedAccent by animateColorAsState(artAccent, tween(500), label = "album-accent")
+    val themedPanel = androidx.compose.ui.graphics.lerp(themedBackground, Color.White, .055f)
     val themedText = Cream
     val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
@@ -603,7 +604,7 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxSize().background(themedBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
-            Text("NOW PLAYING", color = artAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = themedAccent) }
         }
@@ -658,7 +659,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Box(
                         Modifier.width(sideWidth).height(sideWidth)
-                            .background(Color(0xFF252923), RoundedCornerShape(13.dp))
+                            .background(themedPanel, RoundedCornerShape(13.dp))
                             .clip(RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -671,7 +672,7 @@ class MainActivity : ComponentActivity() {
                     BoxWithConstraints(
                         Modifier.width(centerWidth).height(centerWidth)
                             .shadow(24.dp, RoundedCornerShape(17.dp), clip = false)
-                            .background(Color(0xFF20231F), RoundedCornerShape(17.dp))
+                            .background(themedPanel, RoundedCornerShape(17.dp))
                             .clip(RoundedCornerShape(17.dp)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -685,7 +686,7 @@ class MainActivity : ComponentActivity() {
                                     val accent = palette?.vibrantSwatch?.rgb ?: palette?.lightVibrantSwatch?.rgb ?: palette?.mutedSwatch?.rgb
                                     val background = palette?.darkMutedSwatch?.rgb ?: palette?.darkVibrantSwatch?.rgb
                                     if (accent != null) artAccent = Color(accent)
-                                    if (background != null) dynamicBackground = Color(background)
+                                    if (background != null) dynamicBackground = androidx.compose.ui.graphics.lerp(Color(background), Ink, .22f)
                                 }
                             }
                         ) else Icon(Icons.Default.Album, null, tint = themedAccent, modifier = Modifier.size(104.dp))
@@ -713,7 +714,7 @@ class MainActivity : ComponentActivity() {
                             model = next.artUri(), contentDescription = "Next: ${next.title}",
                             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f,
                             onError = { nextArtFailed = true }
-                        ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
+                        ) else Icon(Icons.Default.Album, null, tint = themedText.copy(alpha = .22f))
                     }
                 }
             }
@@ -723,7 +724,7 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.weight(1f)) { Text(title, color = themedText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = themedMuted, fontSize = 13.sp); Text(fileInfo, color = themedAccent.copy(alpha = .88f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = themedAccent) }
         }
-        Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = themedAccent, activeTrackColor = themedAccent))
+        Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = themedAccent, activeTrackColor = themedAccent, inactiveTrackColor = themedMuted.copy(alpha = .30f)))
         Row { Text(timeText(position.toLong()), color = themedMuted, fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = themedMuted, fontSize = 10.sp) }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
