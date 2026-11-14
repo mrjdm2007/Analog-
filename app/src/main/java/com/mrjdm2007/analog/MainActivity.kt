@@ -29,12 +29,9 @@ import androidx.compose.foundation.border
 import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import android.view.HapticFeedbackConstants
-import kotlin.math.atan2
-import kotlin.math.PI
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedContent
@@ -43,6 +40,13 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -124,7 +128,6 @@ class MainActivity : ComponentActivity() {
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
             var settings by remember { mutableStateOf(false) }
-            var playerStyle by remember { mutableStateOf("Analog Classic") }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
             var playCountVersion by remember { mutableIntStateOf(0) }
@@ -191,7 +194,6 @@ class MainActivity : ComponentActivity() {
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
                     settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
-                        playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = "Analog Classic"; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", "Analog Classic").apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
                         singlePress = headsetSingle, doublePress = headsetDouble, triplePress = headsetTriple,
                         visibleSections = visibleSections, onVisibleSectionsChanged = { visibleSections = it; prefs().edit().putStringSet("visible_sections", it).apply() },
@@ -229,7 +231,7 @@ class MainActivity : ComponentActivity() {
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
                         val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
-                        Column(Modifier.fillMaxSize().background(if (playerStyle == "iPod Inspired") Color(0xFF101214) else Ink).animateContentSize(tween(220)).pointerInput(tab) {
+                        Column(Modifier.fillMaxSize().background(Ink).animateContentSize(tween(220)).pointerInput(tab) {
                             var drag = 0f
                             detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> drag += amount }, onDragEnd = {
                                 val current = swipeTabs.indexOf(tab).coerceAtLeast(0)
@@ -238,10 +240,10 @@ class MainActivity : ComponentActivity() {
                                 drag = 0f
                             }, onDragCancel = { drag = 0f })
                         }) {
-                            TopHeader(onSettings = { settings = true }, ipodMode = playerStyle == "iPod Inspired")
-                            SearchBox(search, ipodMode = playerStyle == "iPod Inspired") { search = it }
+                            TopHeader(onSettings = { settings = true })
+                            SearchBox(search) { search = it }
                             val tabs = swipeTabs
-                            ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = if (playerStyle == "iPod Inspired") Color(0xFF171A1C) else Ink, contentColor = if (playerStyle == "iPod Inspired") Color(0xFFE4E9E5) else Amber, edgePadding = 12.dp) {
+                            ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
                             }
                             if (tab in listOf("Albums", "Artists", "Folders")) {
@@ -253,7 +255,7 @@ class MainActivity : ComponentActivity() {
                                     .filter { search.isBlank() || it.title.contains(search, true) }
                                     .sortedBy { it.title.lowercase() }
                                 LazyColumn(Modifier.weight(1f)) {
-                                    items(groups) { group -> GroupRow(group, ipodMode = playerStyle == "iPod Inspired") { play(group.tracks, 0); playCountVersion++ } }
+                                    items(groups) { group -> GroupRow(group) { play(group.tracks, 0); playCountVersion++ } }
                                 }
                             } else if (tab == "Playlists" && activePlaylist == null) {
                                 Column(Modifier.weight(1f)) {
@@ -265,12 +267,12 @@ class MainActivity : ComponentActivity() {
                                         item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(listOf("Most played this month", "Favourites", "Quick Listen", "Long Listening", "Surprise Me")) { name ->
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
-                                            GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks), ipodMode = playerStyle == "iPod Inspired") { activePlaylist = "smart:$name" }
+                                            GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
                                         }
                                         item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(playlists.keys.sorted()) { name ->
                                             val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
-                                            GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks), ipodMode = playerStyle == "iPod Inspired") { activePlaylist = name }
+                                            GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
                                         }
                                     }
                                 }
@@ -289,7 +291,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
                                         itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
-                                            SongRow(track, i + 1, track.id in favorites, ipodMode = playerStyle == "iPod Inspired", 
+                                            SongRow(track, i + 1, track.id in favorites, 
                                                 onPlay = { play(sortedTracks, i); playCountVersion++ },
                                                 onFavorite = { favorites = favorites.toMutableSet().apply { if (contains(track.id)) remove(track.id) else add(track.id) }; storeIds("favorites", favorites) },
                                                 onMore = { pendingTrack = track.id; playlistDialog = true })
@@ -297,7 +299,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            MiniPlayer(controller, ipodMode = playerStyle == "iPod Inspired") { nowPlaying = true }
+                            MiniPlayer(controller) { nowPlaying = true }
                         }
                         if (playlistDialog) {
                             AlertDialog(
@@ -448,13 +450,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun TopHeader(onSettings: () -> Unit, ipodMode: Boolean = false) {
+@Composable private fun TopHeader(onSettings: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 22.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (ipodMode) "iPod" else "ANALOG", color = if (ipodMode) Color(0xFFE7EBE8) else Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = if (ipodMode) 1.2.sp else 5.sp)
+            Text("ANALOG", color = Amber, fontSize = 25.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
             Spacer(Modifier.weight(1f)); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings", tint = Cream) }
         }
-        Text(if (ipodMode) "MUSIC LIBRARY" else "LOCAL MUSIC SYSTEM", color = (if (ipodMode) Color(0xFFE7EBE8) else Cream).copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
+        Text("LOCAL MUSIC SYSTEM", color = Cream.copy(alpha = .48f), fontSize = 9.sp, letterSpacing = 2.sp)
     }
 }
 
@@ -470,16 +472,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun SearchBox(value: String, ipodMode: Boolean = false, onChange: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp) .background(if (ipodMode) Color(0xFFD4DDD6) else Panel, RoundedCornerShape(if (ipodMode) 5.dp else 9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.Search, null, tint = if (ipodMode) Color(0xFF53675A) else Green); Spacer(Modifier.width(8.dp))
+@Composable private fun SearchBox(value: String, onChange: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).background(Panel, RoundedCornerShape(9.dp)).padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Search, null, tint = Green); Spacer(Modifier.width(8.dp))
         BasicTextField(value, onChange, modifier = Modifier.weight(1f), singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(color = if (ipodMode) Color(0xFF1C2920) else Cream, fontSize = 14.sp),
-            decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = (if (ipodMode) Color(0xFF1C2920) else Cream).copy(alpha = .48f), fontSize = 14.sp); inner() })
+            textStyle = androidx.compose.ui.text.TextStyle(color = Cream, fontSize = 14.sp),
+            decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = Cream.copy(alpha = .48f), fontSize = 14.sp); inner() })
         if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = if (ipodMode) Color(0xFF1C2920) else Cream) }
     }
 }
-@Composable private fun GroupRow(group: Group, ipodMode: Boolean = false, onClick: () -> Unit) {
+@Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
     val hapticView = LocalView.current
     Row(Modifier.fillMaxWidth().animateContentSize(tween(220)).clickable { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onClick() }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(44.dp).background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
@@ -487,22 +489,22 @@ class MainActivity : ComponentActivity() {
             if (art != null) AsyncImage(model = art, contentDescription = group.title, modifier = Modifier.fillMaxSize()) else Icon(Icons.Default.Album, null, tint = Amber)
         }
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) { Text(group.title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = (if (ipodMode) Color(0xFF9EA9A2) else Cream).copy(alpha = .7f), fontSize = 11.sp) }
+        Column(Modifier.weight(1f)) { Text(group.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text(group.subtitle, color = Cream.copy(alpha = .7f), fontSize = 11.sp) }
         Icon(Icons.Default.ChevronRight, null, tint = Green)
     }
 }
-@Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, ipodMode: Boolean = false, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
+@Composable private fun SongRow(track: Track, number: Int, favorite: Boolean, onPlay: () -> Unit, onFavorite: () -> Unit, onMore: () -> Unit) {
     val hapticView = LocalView.current
     Row(Modifier.fillMaxWidth().animateContentSize(tween(180)).clickable { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onPlay() }.padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(42.dp).background(Panel, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Album, null, tint = Amber.copy(alpha = .35f), modifier = Modifier.size(20.dp)); AsyncImage(model = track.artUri(), contentDescription = track.album, modifier = Modifier.fillMaxSize()); }
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) { Text(track.title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = (if (ipodMode) Color(0xFFA7B1AA) else Cream).copy(alpha = .7f), fontSize = 11.sp, maxLines = 1) }
+        Column(Modifier.weight(1f)) { Text(track.title, color = Cream, fontWeight = FontWeight.SemiBold, maxLines = 1); Text("${track.artist} • ${track.album}", color = Cream.copy(alpha = .7f), fontSize = 11.sp, maxLines = 1) }
         Text(timeText(track.duration), color = Cream.copy(alpha = .45f), fontSize = 10.sp)
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onFavorite() }) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (favorite) Amber else Cream.copy(alpha = .5f)) }
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onMore() }) { Icon(Icons.Default.MoreVert, null, tint = Cream.copy(alpha = .6f)) }
     }
 }
-@Composable private fun MiniPlayer(player: MediaController?, ipodMode: Boolean = false, onOpen: () -> Unit) {
+@Composable private fun MiniPlayer(player: MediaController?, onOpen: () -> Unit) {
     val hapticView = LocalView.current
     var title by remember { mutableStateOf("Choose a track") }
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
@@ -515,10 +517,10 @@ class MainActivity : ComponentActivity() {
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
         delay(300)
     } }
-    Column(Modifier.fillMaxWidth().background(if (ipodMode) Color(0xFF171A1C) else Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
-        LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = if (ipodMode) Color(0xFFC8D2CB) else Amber, trackColor = Cream.copy(alpha = .12f))
+    Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
+        LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(title, color = if (ipodMode) Color(0xFFE7EBE8) else Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = if (ipodMode) Color(0xFFAEB9B1) else Green, fontSize = 10.sp, maxLines = 1) }
+            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
@@ -536,6 +538,16 @@ class MainActivity : ComponentActivity() {
     var showQueue by remember { mutableStateOf(false) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
+    val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
+    val reflectionProgress by reflectionTransition.animateFloat(
+        initialValue = -1.2f, targetValue = 1.8f,
+        animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+        label = "reflection-progress"
+    )
+    val themedBackground by animateColorAsState(dynamicBackground, tween(650), label = "album-background")
+    val themedAccent by animateColorAsState(artAccent, tween(500), label = "album-accent")
+    val themedText = Cream
+    val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
@@ -568,6 +580,10 @@ class MainActivity : ComponentActivity() {
         currentQueueIndex = player?.currentMediaItemIndex ?: -1
         shuffleEnabled = player?.shuffleModeEnabled ?: false
     }
+    LaunchedEffect(trackId) {
+        artAccent = DefaultAmber
+        dynamicBackground = Color(0xFF151713)
+    }
     DisposableEffect(player, tracks) {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
@@ -582,15 +598,15 @@ class MainActivity : ComponentActivity() {
         while (player != null) {
             duration = player.duration.coerceAtLeast(1L).toFloat()
             position = player.currentPosition.toFloat().coerceIn(0f, duration)
-            delay(500)
+            delay(if (player.isPlaying) 250L else 1000L)
         }
     }
-    Column(Modifier.fillMaxSize().background(dynamicBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().background(themedBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = artAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
-            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
+            IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
+            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = themedAccent) }
         }
         Spacer(Modifier.height(20.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
@@ -653,7 +669,7 @@ class MainActivity : ComponentActivity() {
                             onError = { previousArtFailed = true }
                         ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
                     }
-                    Box(
+                    BoxWithConstraints(
                         Modifier.width(centerWidth).height(centerWidth)
                             .shadow(24.dp, RoundedCornerShape(17.dp), clip = false)
                             .background(Color(0xFF20231F), RoundedCornerShape(17.dp))
@@ -673,11 +689,20 @@ class MainActivity : ComponentActivity() {
                                     if (background != null) dynamicBackground = Color(background)
                                 }
                             }
-                        ) else Icon(Icons.Default.Album, null, tint = artAccent, modifier = Modifier.size(104.dp))
-                        Box(Modifier.fillMaxWidth().fillMaxHeight(.30f).align(Alignment.TopCenter)
-                            .background(Brush.linearGradient(listOf(Color.White.copy(alpha = .17f), Color.White.copy(alpha = .055f), Color.Transparent))))
+                        ) else Icon(Icons.Default.Album, null, tint = themedAccent, modifier = Modifier.size(104.dp))
+                        Box(
+                            Modifier.fillMaxWidth(.46f).fillMaxHeight().align(Alignment.CenterStart)
+                                .graphicsLayer { translationX = maxWidth.toPx() * reflectionProgress }
+                                .background(Brush.linearGradient(listOf(
+                                    Color.Transparent, Color.White.copy(alpha = .025f),
+                                    Color.White.copy(alpha = .23f), Color.White.copy(alpha = .055f),
+                                    Color.Transparent
+                                )))
+                        )
+                        Box(Modifier.fillMaxWidth().fillMaxHeight(.24f).align(Alignment.TopCenter)
+                            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .035f), Color.Transparent))))
                         Box(Modifier.fillMaxWidth(.72f).height(1.dp).align(Alignment.TopCenter)
-                            .background(Color.White.copy(alpha = .12f)))
+                            .background(Color.White.copy(alpha = .17f)))
                     }
                     Box(
                         Modifier.width(sideWidth).fillMaxHeight(.72f)
@@ -696,20 +721,20 @@ class MainActivity : ComponentActivity() {
         }
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = Cream.copy(alpha = .55f), fontSize = 13.sp); Text(fileInfo, color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = artAccent) }
+            Column(Modifier.weight(1f)) { Text(title, color = themedText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = themedMuted, fontSize = 13.sp); Text(fileInfo, color = themedAccent.copy(alpha = .88f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = themedAccent) }
         }
-        Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = artAccent, activeTrackColor = artAccent))
-        Row { Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
+        Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = themedAccent, activeTrackColor = themedAccent))
+        Row { Text(timeText(position.toLong()), color = themedMuted, fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = themedMuted, fontSize = 10.sp) }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = artAccent) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
-            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = artAccent)) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Ink, modifier = Modifier.size(38.dp))
+            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
+                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = artAccent) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = themedAccent) }
         }
         Spacer(Modifier.height(14.dp))
     }
@@ -730,7 +755,7 @@ class MainActivity : ComponentActivity() {
                                 Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = Amber, modifier = Modifier.width(30.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = Cream, maxLines = 1)
-                                    Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = Cream.copy(alpha = .5f), fontSize = 10.sp)
+                                    Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = themedMuted, fontSize = 10.sp)
                                 }
                                 IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = Cream.copy(alpha = .6f)) }
                             }
@@ -743,126 +768,4 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun IpodPlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
-    var title by remember { mutableStateOf("Nothing playing") }
-    var artist by remember { mutableStateOf("Choose a song from your library") }
-    var playing by remember { mutableStateOf(false) }
-    var duration by remember { mutableFloatStateOf(1f) }
-    var position by remember { mutableFloatStateOf(0f) }
-    var trackId by remember { mutableStateOf<Long?>(null) }
-    val wheelView = LocalView.current
-    var lastWheelAngle by remember { mutableFloatStateOf(Float.NaN) }
-    var wheelAngleAccumulator by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(player) {
-        while (player != null) {
-            title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
-            artist = player.mediaMetadata.artist?.toString() ?: "Unknown artist"
-            playing = player.isPlaying
-            duration = player.duration.coerceAtLeast(1).toFloat()
-            position = player.currentPosition.toFloat().coerceIn(0f, duration)
-            trackId = tracks.firstOrNull { it.title == title && it.artist == artist }?.id
-            delay(250)
-        }
-    }
-    val currentTrack = tracks.firstOrNull { it.id == trackId }
-    val shell = Color(0xFF090A0B)
-    val wheelText = Color(0xFFE6E8EA)
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF030405)).padding(horizontal = 8.dp, vertical = 5.dp)) {
-        val wheelSize = minOf(maxWidth * 0.76f, maxHeight * 0.34f, 270.dp)
-        val artworkWidthLimit = maxWidth * 0.29f
-        Column(
-            Modifier.fillMaxSize().background(shell, RoundedCornerShape(30.dp))
-                .border(1.5.dp, Color(0xFF45494D), RoundedCornerShape(30.dp))
-                .padding(horizontal = 15.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.ArrowBack, null, tint = wheelText) }
-                Text("ANALOG", color = Color(0xFFE7E9EB), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.2.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton(onClick = onVisualizer, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.GraphicEq, null, tint = Color(0xFFB8C4C9)) }
-            }
-            Card(
-                Modifier.fillMaxWidth().weight(1f).padding(top = 5.dp, bottom = 12.dp).border(2.dp, Color(0xFF555A5F), RoundedCornerShape(13.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFD6DED8)),
-                shape = RoundedCornerShape(11.dp)
-            ) {
-                Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 9.dp)) {
-                    Row(Modifier.fillMaxWidth().background(Color(0xFF65756B), RoundedCornerShape(3.dp)).padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("NOW PLAYING", color = Color(0xFFF2F4EF), fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.3.sp)
-                        Spacer(Modifier.weight(1f))
-                        Icon(Icons.Default.BatteryFull, null, tint = Color(0xFFF2F4EF), modifier = Modifier.size(16.dp))
-                    }
-                    Row(Modifier.fillMaxWidth().weight(1f).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).padding(end = 9.dp)) {
-                            Text(if (playing) "PLAYING" else "PAUSED", color = Color(0xFF53645A), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            Text(title, color = Color(0xFF17221B), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 3)
-                            Text(artist, color = Color(0xFF435349), fontSize = 11.sp, maxLines = 2)
-                        }
-                        val artSize = minOf(108.dp, artworkWidthLimit)
-                        Box(Modifier.size(artSize).border(1.dp, Color(0xFF8E9A91), RoundedCornerShape(3.dp)).background(Color(0xFFBEC9C0), RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
-                            if (currentTrack != null) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize())
-                            else Icon(Icons.Default.Album, null, tint = Color(0xFF526258), modifier = Modifier.size(42.dp))
-                        }
-                    }
-                    Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration,
-                        colors = SliderDefaults.colors(thumbColor = Color(0xFF35463B), activeTrackColor = Color(0xFF64796A), inactiveTrackColor = Color(0xFFAAB5AC)))
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(timeText(position.toLong()), color = Color(0xFF45564B), fontSize = 9.sp)
-                        Spacer(Modifier.weight(1f))
-                        Text(timeText(duration.toLong()), color = Color(0xFF45564B), fontSize = 9.sp)
-                    }
-                }
-            }
-            Box(
-                Modifier.padding(bottom = 7.dp).size(wheelSize).background(Color(0xFF181A1C), androidx.compose.foundation.shape.CircleShape)
-                    .border(2.dp, Color(0xFF55595D), androidx.compose.foundation.shape.CircleShape)
-                    .pointerInput(player) {
-                        detectDragGestures(
-                            onDragStart = { offset -> lastWheelAngle = atan2(offset.y - size.height / 2f, offset.x - size.width / 2f); wheelAngleAccumulator = 0f },
-                            onDrag = { change, _ ->
-                                val angle = atan2(change.position.y - size.height / 2f, change.position.x - size.width / 2f)
-                                if (!lastWheelAngle.isNaN()) {
-                                    var delta = angle - lastWheelAngle
-                                    while (delta > PI.toFloat()) delta -= 2f * PI.toFloat()
-                                    while (delta < -PI.toFloat()) delta += 2f * PI.toFloat()
-                                    wheelAngleAccumulator += delta
-                                    val tick = 15f * PI.toFloat() / 180f
-                                    if (kotlin.math.abs(wheelAngleAccumulator) >= tick) {
-                                        val direction = if (wheelAngleAccumulator > 0f) 1 else -1
-                                        val count = (kotlin.math.abs(wheelAngleAccumulator) / tick).toInt().coerceAtMost(4)
-                                        repeat(count) {
-                                            player?.let { p -> p.seekTo((p.currentPosition + direction * 2000L).coerceIn(0L, p.duration.coerceAtLeast(0L))) }
-                                            wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                        }
-                                        wheelAngleAccumulator -= direction * count * tick
-                                    }
-                                }
-                                lastWheelAngle = angle
-                                change.consume()
-                            },
-                            onDragEnd = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f },
-                            onDragCancel = { lastWheelAngle = Float.NaN; wheelAngleAccumulator = 0f }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(Modifier.size(wheelSize * 0.39f).background(Color(0xFF303438), androidx.compose.foundation.shape.CircleShape).border(1.dp, Color(0xFF666B70), androidx.compose.foundation.shape.CircleShape))
-                Text("MENU", color = wheelText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = wheelSize * 0.105f).clickable { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onBack() })
-                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.align(Alignment.CenterStart).padding(start = wheelSize * 0.075f).size(wheelSize * 0.22f)) { Icon(Icons.Default.SkipPrevious, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.16f)) }
-                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.align(Alignment.CenterEnd).padding(end = wheelSize * 0.075f).size(wheelSize * 0.22f)) { Icon(Icons.Default.SkipNext, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.16f)) }
-                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo(((player?.currentPosition ?: 0L) - 10000L).coerceAtLeast(0L)) }, modifier = Modifier.align(Alignment.TopCenter).padding(top = wheelSize * 0.19f).size(wheelSize * 0.18f)) { Icon(Icons.Default.KeyboardArrowUp, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.15f)) }
-                IconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekTo((player?.currentPosition ?: 0L) + 10000L) }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = wheelSize * 0.19f).size(wheelSize * 0.18f)) { Icon(Icons.Default.KeyboardArrowDown, null, tint = wheelText, modifier = Modifier.size(wheelSize * 0.15f)) }
-                FilledIconButton(onClick = { wheelView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(wheelSize * 0.29f), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF454A4F))) {
-                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color(0xFFF1F2F3), modifier = Modifier.size(wheelSize * 0.14f))
-                }
-            }
-            currentTrack?.let { track ->
-                TextButton(onClick = { onFavorite(track.id) }, modifier = Modifier.height(35.dp)) {
-                    Icon(if (track.id in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (track.id in favorites) Color(0xFFE07A80) else Color(0xFFBFC4C8))
-                    Text(if (track.id in favorites) "FAVORITED" else "FAVORITE", color = Color(0xFFD9DDE0), fontSize = 10.sp, letterSpacing = 1.sp)
-                }
-            } ?: Spacer(Modifier.height(35.dp))
-        }
-    }
-}
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
