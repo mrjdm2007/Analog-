@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -33,6 +34,8 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     var artist by remember { mutableStateOf("Choose a song from your library") }
     var album by remember { mutableStateOf("ANALOG • OFFLINE") }
     var currentTrackId by remember { mutableStateOf<Long?>(null) }
+    val context = LocalContext.current
+    var liveAudioSessionId by remember(audioSessionId) { mutableIntStateOf(audioSessionId) }
     LaunchedEffect(player) {
         while (player != null) {
             title = player.mediaMetadata.title?.toString() ?: "Nothing playing"
@@ -44,11 +47,21 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     }
     val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
-    DisposableEffect(audioPermissionGranted, audioSessionId) {
+    LaunchedEffect(player, audioPermissionGranted, audioSessionId) {
+        if (audioSessionId > 0) liveAudioSessionId = audioSessionId
+        while (audioPermissionGranted && player != null) {
+            val publishedId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE)
+                .getInt("audio_session_id", 0)
+            if (publishedId > 0 && publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
+            delay(250)
+        }
+    }
+
+    DisposableEffect(audioPermissionGranted, liveAudioSessionId) {
         var visualizer: Visualizer? = null
         if (audioPermissionGranted) {
             runCatching {
-                if (audioSessionId > 0) visualizer = Visualizer(audioSessionId).apply {
+                if (liveAudioSessionId > 0) visualizer = Visualizer(liveAudioSessionId).apply {
                     captureSize = Visualizer.getCaptureSizeRange()[1]
                     scalingMode = Visualizer.SCALING_MODE_NORMALIZED
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
@@ -109,9 +122,9 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text("Allow audio visualizer access to animate with your music. Analog uses this only to display playback levels; it does not record or save audio.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
             }
-        } else if (audioSessionId <= 0) {
+        } else if (liveAudioSessionId <= 0) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Text("Start playback, then reopen the visualizer to connect to Analog's active audio session.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
+                Text("Start or resume playback. Analog will connect automatically when its audio session becomes available.", color = Color(0xFFE8E1CF), fontSize = 13.sp)
             }
         } else {
             Text("48-BAND FREQUENCY ANALYZER", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
