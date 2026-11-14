@@ -57,6 +57,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
@@ -123,7 +124,7 @@ class MainActivity : ComponentActivity() {
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
             var settings by remember { mutableStateOf(false) }
-            var playerStyle by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("player_style", "Analog Classic") ?: "Analog Classic") }
+            var playerStyle by remember { mutableStateOf("Analog Classic") }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
             var playCountVersion by remember { mutableIntStateOf(0) }
@@ -185,18 +186,12 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
-                    visualizer -> IpodSubscreenFrame("VISUALIZER", enabled = playerStyle == "iPod Inspired", onMenu = { visualizer = false }) {
-                        RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
-                    }
-                    effects -> IpodSubscreenFrame("AUDIO EFFECTS", enabled = playerStyle == "iPod Inspired", onMenu = { effects = false }) {
-                        AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
-                    }
-                    recap -> IpodSubscreenFrame("LISTENING RECAP", enabled = playerStyle == "iPod Inspired", onMenu = { recap = false }) {
-                        ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
-                    }
-                    settings -> IpodSubscreenFrame("SETTINGS", enabled = playerStyle == "iPod Inspired", onMenu = { settings = false }) { SettingsPage(
+                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
+                    effects -> AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
+                    recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
+                    settings -> SettingsPage(
                         folders = tracks.map { it.folder }.distinct().sorted(), selectedFolders = selectedFolders,
-                        playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", it).apply() },
+                        playerStyle = playerStyle, onPlayerStyleChanged = { playerStyle = "Analog Classic"; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString("player_style", "Analog Classic").apply() },
                         onFoldersChanged = { selectedFolders = it; getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet("selected_folders", it).apply() },
                         singlePress = headsetSingle, doublePress = headsetDouble, triplePress = headsetTriple,
                         visibleSections = visibleSections, onVisibleSectionsChanged = { visibleSections = it; prefs().edit().putStringSet("visible_sections", it).apply() },
@@ -212,26 +207,9 @@ class MainActivity : ComponentActivity() {
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
                     }
 
-                    nowPlaying -> if (playerStyle == "iPod Inspired") IpodPlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
-                    else PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
-                        onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
-                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
-                    playerStyle == "iPod Inspired" -> IpodLibraryPage(
-                        tracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders },
-                        favorites = favorites,
-                        playlists = playlists,
-                        player = controller,
-                        onPlay = { list, index -> play(list, index); playCountVersion++ },
-                        onPlayer = { nowPlaying = true },
-                        onSettings = { settings = true },
-                        onEffects = { effects = true },
-                        onVisualizer = { visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
-                        onRecap = { recap = true },
-                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
-                        onMore = { id -> pendingTrack = id; playlistDialog = true }
-                    )
                     else -> {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
@@ -611,14 +589,14 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxSize().background(dynamicBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Cream) }
-            Text("NOW PLAYING", color = Amber, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            Text("NOW PLAYING", color = artAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = Cream) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = Green) }
         }
         Spacer(Modifier.height(20.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
-        val previousTrack = if (player != null && currentQueueIndex > 0) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex - 1).mediaId.toLongOrNull() } else null
-        val nextTrack = if (player != null && currentQueueIndex >= 0 && currentQueueIndex < player.mediaItemCount - 1) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex + 1).mediaId.toLongOrNull() } else null
+        val previousTrack = if (player != null && player.previousMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.previousMediaItemIndex).mediaId.toLongOrNull() } else null
+        val nextTrack = if (player != null && player.nextMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.nextMediaItemIndex).mediaId.toLongOrNull() } else null
         BoxWithConstraints(
             Modifier.fillMaxWidth().aspectRatio(1f).clipToBounds()
                 .pointerInput(trackId) {
@@ -697,6 +675,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         ) else Icon(Icons.Default.Album, null, tint = artAccent, modifier = Modifier.size(104.dp))
+                        Box(Modifier.fillMaxWidth().fillMaxHeight(.30f).align(Alignment.TopCenter)
+                            .background(Brush.linearGradient(listOf(Color.White.copy(alpha = .17f), Color.White.copy(alpha = .055f), Color.Transparent))))
+                        Box(Modifier.fillMaxWidth(.72f).height(1.dp).align(Alignment.TopCenter)
+                            .background(Color.White.copy(alpha = .12f)))
                     }
                     Box(
                         Modifier.width(sideWidth).fillMaxHeight(.72f)
@@ -716,19 +698,19 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = Cream.copy(alpha = .55f), fontSize = 13.sp); Text(fileInfo, color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = artAccent) }
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = artAccent, activeTrackColor = artAccent))
         Row { Text(timeText(position.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = Cream.copy(alpha = .5f), fontSize = 10.sp) }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = Green) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = artAccent) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = artAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Ink, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = Green) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = artAccent) }
         }
         Spacer(Modifier.height(14.dp))
     }
