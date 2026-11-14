@@ -10,6 +10,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.content.ContentUris
 import android.graphics.drawable.BitmapDrawable
+import android.media.MediaMetadataRetriever
 import androidx.palette.graphics.Palette
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -30,6 +31,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import android.view.HapticFeedbackConstants
 import kotlin.math.atan2
 import kotlin.math.PI
@@ -56,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -559,6 +562,25 @@ class MainActivity : ComponentActivity() {
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
+    var fileInfo by remember { mutableStateOf("Reading audio file details…") }
+    val playerContext = LocalContext.current
+    LaunchedEffect(trackId) {
+        val uri = tracks.firstOrNull { it.id == trackId }?.uri
+        fileInfo = if (uri == null) "LOCAL AUDIO" else withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(playerContext, uri)
+                val bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toIntOrNull()
+                val sampleRate = if (Build.VERSION.SDK_INT >= 31) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull() else null
+                val bitrateText = bitrate?.let { if (it >= 1_000_000) "%.2f Mbps".format(it / 1_000_000f) else "${it / 1000} kbps" }
+                listOfNotNull(bitrateText, sampleRate?.let { "${it / 1000} kHz" }).joinToString("  •  ").ifBlank { "LOCAL AUDIO • DETAILS UNAVAILABLE" }
+            } catch (_: Exception) {
+                "LOCAL AUDIO • DETAILS UNAVAILABLE"
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+    }
     val syncPlayerState = {
         title = player?.mediaMetadata?.title?.toString() ?: "Nothing playing"
         artist = player?.mediaMetadata?.artist?.toString() ?: "Unknown artist"
@@ -656,6 +678,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(
                         Modifier.width(centerWidth).height(centerWidth)
+                            .shadow(24.dp, RoundedCornerShape(17.dp), clip = false)
                             .background(Color(0xFF20231F), RoundedCornerShape(17.dp))
                             .clip(RoundedCornerShape(17.dp)),
                         contentAlignment = Alignment.Center
@@ -692,7 +715,7 @@ class MainActivity : ComponentActivity() {
         }
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = Cream.copy(alpha = .55f), fontSize = 13.sp) }
+            Column(Modifier.weight(1f)) { Text(title, color = Cream, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = Cream.copy(alpha = .55f), fontSize = 13.sp); Text(fileInfo, color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = Amber) }
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = artAccent, activeTrackColor = artAccent))

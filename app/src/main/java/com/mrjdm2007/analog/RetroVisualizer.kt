@@ -136,15 +136,18 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                 }
             }
             Spacer(Modifier.height(28.dp))
-            Text("OUTPUT LEVEL", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
+            Text("STEREO OUTPUT METERS", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("OUT", color = Color(0xFFFFB45B), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
-                Box(Modifier.weight(1f).height(12.dp).background(Color(0xFF263126), RoundedCornerShape(3.dp))) {
-                    Box(Modifier.fillMaxWidth(peak.coerceIn(.02f, 1f)).fillMaxHeight().background(Color(0xFFB5D69B), RoundedCornerShape(3.dp)))
+            listOf("L", "R").forEach { channel ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(channel, color = Color(0xFFFFB45B), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(24.dp))
+                    Box(Modifier.weight(1f).height(19.dp).background(Color(0xFF263126), RoundedCornerShape(3.dp))) {
+                        Box(Modifier.fillMaxWidth(peak.coerceIn(.02f, 1f)).fillMaxHeight().background(Color(0xFF789B82), RoundedCornerShape(3.dp)))
+                    }
+                    Text("%02d".format((peak * 100).toInt()), color = Color(0xFFB5D69B), fontSize = 9.sp, modifier = Modifier.width(32.dp).padding(start = 7.dp))
                 }
             }
-            Text("LIVE OUTPUT MIX  •  48-BAND FFT", color = Color(0xFF71806B), fontSize = 9.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 18.dp, bottom = 20.dp))
+            Text("LIVE OUTPUT MIX • 48-BAND FFT • PEAK HOLD", color = Color(0xFF71806B), fontSize = 9.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 18.dp, bottom = 20.dp))
         }
     }
 }

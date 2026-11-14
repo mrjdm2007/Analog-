@@ -85,8 +85,14 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             })
         }
         if (!available) {
-            Text(if (audioSessionId <= 0) "Start playing a track, then reopen Audio Effects to attach the equalizer to the active audio session." else "Audio effects are not available on this device or output route.", color = Color(0xFFE8E1CF))
-        } else {
+            Text(
+                if (audioSessionId <= 0) "Waiting for playback session… Start a song and the equaliser will connect automatically."
+                else "Android has not granted an audio-effects session for this route. The controls remain visible but inactive.",
+                color = Color(0xFFE8E1CF), fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+        }
+        {
             Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(16.dp)) {
@@ -103,7 +109,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                                 val level = (range[0] + ((v + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
                                 if (index < effect.numberOfBands.toInt()) effect.setBandLevel(index.toShort(), level)
                             }
-                        }, valueRange = -1f..1f, enabled = enabled, modifier = Modifier.weight(1f),
+                        }, valueRange = -1f..1f, enabled = enabled && available, modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
                     }
                 }
@@ -126,14 +132,14 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                                 }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
                                 context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
                             }
-                        }, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
+                        }, enabled = enabled && available, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
                     }
                 }
             }
             Spacer(Modifier.height(24.dp))
             Text("BASS BOOST", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Slider(value = bassLevel, onValueChange = { bassLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_bass", it).apply(); runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
-                valueRange = 0f..100f, enabled = enabled, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
+                valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("VIRTUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Slider(value = spaceLevel, onValueChange = { spaceLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_space", it).apply(); runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
                 valueRange = 0f..100f, enabled = enabled, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
