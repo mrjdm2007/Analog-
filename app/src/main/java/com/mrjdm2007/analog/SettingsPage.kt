@@ -29,8 +29,6 @@ fun SettingsPage(
     folders: List<String>,
     selectedFolders: Set<String>,
     onFoldersChanged: (Set<String>) -> Unit,
-    playerStyle: String,
-    onPlayerStyleChanged: (String) -> Unit,
     singlePress: String,
     doublePress: String,
     triplePress: String,
@@ -65,7 +63,6 @@ fun SettingsPage(
             item {
                 Text("PLAYER APPEARANCE", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
                 Text("Analog Classic is the player interface.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
-                ActionDropdown("Player style", "Analog Classic", listOf("Analog Classic"), onPlayerStyleChanged)
             }
             item {
                 Text("MUSIC LIBRARY", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
