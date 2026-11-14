@@ -64,8 +64,8 @@ fun SettingsPage(
         LazyColumn(contentPadding = PaddingValues(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Text("PLAYER APPEARANCE", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
-                Text("Choose the Now Playing interface. This changes the player layout only; playback and your library stay the same.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
-                ActionDropdown("Player style", playerStyle, listOf("Analog Classic", "iPod Inspired"), onPlayerStyleChanged)
+                Text("Analog Classic is the player interface.", color = SettingsCream.copy(alpha = .65f), fontSize = 12.sp)
+                ActionDropdown("Player style", "Analog Classic", listOf("Analog Classic"), onPlayerStyleChanged)
             }
             item {
                 Text("MUSIC LIBRARY", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 8.dp))
