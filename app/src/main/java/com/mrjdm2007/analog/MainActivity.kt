@@ -662,7 +662,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         if (center != null && center.albumId > 0L && !centerArtFailed) AsyncImage(
                             model = center.artUri(), contentDescription = center.album,
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().padding(4.dp), contentScale = ContentScale.Fit,
                             onError = { centerArtFailed = true },
                             onSuccess = { state ->
                                 val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
