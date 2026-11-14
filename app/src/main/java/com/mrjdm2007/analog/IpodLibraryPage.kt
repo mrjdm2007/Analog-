@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
@@ -365,6 +366,15 @@ private fun NowPlayingInfo(
                 contentScale = ContentScale.Crop,
                 onError = { artworkFailed = true }
             ) else Icon(Icons.Default.Album, null, tint = IpodMuted, modifier = Modifier.size(62.dp))
+            // Subtle glossy sheen over the album-art glass; keeps artwork legible.
+            Box(
+                Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(3.dp))
+                    .background(Brush.linearGradient(
+                        colors = listOf(Color.White.copy(alpha = .20f), Color.White.copy(alpha = .035f), Color.Transparent, Color.Black.copy(alpha = .06f)),
+                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        end = androidx.compose.ui.geometry.Offset(520f, 700f)
+                    ))
+            )
         }
         Text(title, color = IpodInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(artist, color = IpodMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
