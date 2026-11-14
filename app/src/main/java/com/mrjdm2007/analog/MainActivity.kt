@@ -363,12 +363,22 @@ class MainActivity : ComponentActivity() {
         val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
         val libraryPrefs = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
         val dailyShuffleDue = libraryPrefs.getString("daily_shuffle_day", null) != dayKey
-        val orderedTracks = if (dailyShuffleDue && list.size > 1) {
-            // Keep the requested song first; shuffle the rest once on the first play of each day.
-            list.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
-        } else list
-        if (dailyShuffleDue) libraryPrefs.edit().putString("daily_shuffle_day", dayKey).apply()
-        val queueIndex = if (dailyShuffleDue) 0 else index
+        val savedOrder = libraryPrefs.getString("daily_shuffle_order", null)
+            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+        val tracksById = list.associateBy { it.id }
+        val restoredOrder = savedOrder?.takeIf { ids ->
+            ids.size == list.size && ids.toSet().size == ids.size && ids.all { it in tracksById }
+        }?.mapNotNull { tracksById[it] }
+        val orderedTracks = when {
+            dailyShuffleDue && list.size > 1 -> list.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
+            restoredOrder != null -> restoredOrder
+            else -> list
+        }
+        if (dailyShuffleDue) libraryPrefs.edit()
+            .putString("daily_shuffle_day", dayKey)
+            .putString("daily_shuffle_order", orderedTracks.joinToString(",") { it.id.toString() })
+            .apply()
+        val queueIndex = orderedTracks.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
         c.setMediaItems(orderedTracks.map { track ->
             MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
                 .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
