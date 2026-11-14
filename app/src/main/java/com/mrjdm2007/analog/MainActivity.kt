@@ -40,6 +40,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -535,6 +537,7 @@ class MainActivity : ComponentActivity() {
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
+    var shuffleEnabled by remember { mutableStateOf(false) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     val syncPlayerState = {
         title = player?.mediaMetadata?.title?.toString() ?: "Nothing playing"
@@ -544,6 +547,7 @@ class MainActivity : ComponentActivity() {
         position = (player?.currentPosition ?: 0L).toFloat().coerceIn(0f, duration)
         trackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         currentQueueIndex = player?.currentMediaItemIndex ?: -1
+        shuffleEnabled = player?.shuffleModeEnabled ?: false
     }
     DisposableEffect(player, tracks) {
         val listener = object : Player.Listener {
@@ -574,7 +578,7 @@ class MainActivity : ComponentActivity() {
         val previousTrack = if (player != null && currentQueueIndex > 0) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex - 1).mediaId.toLongOrNull() } else null
         val nextTrack = if (player != null && currentQueueIndex >= 0 && currentQueueIndex < player.mediaItemCount - 1) tracks.firstOrNull { it.id == player.getMediaItemAt(currentQueueIndex + 1).mediaId.toLongOrNull() } else null
         BoxWithConstraints(
-            Modifier.fillMaxWidth().aspectRatio(1.12f).clipToBounds()
+            Modifier.fillMaxWidth().aspectRatio(1f).clipToBounds()
                 .pointerInput(trackId) {
                     detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> swipeDistance += amount }, onDragEnd = {
                         if (swipeDistance < -55f) player?.seekToNext()
@@ -597,11 +601,11 @@ class MainActivity : ComponentActivity() {
                 transitionSpec = {
                     val direction = if (targetState >= initialState) 1 else -1
                     (slideInHorizontally(
-                        animationSpec = tween(260, easing = FastOutSlowInEasing),
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
                         initialOffsetX = { width -> direction * width }
                     ) + fadeIn(tween(180))) togetherWith
                     (slideOutHorizontally(
-                        animationSpec = tween(260, easing = FastOutSlowInEasing),
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
                         targetOffsetX = { width -> -direction * width }
                     ) + fadeOut(tween(160)))
                 },
@@ -619,19 +623,19 @@ class MainActivity : ComponentActivity() {
                     horizontalArrangement = Arrangement.spacedBy(maxWidth * .02f)
                 ) {
                     Box(
-                        Modifier.width(sideWidth).fillMaxHeight(.72f)
+                        Modifier.width(sideWidth).height(sideWidth)
                             .background(Color(0xFF252923), RoundedCornerShape(13.dp))
                             .clip(RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (previous != null && previous.albumId > 0L && !previousArtFailed) AsyncImage(
                             model = previous.artUri(), contentDescription = "Previous: ${previous.title}",
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .48f,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = .48f,
                             onError = { previousArtFailed = true }
                         ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
                     }
                     Box(
-                        Modifier.width(centerWidth).fillMaxHeight(.96f)
+                        Modifier.width(centerWidth).height(centerWidth)
                             .background(Color(0xFF20231F), RoundedCornerShape(17.dp))
                             .clip(RoundedCornerShape(17.dp)),
                         contentAlignment = Alignment.Center
