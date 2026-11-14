@@ -191,7 +191,7 @@ fun IpodLibraryPage(
                             Text("‹", color = Color.White, fontSize = 18.sp, modifier = Modifier.clickable { back() }.padding(end = 7.dp))
                         }
                         Text(page.uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp, modifier = Modifier.weight(1f))
-                        Text("${tracks.size} TRACKS", color = Color.White.copy(alpha = .82f), fontSize = 8.sp)
+                        Text(if (page == "Songs") "DAILY SHUFFLE" else "${tracks.size} TRACKS", color = Color.White.copy(alpha = .82f), fontSize = 8.sp)
                     }
                     if (page == "Now Playing") {
                         val queueIndex = player?.currentMediaItemIndex ?: -1
