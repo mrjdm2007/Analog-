@@ -223,6 +223,7 @@ class MainActivity : ComponentActivity() {
                         onPlay = { list, index -> play(list, index); playCountVersion++ },
                         onPlayer = { nowPlaying = true },
                         onSettings = { settings = true },
+                        onEffects = { effects = true },
                         onVisualizer = { visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onRecap = { recap = true },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
