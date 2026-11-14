@@ -54,6 +54,7 @@ fun IpodLibraryPage(
     onPlay: (List<Track>, Int) -> Unit,
     onPlayer: () -> Unit,
     onSettings: () -> Unit,
+    onEffects: () -> Unit,
     onVisualizer: () -> Unit,
     onRecap: () -> Unit,
     onFavorite: (Long) -> Unit,
@@ -136,7 +137,7 @@ fun IpodLibraryPage(
                 "Now Playing" -> onPlayer()
                 "Playlists" -> { page = item; selected = 0 }
                 "Listening Recap" -> onRecap()
-                "Equalizer" -> onSettings()
+                "Equalizer" -> onEffects()
                 "Visualizer" -> onVisualizer()
                 "Settings" -> onSettings()
                 else -> { page = item; selected = 0 }
