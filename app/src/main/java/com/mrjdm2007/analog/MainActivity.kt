@@ -631,9 +631,9 @@ class MainActivity : ComponentActivity() {
                 },
                 label = "classic-artwork-carousel"
             ) { animatedIndex ->
-                val previous = trackAt(animatedIndex - 1)
+                val previous = if (animatedIndex == currentQueueIndex && player != null && player.previousMediaItemIndex >= 0) trackAt(player.previousMediaItemIndex) else trackAt(animatedIndex - 1)
                 val center = trackAt(animatedIndex) ?: currentTrack
-                val next = trackAt(animatedIndex + 1)
+                val next = if (animatedIndex == currentQueueIndex && player != null && player.nextMediaItemIndex >= 0) trackAt(player.nextMediaItemIndex) else trackAt(animatedIndex + 1)
                 var previousArtFailed by remember(previous?.albumId) { mutableStateOf(false) }
                 var centerArtFailed by remember(center?.albumId) { mutableStateOf(false) }
                 var nextArtFailed by remember(next?.albumId) { mutableStateOf(false) }
