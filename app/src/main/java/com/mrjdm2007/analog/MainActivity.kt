@@ -478,7 +478,7 @@ class MainActivity : ComponentActivity() {
         BasicTextField(value, onChange, modifier = Modifier.weight(1f), singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Cream, fontSize = 14.sp),
             decorationBox = { inner -> if (value.isEmpty()) Text("Search songs, artists, albums", color = Cream.copy(alpha = .48f), fontSize = 14.sp); inner() })
-        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = if (ipodMode) Color(0xFF1C2920) else Cream) }
+        if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = Cream) }
     }
 }
 @Composable private fun GroupRow(group: Group, onClick: () -> Unit) {
@@ -515,7 +515,7 @@ class MainActivity : ComponentActivity() {
         artist = player.mediaMetadata.artist?.toString() ?: "ANALOG • OFFLINE"
         playing = player.isPlaying
         progress = if (player.duration > 0) player.currentPosition.toFloat() / player.duration else 0f
-        delay(300)
+        delay(if (player.isPlaying) 300L else 1000L)
     } }
     Column(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 9.dp)) {
         LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Cream.copy(alpha = .12f))
@@ -667,7 +667,7 @@ class MainActivity : ComponentActivity() {
                             model = previous.artUri(), contentDescription = "Previous: ${previous.title}",
                             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = .48f,
                             onError = { previousArtFailed = true }
-                        ) else Icon(Icons.Default.Album, null, tint = Cream.copy(alpha = .22f))
+                        ) else Icon(Icons.Default.Album, null, tint = themedText.copy(alpha = .22f))
                     }
                     BoxWithConstraints(
                         Modifier.width(centerWidth).height(centerWidth)
@@ -729,7 +729,7 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = Cream, modifier = Modifier.size(36.dp)) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = themedText, modifier = Modifier.size(36.dp)) }
             FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
@@ -741,23 +741,23 @@ class MainActivity : ComponentActivity() {
     if (showQueue) {
         AlertDialog(
             onDismissRequest = { showQueue = false },
-            containerColor = Panel,
-            title = { Text("PLAYBACK QUEUE", color = Amber, fontSize = 14.sp, letterSpacing = 1.5.sp) },
+            containerColor = themedBackground,
+            title = { Text("PLAYBACK QUEUE", color = themedAccent, fontSize = 14.sp, letterSpacing = 1.5.sp) },
             text = {
                 if (player == null || player.mediaItemCount == 0) {
-                    Text("The queue is empty.", color = Cream)
+                    Text("The queue is empty.", color = themedText)
                 } else {
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
                         items(player.mediaItemCount) { index ->
                             val item = player.getMediaItemAt(index)
                             Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); showQueue = false }.padding(vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = Amber, modifier = Modifier.width(30.dp))
+                                Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = themedAccent, modifier = Modifier.width(30.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = Cream, maxLines = 1)
+                                    Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = themedText, maxLines = 1)
                                     Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = themedMuted, fontSize = 10.sp)
                                 }
-                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = Cream.copy(alpha = .6f)) }
+                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
                             }
                         }
                     }
