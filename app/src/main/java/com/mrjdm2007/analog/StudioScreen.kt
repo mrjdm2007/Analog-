@@ -275,7 +275,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
-                            enabled = snapshot.status !in listOf("STARTING", "RECORDING", "PAUSED"),
+                            enabled = snapshot.status !in listOf("STARTING", "RECORDING", "PAUSED", "FINALIZING"),
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = StudioAmber, contentColor = StudioBg)
                         ) {
