@@ -215,6 +215,8 @@ struct LibraryView: View {
                     Text("Browse, queue and organise your local audio files").font(.system(size: 11)).foregroundStyle(AnalogPalette.muted)
                 }
                 Spacer()
+                Button { player.importAudioFiles() } label: { Label("ADD FILES", systemImage: "plus.square.on.square") }.buttonStyle(AnalogOutlineButton())
+                Button { player.importMusicFolder() } label: { Label("SCAN FOLDER", systemImage: "folder.badge.plus") }.buttonStyle(AnalogOutlineButton())
                 Button { showCreate = true } label: { Label("NEW PLAYLIST", systemImage: "plus") }.buttonStyle(AnalogOutlineButton())
                     .alert("Create playlist", isPresented: $showCreate) {
                         TextField("Playlist name", text: $playlistName)
