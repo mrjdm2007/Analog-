@@ -2,7 +2,6 @@ package com.mrjdm2007.analog
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Environment
 import androidx.core.content.ContextCompat
@@ -55,13 +54,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var takes by remember { mutableStateOf(listTakes(context)) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingFile by remember { mutableStateOf<File?>(null) }
-    val inputLabel = remember {
-        runCatching {
-            val manager = context.getSystemService(AudioManager::class.java)
-            manager.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull()?.productName?.toString()
-                ?: "Default device microphone"
-        }.getOrDefault("Default device microphone")
-    }
+    // AudioRecord follows Android's active input route; explicit device selection is not implemented yet.
+    val inputLabel = "SYSTEM-ROUTED MICROPHONE INPUT"
 
     fun sendCommand(action: String) {
         context.startService(Intent(context, RecordingService::class.java).setAction(action))
