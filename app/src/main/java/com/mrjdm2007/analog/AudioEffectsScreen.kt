@@ -1,10 +1,8 @@
 package com.mrjdm2007.analog
 
-import android.media.audiofx.BassBoost
 import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
-import android.media.audiofx.Equalizer
-import android.media.audiofx.Virtualizer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,142 +17,131 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 @Composable
 fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> Unit) {
-    var eq by remember { mutableStateOf<Equalizer?>(null) }
-    var bass by remember { mutableStateOf<BassBoost?>(null) }
-    var virtualizer by remember { mutableStateOf<Virtualizer?>(null) }
-    var available by remember { mutableStateOf(false) }
-    var bands by remember { mutableStateOf(List(5) { 0f }) }
-    var bassLevel by remember { mutableFloatStateOf(0f) }
-    var spaceLevel by remember { mutableFloatStateOf(0f) }
-    var enabled by remember { mutableStateOf(true) }
-    var presets by remember { mutableStateOf(emptyList<String>()) }
     val context = LocalContext.current
-    val deviceProfileKey = remember(context, outputRoute) {
-        val route = outputRoute.removePrefix("Connected: ").takeIf { outputRoute.startsWith("Connected: ") } ?: "device-default"
-        "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
+    val prefs = remember(context) { context.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
+    var liveSession by remember { mutableIntStateOf(audioSessionId) }
+    var bandCount by remember { mutableIntStateOf(prefs.getInt("eq_band_count", 0)) }
+    var centers by remember { mutableStateOf(emptyList<Int>()) }
+    var bands by remember { mutableStateOf(emptyList<Float>()) }
+    var bassLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_bass", 0f)) }
+    var spaceLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_space", 0f)) }
+    var enabled by remember { mutableStateOf(prefs.getBoolean("eq_enabled", true)) }
+    var available by remember { mutableStateOf(prefs.getBoolean("eq_available", false)) }
+    var error by remember { mutableStateOf(prefs.getString("eq_error", "").orEmpty()) }
+
+    fun send(action: String, build: Intent.() -> Unit = {}) {
+        val intent = Intent(context, PlaybackService::class.java).setAction(action).apply(build)
+        runCatching { context.startService(intent) }
+    }
+    fun refresh() {
+        val id = prefs.getInt("audio_session_id", 0)
+        if (id > 0) liveSession = id
+        bandCount = prefs.getInt("eq_band_count", 0)
+        centers = prefs.getString("eq_band_centers", "").orEmpty().split(",").mapNotNull { it.toIntOrNull() }
+        val saved = prefs.getString("eq_band_levels", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }
+        bands = List(bandCount) { i -> saved?.getOrNull(i)?.coerceIn(-1f, 1f) ?: 0f }
+        bassLevel = prefs.getFloat("eq_bass", 0f)
+        spaceLevel = prefs.getFloat("eq_space", 0f)
+        enabled = prefs.getBoolean("eq_enabled", true)
+        available = prefs.getBoolean("eq_available", false)
+        error = prefs.getString("eq_error", "").orEmpty()
+    }
+    LaunchedEffect(Unit) {
+        while (true) { refresh(); delay(450L) }
     }
 
-    DisposableEffect(deviceProfileKey, audioSessionId) {
-        runCatching {
-            if (audioSessionId > 0) {
-                eq = Equalizer(0, audioSessionId).apply { enabled = true }
-                bass = BassBoost(0, audioSessionId).apply { enabled = true }
-                virtualizer = Virtualizer(0, audioSessionId).apply { enabled = true }
-                available = eq != null
-            } else {
-                available = false
-            }
-            val e = eq
-            if (e != null) {
-                val range = e.bandLevelRange
-                val count = e.numberOfBands.toInt().coerceAtLeast(1)
-                val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
-                // Older builds stored band values in a Set, whose iteration order is not guaranteed.
-                // Migrate it safely; a typed getString on that legacy key would throw ClassCastException.
-                val orderedSaved = runCatching { prefs.getString(deviceProfileKey, null) }.getOrNull()
-                val legacySaved = if (orderedSaved == null) runCatching {
-                    prefs.getStringSet(deviceProfileKey, null)?.toList()
-                }.getOrNull() else null
-                val saved = orderedSaved?.split(",")?.mapNotNull { it.toFloatOrNull() }
-                    ?: legacySaved?.mapNotNull { it.toFloatOrNull() }
-                if (orderedSaved == null && legacySaved != null) {
-                    prefs.edit().putString(deviceProfileKey, legacySaved.joinToString(",")).apply()
-                }
-                bands = if (saved != null && saved.size == count) saved else (0 until count).map { i ->
-                    val level = e.getBandLevel(i.toShort()).toFloat()
-                    if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
-                }
-                bands.forEachIndexed { i, value ->
-                    val level = (range[0] + ((value + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
-                    runCatching { e.setBandLevel(i.toShort(), level) }
-                }
-                presets = (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
-            }
-            val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
-            bassLevel = prefs.getFloat(deviceProfileKey + "_bass", 0f)
-            spaceLevel = prefs.getFloat(deviceProfileKey + "_space", 0f)
-            runCatching { bass?.setStrength((bassLevel * 10).toInt().toShort()); virtualizer?.setStrength((spaceLevel * 10).toInt().toShort()) }
-        }
-        onDispose {
-            runCatching { eq?.release(); bass?.release(); virtualizer?.release() }
-            eq = null; bass = null; virtualizer = null
-        }
-    }
-
+    val text = Color(0xFFE8E1CF)
+    val accent = Color(0xFFFFB45B)
+    val green = Color(0xFFB5D69B)
+    val panel = Color(0xFF1A1C18)
     Column(Modifier.fillMaxSize().background(Color(0xFF10110F)).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Color(0xFFE8E1CF)) }
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = text) }
             Column(Modifier.weight(1f)) {
-                Text("ANALOG / SOUND", color = Color(0xFFFFB45B), fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("AUDIO EFFECTS", color = Color(0xFFB5D69B), fontSize = 9.sp, letterSpacing = 1.5.sp)
+                Text("ANALOG / SOUND", color = accent, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("SYSTEM-LINKED EQUALIZER", color = green, fontSize = 9.sp, letterSpacing = 1.5.sp)
             }
             Switch(checked = enabled, onCheckedChange = { value ->
                 enabled = value
-                runCatching { eq?.enabled = value; bass?.enabled = value; virtualizer?.enabled = value }
+                send(PlaybackService.ACTION_EQ_ENABLED) { putExtra(PlaybackService.EXTRA_ENABLED, value) }
             })
         }
-        if (!available) {
+        Text("OUTPUT • " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
+        if (!available || liveSession <= 0 || bandCount <= 0) {
             Text(
-                if (audioSessionId <= 0) "Waiting for playback session… Start a song and the equaliser will connect automatically."
-                else "Android has not granted an audio-effects session for this route. The controls remain visible but inactive.",
-                color = Color(0xFFE8E1CF), fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 12.dp)
+                if (liveSession <= 0) "Start a song. The equaliser will attach to the active player session automatically."
+                else if (error.isNotBlank()) "Equaliser unavailable on this audio session: " + error
+                else "Connecting the equaliser to the active playback session…",
+                color = accent, fontSize = 12.sp, modifier = Modifier.padding(vertical = 16.dp)
             )
-        }
-        Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
+        } else {
+            Text("EQUALIZER • " + bandCount + " BANDS", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(12.dp))
-            Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().background(panel).padding(16.dp)) {
                 bands.forEachIndexed { index, value ->
-                    val centerHz = runCatching { (eq?.getCenterFreq(index.toShort()) ?: 0) / 1000 }.getOrDefault(0)
-                    val label = if (centerHz >= 1000) String.format(java.util.Locale.US, "%.1f kHz", centerHz / 1000f) else "$centerHz Hz"
+                    val hz = centers.getOrNull(index)?.div(1000f) ?: 0f
+                    val label = if (hz >= 1000f) "%.1f kHz".format(java.util.Locale.US, hz / 1000f) else hz.toInt().toString() + " Hz"
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(62.dp))
+                        Text(label, color = text, fontSize = 10.sp, modifier = Modifier.width(62.dp))
                         Slider(value = value, onValueChange = { v ->
                             bands = bands.toMutableList().also { it[index] = v }
-                            context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(deviceProfileKey, bands.joinToString(",")).apply()
-                            runCatching {
-                                val effect = eq ?: return@runCatching
-                                val range = effect.bandLevelRange
-                                val level = (range[0] + ((v + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
-                                if (index < effect.numberOfBands.toInt()) effect.setBandLevel(index.toShort(), level)
+                            send(PlaybackService.ACTION_EQ_BAND) {
+                                putExtra(PlaybackService.EXTRA_BAND_INDEX, index)
+                                putExtra(PlaybackService.EXTRA_BAND_LEVEL, v)
                             }
-                        }, valueRange = -1f..1f, enabled = enabled && available, modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
+                        }, valueRange = -1f..1f, enabled = enabled && available,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+                        Text("%+.1f".format(java.util.Locale.US, value * 12f), color = green, fontSize = 9.sp, modifier = Modifier.width(34.dp))
                     }
                 }
             }
-            if (presets.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                Text("PRESETS", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Normal", "Rock", "Jazz", "Classical").forEach { label ->
-                        val index = presets.indexOfFirst { it.equals(label, true) }
-                        if (index >= 0) OutlinedButton(onClick = {
-                            runCatching { eq?.usePreset(index.toShort()) }
-                            val e = eq
-                            if (e != null) {
-                                val range = e.bandLevelRange
-                                bands = (0 until e.numberOfBands.toInt()).map { index ->
-                                    val level = e.getBandLevel(index.toShort()).toFloat()
-                                    if (range[1] == range[0]) 0f else ((level - range[0]) / (range[1] - range[0])) * 2f - 1f
+            Spacer(Modifier.height(14.dp))
+            Text("QUICK PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Spacer(Modifier.height(8.dp))
+            val profileNames = listOf("Flat", "Bass", "Treble", "Vocal", "Rock", "Classical")
+            profileNames.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    row.forEach { name ->
+                        OutlinedButton(onClick = {
+                            val values = List(bandCount) { i ->
+                                val x = if (bandCount <= 1) 0f else i.toFloat() / (bandCount - 1)
+                                when (name) {
+                                    "Bass" -> when { x < .25f -> .85f; x < .48f -> .45f; x < .72f -> .05f; else -> -.08f }
+                                    "Treble" -> when { x < .25f -> -.08f; x < .5f -> .05f; x < .75f -> .45f; else -> .85f }
+                                    "Vocal" -> (.48f - kotlin.math.abs(x - .5f) * 1.35f).coerceIn(-.35f, .48f)
+                                    "Rock" -> when { x < .22f -> .55f; x < .45f -> .12f; x < .68f -> -.12f; else -> .48f }
+                                    "Classical" -> when { x < .2f -> .32f; x < .45f -> .12f; x < .7f -> .18f; else -> .38f }
+                                    else -> 0f
                                 }
-                                context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(deviceProfileKey, bands.joinToString(",")).apply()
                             }
-                        }, enabled = enabled && available, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
+                            bands = values
+                            send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, values.joinToString(",")) }
+                        }, enabled = enabled && available, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Text(name, fontSize = 10.sp)
+                        }
                     }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
-            Spacer(Modifier.height(24.dp))
-            Text("BASS BOOST", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-            Slider(value = bassLevel, onValueChange = { bassLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_bass", it).apply(); runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
-                valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
-            Text("VIRTUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-            Slider(value = spaceLevel, onValueChange = { spaceLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_space", it).apply(); runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
-                valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
-            Text("Effects availability and processing depend on the Android device and audio route.", color = Color(0xFF8E9687), fontSize = 10.sp, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
+            Spacer(Modifier.height(18.dp))
+            Text("BASS BOOST", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Slider(value = bassLevel, onValueChange = { value ->
+                bassLevel = value
+                send(PlaybackService.ACTION_EQ_BASS) { putExtra(PlaybackService.EXTRA_STRENGTH, value) }
+            }, valueRange = 0f..100f, enabled = enabled && available,
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+            Text("STEREO WIDTH", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Slider(value = spaceLevel, onValueChange = { value ->
+                spaceLevel = value
+                send(PlaybackService.ACTION_EQ_SPACE) { putExtra(PlaybackService.EXTRA_STRENGTH, value) }
+            }, valueRange = 0f..100f, enabled = enabled && available,
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+        }
+        Text("The equaliser stays attached to playback when you leave this screen. Output hardware may limit available effects.", color = text.copy(alpha = .55f), fontSize = 10.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
     }
 }
