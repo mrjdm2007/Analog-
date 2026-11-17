@@ -701,6 +701,7 @@ class MainActivity : ComponentActivity() {
     var showQueueSets by remember { mutableStateOf(false) }
     var queueSetName by remember { mutableStateOf("") }
     var queueSetVersion by remember { mutableIntStateOf(0) }
+    var customSleepMinutes by remember { mutableStateOf("90") }
     val libraryPrefs = remember(playerContext) { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
@@ -973,6 +974,18 @@ class MainActivity : ComponentActivity() {
                         Text("$minutes MIN", color = themedText, fontSize = 9.sp, maxLines = 1)
                     }
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = customSleepMinutes,
+                    onValueChange = { customSleepMinutes = it.filter(Char::isDigit).take(3) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("Custom minutes") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = themedText, fontSize = 12.sp)
+                )
+                Button(onClick = { customSleepMinutes.toIntOrNull()?.takeIf { it in 1..720 }?.let(onSleepTimer) },
+                    enabled = customSleepMinutes.toIntOrNull() in 1..720) { Text("SET", fontSize = 10.sp) }
             }
             OutlinedButton(onClick = onSleepTimerEndTrack, modifier = Modifier.fillMaxWidth()) {
                 Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
