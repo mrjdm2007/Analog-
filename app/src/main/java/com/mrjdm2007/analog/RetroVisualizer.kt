@@ -61,11 +61,11 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
 
     LaunchedEffect(player, audioPermissionGranted, audioSessionId) {
         if (audioSessionId > 0) liveAudioSessionId = audioSessionId
-        while (audioPermissionGranted && player != null && liveAudioSessionId <= 0) {
+        while (audioPermissionGranted && player != null) {
             val publishedId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE)
                 .getInt("audio_session_id", 0)
-            if (publishedId > 0 && publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
-            delay(250)
+            if (publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
+            delay(350L)
         }
     }
 
