@@ -8,6 +8,9 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Media3 / ExoPlayer playback service for background audio and system media controls
 - Local audio discovery through Android MediaStore (Android 8+ permission paths)
 - Search across song titles, artists, and albums
+- M3U playlist import/export with local-library matching
+- Pitch-preserving playback speed control from 0.5× to 2×
+- ReplayGain tag reading from ID3, FLAC Vorbis comments, and Ogg Vorbis comments
 - Songs, albums, artists, and folder library views
 - Favorites persisted locally
 - User-created playlists persisted locally, with add-to-playlist actions
