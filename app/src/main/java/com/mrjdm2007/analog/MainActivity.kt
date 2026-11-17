@@ -143,8 +143,6 @@ class MainActivity : ComponentActivity() {
             var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
             var exportTracks by remember { mutableStateOf(emptyList<Track>()) }
             var exportName by remember { mutableStateOf("Analog Playlist") }
-            var lyricsTargetTrackId by remember { mutableStateOf<Long?>(null) }
-            var lyricsVersion by remember { mutableIntStateOf(0) }
             val exportPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
                 if (uri != null) {
                     val text = buildString {
@@ -195,24 +193,6 @@ class MainActivity : ComponentActivity() {
                         }
                     } else Toast.makeText(this@MainActivity, "Could not read this playlist file", Toast.LENGTH_LONG).show()
                 }
-            }
-
-            val importLyricsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                val targetId = lyricsTargetTrackId
-                if (uri != null && targetId != null) {
-                    val raw = runCatching {
-                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText().take(256 * 1024) }
-                    }.getOrNull()
-                    val parsed = raw?.let { LrcParser.parse(it) }.orEmpty()
-                    if (!raw.isNullOrBlank() && parsed.isNotEmpty()) {
-                        prefs().edit().putString("lyrics:$targetId", raw).apply()
-                        lyricsVersion++
-                        Toast.makeText(this@MainActivity, "Imported ${parsed.size} synchronized lyric lines", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(this@MainActivity, "No valid LRC timestamps were found", Toast.LENGTH_LONG).show()
-                    }
-                }
-                lyricsTargetTrackId = null
             }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
@@ -292,10 +272,7 @@ class MainActivity : ComponentActivity() {
                         sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, lyricsRefreshKey = lyricsVersion, onImportLyrics = { id ->
-                        lyricsTargetTrackId = id
-                        importLyricsLauncher.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
-                    }, onArtistRadio = { id ->
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, onArtistRadio = { id ->
                         tracks.firstOrNull { it.id == id }?.let { seed ->
                             val radio = tracks.filter { it.artist.equals(seed.artist, true) }.shuffled()
                             if (radio.isNotEmpty()) { play(radio, 0); playCountVersion++ }
@@ -317,6 +294,7 @@ class MainActivity : ComponentActivity() {
                             "Favorites" -> libraryTracks.filter { it.id in favorites }
                             "Playlists" -> activePlaylist?.let { name ->
                                 if (name.startsWith("smart:")) smartPlaylistTracks(name.removePrefix("smart:"), libraryTracks, favorites)
+                                else if (name.startsWith("mood:")) libraryTracks.filter { it.id.toString() in (prefs().getStringSet("mood_playlist:" + name.removePrefix("mood:"), emptySet()) ?: emptySet()) }
                                 else libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
                             } ?: emptyList()
                             else -> libraryTracks
@@ -688,7 +666,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, lyricsRefreshKey: Int, onImportLyrics: (Long) -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -720,14 +698,6 @@ class MainActivity : ComponentActivity() {
     var shuffleEnabled by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
-    var loopStartMs by remember(trackId) { mutableStateOf<Long?>(null) }
-    var loopEndMs by remember(trackId) { mutableStateOf<Long?>(null) }
-    var bookmarkMs by remember(trackId) { mutableLongStateOf(trackId?.let { playerContextBookmark(playerContext, it) } ?: -1L) }
-    val savedLyrics = remember(trackId, lyricsRefreshKey) {
-        trackId?.let { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("lyrics:$it", "") }.orEmpty()
-    }
-    val parsedLyrics = remember(savedLyrics) { LrcParser.parse(savedLyrics) }
-    val activeLyricIndex = remember(parsedLyrics, position) { LrcParser.activeIndex(parsedLyrics, position.toLong()) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
@@ -778,14 +748,6 @@ class MainActivity : ComponentActivity() {
             duration = player.duration.coerceAtLeast(1L).toFloat()
             position = player.currentPosition.toFloat().coerceIn(0f, duration)
             delay(if (player.isPlaying) 250L else 1000L)
-        }
-    }
-    LaunchedEffect(player, loopStartMs, loopEndMs, trackId) {
-        while (player != null && loopStartMs != null && loopEndMs != null) {
-            val start = loopStartMs ?: break
-            val end = loopEndMs ?: break
-            if (player.isPlaying && PlaybackLoop.shouldWrap(player.currentPosition, start, end)) player.seekTo(start)
-            delay(40L)
         }
     }
     Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
@@ -940,15 +902,6 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.width(18.dp))
             Text("REPEAT • " + when (repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, color = if (repeatMode == Player.REPEAT_MODE_OFF) themedMuted else themedAccent, fontSize = 9.sp, letterSpacing = 1.sp)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { loopStartMs = player?.currentPosition ?: 0L; loopEndMs = null }, modifier = Modifier.weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, themedAccent.copy(alpha = .55f))) {
-                Text(if (loopStartMs == null) "A • SET START" else "A • ${timeText(loopStartMs!!)}", color = themedAccent, fontSize = 9.sp, maxLines = 1)
-            }
-            OutlinedButton(onClick = { val now = player?.currentPosition ?: 0L; val start = loopStartMs; if (start != null && PlaybackLoop.isValidRange(start, now)) loopEndMs = now }, enabled = loopStartMs != null, modifier = Modifier.weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, themedAccent.copy(alpha = .55f))) {
-                Text(if (loopEndMs == null) "B • SET END" else "B • ${timeText(loopEndMs!!)}", color = themedAccent, fontSize = 9.sp, maxLines = 1)
-            }
-            TextButton(onClick = { loopStartMs = null; loopEndMs = null }) { Text("CLEAR", color = themedMuted, fontSize = 9.sp) }
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { trackId?.let(onArtistRadio) }, enabled = trackId != null, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Default.GraphicEq, null, tint = themedAccent, modifier = Modifier.size(16.dp))
@@ -992,19 +945,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         PlayerJournalPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted)
-        SyncedLyricsPanel(lines = parsedLyrics, activeIndex = activeLyricIndex, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted, onImport = { trackId?.let(onImportLyrics) }, enabled = trackId != null)
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = {
-                val id = trackId ?: return@TextButton
-                bookmarkMs = player?.currentPosition ?: 0L
-                playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putLong("bookmark:$id", bookmarkMs).apply()
-            }, modifier = Modifier.weight(1f)) { Text("SAVE POSITION", color = themedAccent, fontSize = 9.sp) }
-            TextButton(onClick = { val target = bookmarkMs; if (target >= 0L && target < (player?.duration ?: 0L)) player?.seekTo(target) }, enabled = bookmarkMs >= 0L, modifier = Modifier.weight(1f)) {
-                Text(if (bookmarkMs >= 0L) "RESUME ${timeText(bookmarkMs)}" else "NO BOOKMARK", color = themedMuted, fontSize = 9.sp)
-            }
-        }
-        Spacer(Modifier.height(14.dp))
     }
     if (showQueueSets) {
         val savedNames = remember(queueSetVersion) {
@@ -1127,6 +1068,18 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
     var rating by remember(trackId) { mutableIntStateOf(trackId?.let { prefs.getInt("rating:${it}", 0) } ?: 0) }
     var note by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("journal:${it}", "") } ?: "") }
     var mood by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("mood:${it}", "Unsorted") } ?: "Unsorted") }
+    val moodNames = listOf("Focus", "Calm", "Energy", "Nostalgia")
+    fun assignMood(label: String) {
+        val id = trackId ?: return
+        mood = label
+        val edit = prefs.edit().putString("mood:$id", label)
+        moodNames.forEach { name ->
+            val ids = prefs.getStringSet("mood_playlist:$name", emptySet()).orEmpty().toMutableSet()
+            if (name == label) ids.add(id.toString()) else ids.remove(id.toString())
+            edit.putStringSet("mood_playlist:$name", ids)
+        }
+        edit.apply()
+    }
     var expanded by remember(trackId) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 14.dp).background(panel, RoundedCornerShape(16.dp)).border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1149,11 +1102,8 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
         }
         Text("LISTENING MOOD", color = muted, fontSize = 9.sp, letterSpacing = 1.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf("Focus", "Calm", "Energy", "Nostalgia").forEach { label ->
-                FilterChip(selected = mood == label, onClick = {
-                    mood = label
-                    trackId?.let { prefs.edit().putString("mood:${it}", label).apply() }
-                }, enabled = trackId != null, label = { Text(label, fontSize = 9.sp) })
+            moodNames.forEach { label ->
+                FilterChip(selected = mood == label, onClick = { assignMood(label) }, enabled = trackId != null, label = { Text(label, fontSize = 9.sp) })
             }
         }
         if (expanded) {
@@ -1167,52 +1117,5 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
         }
     }
 }
-
-@Composable
-private fun SyncedLyricsPanel(
-    lines: List<LyricLine>,
-    activeIndex: Int,
-    accent: Color,
-    panel: Color,
-    textColor: Color,
-    muted: Color,
-    onImport: () -> Unit,
-    enabled: Boolean
-) {
-    Column(
-        Modifier.fillMaxWidth().background(panel, RoundedCornerShape(16.dp))
-            .border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("SYNCHRONIZED LYRICS", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
-                Text(if (lines.isEmpty()) "Import a timestamped .lrc file for karaoke-style tracking" else "${lines.size} TIMED LINES • LRC", color = muted, fontSize = 9.sp)
-            }
-            TextButton(onClick = onImport, enabled = enabled) { Text(if (lines.isEmpty()) "IMPORT LRC" else "REPLACE", color = accent, fontSize = 9.sp) }
-        }
-        if (lines.isEmpty()) {
-            Text("No synchronized lyrics attached to this track.", color = muted, fontSize = 12.sp)
-        } else {
-            val first = if (activeIndex < 0) 0 else (activeIndex - 1).coerceAtLeast(0)
-            val last = (if (activeIndex < 0) 2 else activeIndex + 2).coerceAtMost(lines.lastIndex)
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                for (index in first..last) {
-                    Text(
-                        lines[index].text.ifBlank { "♪" },
-                        color = if (index == activeIndex) accent else muted.copy(alpha = if (index < activeIndex) .55f else .82f),
-                        fontSize = if (index == activeIndex) 17.sp else 13.sp,
-                        fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 2
-                    )
-                }
-            }
-            if (activeIndex < 0) Text("Lyrics will follow the playback position.", color = muted, fontSize = 9.sp)
-        }
-    }
-}
-
-private fun playerContextBookmark(context: Context, trackId: Long): Long =
-    context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getLong("bookmark:$trackId", -1L)
 
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
