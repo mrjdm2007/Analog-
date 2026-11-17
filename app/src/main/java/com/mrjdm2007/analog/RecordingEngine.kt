@@ -19,6 +19,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sqrt
 import kotlin.math.log10
+import kotlin.math.pow
 
 data class RecordingSnapshot(
     val status: String = "IDLE",
@@ -71,10 +72,12 @@ object RecordingEngine {
             val minimum = AudioRecord.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT)
             if (minimum <= 0) throw IllegalStateException("Unsupported input format: " + rate + " Hz.")
             val bufferSize = max(minimum * 2, rate * channels * 2 / 5)
-            audio = AudioRecord(MediaRecorder.AudioSource.UNPROCESSED, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
-            if (audio.state != AudioRecord.STATE_INITIALIZED) {
-                audio.release()
-                audio = AudioRecord(MediaRecorder.AudioSource.MIC, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+            val unprocessed = runCatching { AudioRecord(MediaRecorder.AudioSource.UNPROCESSED, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize) }.getOrNull()
+            audio = if (unprocessed?.state == AudioRecord.STATE_INITIALIZED) {
+                unprocessed
+            } else {
+                runCatching { unprocessed?.release() }
+                AudioRecord(MediaRecorder.AudioSource.MIC, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
             }
             if (audio.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("Android could not initialize this microphone format.")
             recorder = audio
@@ -96,7 +99,7 @@ object RecordingEngine {
                 if (paused) { Thread.sleep(30); continue }
                 val count = audio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                 if (count < 0) throw IllegalStateException("Microphone read failed: " + count)
-                if (count == 0) continue
+                if (count == 0 || paused) continue
                 var peak = 0f
                 var sum = 0.0
                 for (i in 0 until count) {
@@ -168,7 +171,6 @@ object RecordingEngine {
         if (!running || paused) return
         paused = true
         pausedAt = SystemClock.elapsedRealtime()
-        runCatching { recorder?.stop() }
         mutableState.value = mutableState.value.copy(status = "PAUSED")
     }
 
@@ -176,17 +178,12 @@ object RecordingEngine {
         if (!running || !paused) return
         pausedTotal += SystemClock.elapsedRealtime() - pausedAt
         paused = false
-        runCatching { recorder?.startRecording() }.onFailure {
-            mutableState.value = mutableState.value.copy(status = "ERROR", error = it.message ?: "Could not resume capture.")
-            running = false
-        }
         mutableState.value = mutableState.value.copy(status = "RECORDING")
     }
 
     @Synchronized fun stop() {
         if (!running) return
         running = false
-        runCatching { recorder?.stop() }
     }
 
     @Synchronized fun addMarker() { if (running) markers.add(elapsed()) }
@@ -237,8 +234,8 @@ object RecordingEngine {
             length = length shl 1
         }
         return List(48) { band ->
-            val low = (2.0 * kotlin.math.pow(n / 2.0, band / 48.0)).toInt().coerceIn(1, n / 2 - 1)
-            val high = (2.0 * kotlin.math.pow(n / 2.0, (band + 1) / 48.0)).toInt().coerceIn(low, n / 2 - 1)
+            val low = (2.0 * (n / 2.0).pow(band / 48.0)).toInt().coerceIn(1, n / 2 - 1)
+            val high = (2.0 * (n / 2.0).pow((band + 1) / 48.0)).toInt().coerceIn(low, n / 2 - 1)
             var energy = 0.0
             for (bin in low..high) energy += real[bin] * real[bin] + imag[bin] * imag[bin]
             (sqrt(energy / (high - low + 1)) / 18.0).toFloat().coerceIn(0.01f, 1f)
