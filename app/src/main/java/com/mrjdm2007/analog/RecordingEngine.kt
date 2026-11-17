@@ -335,6 +335,7 @@ object RecordingEngine {
             // Publish terminal state only after the microphone is released in finally.
             finalSnapshot = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes, markersMs = markerSnapshot)
         } catch (error: Throwable) {
+            mutableState.value = mutableState.value.copy(status = "FINALIZING")
             runCatching {
                 stream?.flush()
                 stream?.fd?.sync()
