@@ -59,7 +59,7 @@ object RecordingEngine {
     @Volatile private var clippedSamples = 0L
 
     @Synchronized
-    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false, highPassHz: Float = 80f, limiterCeilingDb: Float = -1f, compressorRatio: Float = 3f) {
+    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false, highPassHz: Float = 80f, limiterCeilingDb: Float = -1f, compressorRatio: Float = 3f, compressorAttackMs: Float = 10f, compressorReleaseMs: Float = 120f) {
         if (running) return
         markers = mutableListOf()
         peakHoldDbfs = -96f
@@ -88,11 +88,11 @@ object RecordingEngine {
             return
         }
         running = true
-        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic, highPassHz, limiterCeilingDb, compressorRatio) }, "AnalogAudioCapture")
+        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic, highPassHz, limiterCeilingDb, compressorRatio, compressorAttackMs, compressorReleaseMs) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
     }
 
-    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int, rawMic: Boolean, highPassHz: Float, limiterCeilingDb: Float, compressorRatioSetting: Float) {
+    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int, rawMic: Boolean, highPassHz: Float, limiterCeilingDb: Float, compressorRatioSetting: Float, compressorAttackMs: Float, compressorReleaseMs: Float) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
@@ -156,8 +156,10 @@ object RecordingEngine {
             val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()
             val limiterCeiling = RecordingPcm.linearFromDb(limiterCeilingDb.coerceIn(-12f, -0.1f))
             val compressorRatio = compressorRatioSetting.coerceIn(1f, 10f)
-            val compressorAttack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
-            val compressorRelease = 1f - kotlin.math.exp(-1f / (0.120f * rate))
+            val attackSeconds = compressorAttackMs.coerceIn(1f, 100f) / 1000f
+            val releaseSeconds = compressorReleaseMs.coerceIn(20f, 500f) / 1000f
+            val compressorAttack = 1f - kotlin.math.exp(-1f / (attackSeconds * rate))
+            val compressorRelease = 1f - kotlin.math.exp(-1f / (releaseSeconds * rate))
             var leftSample = 0f
             val spectrogramHistory = ArrayDeque<List<Float>>()
             val highPassAlpha = RecordingPcm.highPassAlpha(highPassHz, rate)
