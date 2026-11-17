@@ -994,7 +994,7 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(14.dp))
     }
     if (showQueueSets) {
-        val savedNames = remember(showQueueSetVersionKey = queueSetVersion) {
+        val savedNames = remember(queueSetVersion) {
             libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toList().sorted()
         }
         AlertDialog(
