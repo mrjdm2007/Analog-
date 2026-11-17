@@ -3,6 +3,7 @@ package com.mrjdm2007.analog
 import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Environment
 import android.os.SystemClock
@@ -30,6 +31,7 @@ data class RecordingSnapshot(
     val rmsDbfs: Float = -96f,
     val waveform: List<Float> = List(160) { 0f },
     val spectrum: List<Float> = List(48) { 0f },
+    val spectrogram: List<List<Float>> = emptyList(),
     val error: String? = null
 )
 
@@ -47,7 +49,7 @@ object RecordingEngine {
     private var markers = mutableListOf<Long>()
 
     @Synchronized
-    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float) {
+    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f) {
         if (running) return
         markers = mutableListOf()
         pausedTotal = 0L
@@ -73,11 +75,11 @@ object RecordingEngine {
             return
         }
         running = true
-        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f)) }, "AnalogAudioCapture")
+        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
     }
 
-    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float) {
+    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
@@ -95,6 +97,11 @@ object RecordingEngine {
             }
             val activeAudio = audio
             if (activeAudio == null || activeAudio.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("Android could not initialize this microphone format.")
+            if (inputDeviceId >= 0) {
+                val manager = context.getSystemService(AudioManager::class.java)
+                val preferred = manager.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.id == inputDeviceId }
+                if (preferred != null) activeAudio.setPreferredDevice(preferred)
+            }
             recorder = activeAudio
             stream = FileOutputStream(output)
             stream.write(ByteArray(44))
@@ -108,6 +115,15 @@ object RecordingEngine {
             var fftCount = 0
             var previousIn = FloatArray(channels)
             var previousOut = FloatArray(channels)
+            val lowState = FloatArray(channels)
+            val highState = FloatArray(channels)
+            val compressorEnvelope = FloatArray(channels)
+            val lowLinear = 10.0.pow(lowGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
+            val midLinear = 10.0.pow(midGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
+            val highLinear = 10.0.pow(highGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
+            val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()
+            val compressorRatio = 3f
+            val spectrogramHistory = ArrayDeque<List<Float>>()
             var lastUi = 0L
             while (running) {
                 if (paused) {
@@ -134,6 +150,24 @@ object RecordingEngine {
                         previousOut[channel] = filtered
                         value = filtered
                     }
+                    val lowAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 250.0 / rate)).toFloat()
+                    val highAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 4000.0 / rate)).toFloat()
+                    lowState[channel] += lowAlpha * (value - lowState[channel])
+                    highState[channel] += highAlpha * (value - highState[channel])
+                    val lowBand = lowState[channel]
+                    val highBand = value - highState[channel]
+                    val midBand = value - lowBand - highBand
+                    value = lowBand * lowLinear + midBand * midLinear + highBand * highLinear
+                    if (compressorEnabled) {
+                        val attack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
+                        val release = 1f - kotlin.math.exp(-1f / (0.120f * rate))
+                        val coefficient = if (kotlin.math.abs(value) > compressorEnvelope[channel]) attack else release
+                        compressorEnvelope[channel] += coefficient * (kotlin.math.abs(value) - compressorEnvelope[channel])
+                        if (compressorEnvelope[channel] > compressorThreshold) {
+                            val compressed = compressorThreshold + (compressorEnvelope[channel] - compressorThreshold) / compressorRatio
+                            value *= (compressed / compressorEnvelope[channel].coerceAtLeast(1.0e-6f))
+                        }
+                    }
                     if (limiter) value = value.coerceIn(-0.98f, 0.98f)
                     value = value.coerceIn(-1f, 0.99997f)
                     peak = max(peak, kotlin.math.abs(value))
@@ -154,6 +188,9 @@ object RecordingEngine {
                             (start until end).maxOfOrNull { kotlin.math.abs(fft[it]) } ?: 0f
                         }
                         val rms = sqrt(sum / count.coerceAtLeast(1)).toFloat()
+                        val currentSpectrum = spectrumOf(fft)
+                        spectrogramHistory.addLast(currentSpectrum)
+                        if (spectrogramHistory.size > 64) spectrogramHistory.removeFirst()
                         mutableState.value = RecordingSnapshot(
                             status = if (paused) "PAUSED" else "RECORDING",
                             file = output,
@@ -162,7 +199,8 @@ object RecordingEngine {
                             peakDbfs = toDb(peak),
                             rmsDbfs = toDb(rms),
                             waveform = wave,
-                            spectrum = spectrumOf(fft)
+                            spectrum = currentSpectrum,
+                            spectrogram = spectrogramHistory.toList()
                         )
                         lastUi = now
                     }
