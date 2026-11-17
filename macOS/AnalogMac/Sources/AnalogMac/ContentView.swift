@@ -802,17 +802,18 @@ struct VisualiserView: View {
                             }
                         }
                     } else {
+                        let wave = player.visualizerWaveform
                         var path = Path()
-                        for index in bins.indices {
-                            let x = CGFloat(index) / CGFloat(max(1, count - 1)) * size.width
-                            let y = size.height / 2 - CGFloat(bins[index]) * size.height * 0.42
+                        for index in wave.indices {
+                            let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
+                            let y = size.height / 2 - CGFloat(wave[index]) * size.height * 0.42
                             if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
                         }
                         context.stroke(path, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                         var mirror = Path()
-                        for index in bins.indices {
-                            let x = CGFloat(index) / CGFloat(max(1, count - 1)) * size.width
-                            let y = size.height / 2 + CGFloat(bins[index]) * size.height * 0.42
+                        for index in wave.indices {
+                            let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
+                            let y = size.height / 2 + CGFloat(wave[index]) * size.height * 0.12
                             if index == 0 { mirror.move(to: CGPoint(x: x, y: y)) } else { mirror.addLine(to: CGPoint(x: x, y: y)) }
                         }
                         context.stroke(mirror, with: .color(AnalogPalette.amber.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
