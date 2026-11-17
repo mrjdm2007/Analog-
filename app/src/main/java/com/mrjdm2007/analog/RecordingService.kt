@@ -14,6 +14,7 @@ import android.os.IBinder
 
 class RecordingService : Service() {
     @Volatile private var monitorThread: Thread? = null
+    @Volatile private var monitorGeneration = 0L
     companion object {
         const val ACTION_START = "com.mrjdm2007.analog.record.START"
         const val ACTION_PAUSE = "com.mrjdm2007.analog.record.PAUSE"
@@ -74,17 +75,22 @@ class RecordingService : Service() {
                     intent.getFloatExtra(EXTRA_COMPRESSOR_ATTACK_MS, 10f),
                     intent.getFloatExtra(EXTRA_COMPRESSOR_RELEASE_MS, 120f)
                 )
-                if (monitorThread?.isAlive != true) {
-                    monitorThread = Thread({
-                        while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
-                            try { Thread.sleep(150) } catch (_: InterruptedException) { break }
-                        }
-                        Handler(Looper.getMainLooper()).post {
+                // A quick stop→start can overlap the previous monitor thread. Generation
+                // tokens prevent an old monitor from stopping the service for a new take.
+                val generation = ++monitorGeneration
+                monitorThread = Thread({
+                    while (generation == monitorGeneration &&
+                        RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
+                        try { Thread.sleep(150) } catch (_: InterruptedException) { break }
+                    }
+                    Handler(Looper.getMainLooper()).post {
+                        if (generation == monitorGeneration &&
+                            RecordingEngine.state.value.status !in listOf("STARTING", "RECORDING", "PAUSED")) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
                         }
-                    }, "AnalogRecordingServiceMonitor").apply { isDaemon = true; start() }
-                }
+                    }
+                }, "AnalogRecordingServiceMonitor").apply { isDaemon = true; start() }
             }
             ACTION_PAUSE -> RecordingEngine.pause()
             ACTION_RESUME -> RecordingEngine.resume()
@@ -94,6 +100,7 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
+        monitorGeneration++
         monitorThread?.interrupt()
         if (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) RecordingEngine.stop()
         super.onDestroy()
