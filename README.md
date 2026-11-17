@@ -70,6 +70,6 @@ Analog is designed for audio files already stored on the device. No account or n
 ## Professional audio updates
 
 - Studio now exposes variable 40–200 Hz high-pass cutoff, adjustable limiter ceiling (-12 to -0.1 dBFS), compressor threshold and ratio, plus 1–100 ms attack and 20–500 ms release
-- Input peak/RMS/clip metering is measured before Analog DSP so limiter operation cannot hide overloaded microphone input
+- Input peak/RMS/clip metering is measured before Analog DSP so the hard ceiling cannot hide overloaded microphone input; stereo takes also show independent left/right peak and RMS meters
 - BWF cue reservation now supports all 128 allowed markers while retaining valid RIFF chunk alignment
 - Now Playing displays live shuffle and repeat mode status; pausing during crossfade restores the primary deck to unity volume
