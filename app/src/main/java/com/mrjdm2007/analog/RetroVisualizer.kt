@@ -33,6 +33,11 @@ import kotlin.math.pow
 @Composable
 fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, audioSessionId: Int, player: MediaController?, tracks: List<Track>) {
     val bars = remember { mutableStateListOf<Float>().apply { repeat(48) { add(0.035f) } } }
+    val waveformSamples = remember { mutableStateListOf<Float>().apply { repeat(96) { add(0f) } } }
+    var visualMode by remember { mutableStateOf("SPECTRUM") }
+    var sensitivity by remember { mutableFloatStateOf(1f) }
+    val sensitivityRef = remember { java.util.concurrent.atomic.AtomicReference(1f) }
+    SideEffect { sensitivityRef.set(sensitivity) }
     var outputLevel by remember { mutableFloatStateOf(0.02f) }
     var captureActive by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
@@ -60,12 +65,14 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
     LaunchedEffect(player, audioPermissionGranted, audioSessionId) {
-        if (audioSessionId > 0) liveAudioSessionId = audioSessionId
-        while (audioPermissionGranted && player != null && liveAudioSessionId <= 0) {
+        liveAudioSessionId = audioSessionId.coerceAtLeast(0)
+        while (audioPermissionGranted && player != null) {
+            // The service publishes the ID from Media3's audio-session callback.
+            // Keep observing it so a recreated AudioTrack/session is rebound too.
             val publishedId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE)
-                .getInt("audio_session_id", 0)
-            if (publishedId > 0 && publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
-            delay(250)
+                .getInt("audio_session_id", 0).coerceAtLeast(0)
+            if (publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
+            delay(300)
         }
     }
 
@@ -79,7 +86,16 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                 instance.captureSize = Visualizer.getCaptureSizeRange()[1]
                 instance.scalingMode = Visualizer.SCALING_MODE_NORMALIZED
                 instance.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                    override fun onWaveFormDataCapture(v: Visualizer?, waveform: ByteArray?, samplingRate: Int) = Unit
+                    override fun onWaveFormDataCapture(v: Visualizer?, waveform: ByteArray?, samplingRate: Int) {
+                        if (waveform == null || waveform.isEmpty()) return
+                        val samples = (0 until 96).map { index ->
+                            val source = (index * waveform.size / 96).coerceIn(0, waveform.lastIndex)
+                            ((waveform[source].toInt() and 0xFF) - 128) / 128f
+                        }
+                        Handler(Looper.getMainLooper()).post {
+                            waveformSamples.indices.forEach { i -> waveformSamples[i] = samples[i] }
+                        }
+                    }
                     override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, samplingRate: Int) {
                         if (fft == null || fft.size < 8) return
                         val maxBin = (fft.size / 2 - 1).coerceAtLeast(3)
@@ -98,7 +114,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                                 }
                             }
                             val magnitude = if (count > 0) sqrt(energy / count) else 0.0
-                            (magnitude / 72.0).toFloat().coerceIn(0.025f, 1f)
+                            (magnitude / 72.0 * sensitivityRef.get()).toFloat().coerceIn(0.025f, 1f)
                         }
                         val level = sqrt(next.sumOf { (it * it).toDouble() } / next.size).toFloat()
                         Handler(Looper.getMainLooper()).post {
@@ -106,7 +122,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                             outputLevel = maxOf(level, outputLevel * .84f)
                         }
                     }
-                }, Visualizer.getMaxCaptureRate() / 2, false, true)
+                }, Visualizer.getMaxCaptureRate() / 2, true, true)
                 instance.enabled = true
                 visualizer = instance
                 captureActive = instance.enabled
@@ -160,23 +176,76 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
             } else if (!captureActive) {
                 Text("WAITING FOR AUDIO CAPTURE", color = Color(0xFF91A987), fontSize = 10.sp)
             }
-            Text("48-BAND FREQUENCY ANALYZER", color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 2.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("SPECTRUM", "WAVEFORM", "VU").forEach { mode ->
+                    FilterChip(
+                        selected = visualMode == mode,
+                        onClick = { visualMode = mode },
+                        label = { Text(mode, fontSize = 9.sp, letterSpacing = .7.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF354432),
+                            selectedLabelColor = Color(0xFFFFD39A),
+                            labelColor = Color(0xFFB5D69B)
+                        )
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("SENSITIVITY", color = Color(0xFF91A987), fontSize = 9.sp, letterSpacing = 1.sp)
+                Slider(
+                    value = sensitivity, onValueChange = { sensitivity = it },
+                    valueRange = .5f..2.5f, modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B))
+                )
+                Text("${(sensitivity * 100).toInt()}%", color = Color(0xFFE8E1CF), fontSize = 9.sp)
+            }
+            Text(
+                when (visualMode) { "WAVEFORM" -> "LIVE WAVEFORM • TIME-DOMAIN"; "VU" -> "OUTPUT LEVEL • PEAK METER"; else -> "48-BAND FREQUENCY ANALYZER • LOG SPACING" },
+                color = Color(0xFF91A987), fontSize = 10.sp, letterSpacing = 1.5.sp
+            )
             Spacer(Modifier.height(12.dp))
             Box(Modifier.fillMaxWidth().weight(1f).background(Color(0xFF101610), RoundedCornerShape(12.dp)).padding(14.dp)) {
                 Canvas(Modifier.fillMaxSize()) {
-                    val count = bars.size
-                    val gap = size.width * 0.009f
-                    val barWidth = (size.width - gap * (count - 1)) / count
                     for (i in 0 until 5) {
                         val y = size.height * i / 5f
                         drawLine(Color(0xFF31402E).copy(alpha = .45f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
                     }
-                    bars.forEachIndexed { index, value ->
-                        val h = value * size.height * .92f
-                        val x = index * (barWidth + gap)
-                        drawLine(Color(0xFFFFB45B), Offset(x + barWidth / 2, size.height), Offset(x + barWidth / 2, size.height - h), barWidth, StrokeCap.Round)
-                        if (h > 5.dp.toPx()) {
-                            drawLine(Color(0xFFFFD39A), Offset(x + barWidth / 2, size.height - h), Offset(x + barWidth / 2, size.height - h - 2.dp.toPx()), barWidth, StrokeCap.Round)
+                    when (visualMode) {
+                        "WAVEFORM" -> {
+                            val mid = size.height / 2f
+                            for (i in 0 until waveformSamples.lastIndex) {
+                                val x1 = size.width * i / waveformSamples.size
+                                val x2 = size.width * (i + 1) / waveformSamples.size
+                                drawLine(Color(0xFFFFB45B), Offset(x1, mid - waveformSamples[i] * mid * .88f), Offset(x2, mid - waveformSamples[i + 1] * mid * .88f), 2.dp.toPx(), StrokeCap.Round)
+                            }
+                            drawLine(Color(0xFF71806B), Offset(0f, mid), Offset(size.width, mid), 1.dp.toPx())
+                        }
+                        "VU" -> {
+                            val segments = 36
+                            val gap = 3.dp.toPx()
+                            val segmentWidth = (size.width - gap * (segments - 1)) / segments
+                            val active = (outputLevel * sensitivity * segments).toInt().coerceIn(0, segments)
+                            for (i in 0 until segments) {
+                                val x = i * (segmentWidth + gap)
+                                val tint = if (i >= 30) Color(0xFFE47755) else Color(0xFFFFB45B)
+                                drawRoundRect(
+                                    color = if (i < active) tint else Color(0xFF293329),
+                                    topLeft = Offset(x, size.height * .42f),
+                                    size = androidx.compose.ui.geometry.Size(segmentWidth, size.height * .16f),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
+                                )
+                            }
+                        }
+                        else -> {
+                            val count = bars.size
+                            val gap = size.width * 0.009f
+                            val barWidth = (size.width - gap * (count - 1)) / count
+                            bars.forEachIndexed { index, value ->
+                                val h = value * size.height * .92f
+                                val x = index * (barWidth + gap)
+                                drawLine(Color(0xFFFFB45B), Offset(x + barWidth / 2, size.height), Offset(x + barWidth / 2, size.height - h), barWidth, StrokeCap.Round)
+                                if (h > 5.dp.toPx()) drawLine(Color(0xFFFFD39A), Offset(x + barWidth / 2, size.height - h), Offset(x + barWidth / 2, size.height - h - 2.dp.toPx()), barWidth, StrokeCap.Round)
+                            }
                         }
                     }
                 }
