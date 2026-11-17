@@ -1026,6 +1026,50 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
     }
 }
 
+@Composable
+private fun SyncedLyricsPanel(
+    lines: List<LyricLine>,
+    activeIndex: Int,
+    accent: Color,
+    panel: Color,
+    textColor: Color,
+    muted: Color,
+    onImport: () -> Unit,
+    enabled: Boolean
+) {
+    Column(
+        Modifier.fillMaxWidth().background(panel, RoundedCornerShape(16.dp))
+            .border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("SYNCHRONIZED LYRICS", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
+                Text(if (lines.isEmpty()) "Import a timestamped .lrc file for karaoke-style tracking" else "${lines.size} TIMED LINES • LRC", color = muted, fontSize = 9.sp)
+            }
+            TextButton(onClick = onImport, enabled = enabled) { Text(if (lines.isEmpty()) "IMPORT LRC" else "REPLACE", color = accent, fontSize = 9.sp) }
+        }
+        if (lines.isEmpty()) {
+            Text("No synchronized lyrics attached to this track.", color = muted, fontSize = 12.sp)
+        } else {
+            val first = if (activeIndex < 0) 0 else (activeIndex - 1).coerceAtLeast(0)
+            val last = (if (activeIndex < 0) 2 else activeIndex + 2).coerceAtMost(lines.lastIndex)
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                for (index in first..last) {
+                    Text(
+                        lines[index].text.ifBlank { "♪" },
+                        color = if (index == activeIndex) accent else muted.copy(alpha = if (index < activeIndex) .55f else .82f),
+                        fontSize = if (index == activeIndex) 17.sp else 13.sp,
+                        fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 2
+                    )
+                }
+            }
+            if (activeIndex < 0) Text("Lyrics will follow the playback position.", color = muted, fontSize = 9.sp)
+        }
+    }
+}
+
 private fun playerContextBookmark(context: Context, trackId: Long): Long =
     context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getLong("bookmark:$trackId", -1L)
 
