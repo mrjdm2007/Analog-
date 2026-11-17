@@ -41,6 +41,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimer: Runnable? = null
+    private var sleepFade: Runnable? = null
     private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
     private var loudnessEnhancer: LoudnessEnhancer? = null
@@ -183,16 +184,35 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_SLEEP_TIMER -> {
-                sleepTimer?.let(timerHandler::removeCallbacks)
+                clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
-                sleepTimer = Runnable { mediaSession?.player?.pause(); sleepTimer = null }
-                timerHandler.postDelayed(sleepTimer!!, minutes * 60_000L)
+                val totalMs = minutes * 60_000L
+                val fadeEnabled = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    .getBoolean("sleep_fade_out", true)
+                val fadeMs = if (fadeEnabled) 15_000L else 0L
+                sleepTimer = Runnable {
+                    mediaSession?.player?.let { it.pause(); it.volume = 1f }
+                    sleepTimer = null
+                    sleepFade = null
+                }
+                timerHandler.postDelayed(sleepTimer!!, totalMs)
+                if (fadeMs > 0L && totalMs > fadeMs) {
+                    val fadeStart = SystemClock.elapsedRealtime() + totalMs - fadeMs
+                    sleepFade = object : Runnable {
+                        override fun run() {
+                            val elapsed = SystemClock.elapsedRealtime() - fadeStart
+                            val volume = SleepFade.volumeAt(elapsed, fadeMs)
+                            mediaSession?.player?.volume = volume
+                            if (elapsed < fadeMs) timerHandler.postDelayed(this, 100L)
+                        }
+                    }
+                    timerHandler.postDelayed(sleepFade!!, totalMs - fadeMs)
+                }
             }
             ACTION_CANCEL_SLEEP_TIMER -> {
-                sleepTimer?.let(timerHandler::removeCallbacks)
-                sleepTimer = null
+                clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
             }
@@ -243,6 +263,14 @@ class PlaybackService : MediaSessionService() {
         }
         updateWidget()
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun clearSleepTimer(restoreVolume: Boolean) {
+        sleepTimer?.let(timerHandler::removeCallbacks)
+        sleepFade?.let(timerHandler::removeCallbacks)
+        sleepTimer = null
+        sleepFade = null
+        if (restoreVolume) mediaSession?.player?.volume = 1f
     }
 
     private fun startLastPlayedFromTile() {
@@ -404,8 +432,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
-        sleepTimer?.let(timerHandler::removeCallbacks)
-        sleepTimer = null
+        clearSleepTimer(restoreVolume = false)
         sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
         sleepEndListener = null
         replayGainExecutor.shutdownNow()
