@@ -47,6 +47,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_EQ_BASS = "com.mrjdm2007.analog.EQ_BASS"
         const val ACTION_EQ_SPACE = "com.mrjdm2007.analog.EQ_SPACE"
         const val ACTION_EQ_RETRY = "com.mrjdm2007.analog.EQ_RETRY"
+        const val ACTION_EQ_PREAMP = "com.mrjdm2007.analog.EQ_PREAMP"
         const val EXTRA_ENABLED = "enabled"
         const val EXTRA_BAND_INDEX = "band_index"
         const val EXTRA_BAND_LEVEL = "band_level"
@@ -285,6 +286,11 @@ class PlaybackService : MediaSessionService() {
                     .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
                     .putString("eq_error", "").apply()
             }
+            ACTION_EQ_PREAMP -> {
+                val gain = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(-12f, 6f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("eq_preamp_db", gain).apply()
+                applySoftwareEqualizer()
+            }
             ACTION_EQ_ENABLED -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
@@ -488,8 +494,11 @@ class PlaybackService : MediaSessionService() {
             ?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
         val gainsDb = FloatArray(10) { index -> (normalized.getOrNull(index) ?: 0f).coerceIn(-1f, 1f) * 12f }
         val enabled = prefs.getBoolean("eq_enabled", true)
+        val preamp = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 6f)
         softwareEqualizer.setBands(gainsDb)
         crossfadeEqualizer.setBands(gainsDb)
+        softwareEqualizer.setPreamp(preamp)
+        crossfadeEqualizer.setPreamp(preamp)
         softwareEqualizer.setEnabled(enabled)
         crossfadeEqualizer.setEnabled(enabled)
     }
