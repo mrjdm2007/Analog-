@@ -19,6 +19,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -43,6 +44,7 @@ data class RecordingSnapshot(
 /** Real AudioRecord capture with live waveform/FFT and standards-compliant PCM WAV output. */
 object RecordingEngine {
     private const val CUE_RESERVE_BYTES = 3084 // 128 standard WAV cue points plus a JUNK filler chunk.
+    private const val MAX_RIFF_DATA_BYTES = 0xFFFF_FFFFL - 3730L
     private val mutableState = MutableStateFlow(RecordingSnapshot())
     val state: StateFlow<RecordingSnapshot> = mutableState
     @Volatile private var running = false
@@ -236,6 +238,18 @@ object RecordingEngine {
                     }
                 }
                 val outputBytes = count * bytesPerSample
+                val remainingRiffBytes = (MAX_RIFF_DATA_BYTES - totalBytes).coerceAtLeast(0L)
+                if (outputBytes.toLong() > remainingRiffBytes) {
+                    // Keep the final WAV frame-aligned and finalize a valid RIFF file instead of
+                    // silently overflowing the 32-bit RIFF chunk-size fields on long takes.
+                    val frameBytes = bytesPerSample * channels
+                    val safeBytes = ((remainingRiffBytes / frameBytes) * frameBytes).toInt()
+                    if (safeBytes > 0) {
+                        stream.write(pcm, 0, safeBytes)
+                        totalBytes += safeBytes.toLong()
+                    }
+                    throw IllegalStateException("WAV reached the 4 GB RIFF limit. The take was safely finalized; start a new take to continue.")
+                }
                 stream.write(pcm, 0, outputBytes)
                 totalBytes += outputBytes.toLong()
                 if (fftCount == fft.size) {
@@ -390,9 +404,9 @@ object RecordingEngine {
             writeFixedAscii(raf, "Analog Android", 32)
             writeFixedAscii(raf, "ANALOG-" + recordingStartedWallClock.toString(), 32)
             val started = Date(recordingStartedWallClock)
-            writeFixedAscii(raf, SimpleDateFormat("yyyy-MM-dd", Locale.US).format(started), 10)
-            writeFixedAscii(raf, SimpleDateFormat("HH:mm:ss", Locale.US).format(started), 8)
-            val calendar = Calendar.getInstance().apply { time = started }
+            writeFixedAscii(raf, SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(started), 10)
+            writeFixedAscii(raf, SimpleDateFormat("HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(started), 8)
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.US).apply { time = started }
             val secondsSinceMidnight = calendar.get(Calendar.HOUR_OF_DAY) * 3600L +
                 calendar.get(Calendar.MINUTE) * 60L + calendar.get(Calendar.SECOND)
             val timeReference = secondsSinceMidnight * rate.toLong()
