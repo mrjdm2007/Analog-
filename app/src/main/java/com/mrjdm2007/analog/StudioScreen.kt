@@ -1,12 +1,15 @@
 package com.mrjdm2007.analog
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
 import android.media.MediaPlayer
 import android.media.AudioManager
 import android.media.AudioDeviceInfo
 import android.os.Environment
 import android.os.Build
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.Canvas
@@ -367,6 +370,10 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     context.startActivity(Intent.createChooser(share, "Share Analog recording"))
                                 }
                             }) { Icon(Icons.Default.Share, "Share recording", tint = StudioMuted) }
+                            IconButton(onClick = {
+                                val exported = exportTakeToMusic(context, file)
+                                Toast.makeText(context, if (exported) "Exported to Music/Analog/Recordings" else "Export failed or requires Android 10+", Toast.LENGTH_SHORT).show()
+                            }) { Icon(Icons.Default.Download, "Export to Music", tint = StudioGreen) }
                             IconButton(onClick = { renameTarget = file; renameText = file.nameWithoutExtension }) {
                                 Icon(Icons.Default.Edit, "Rename recording", tint = StudioMuted)
                             }
@@ -465,4 +472,26 @@ private fun AudioDeviceInfo.typeLabel(): String = when (type) {
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth"
     AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headset"
     else -> "Audio input"
+}
+
+private fun exportTakeToMusic(context: Context, source: File): Boolean {
+    if (Build.VERSION.SDK_INT < 29) return false
+    val values = ContentValues().apply {
+        put(MediaStore.Audio.Media.DISPLAY_NAME, source.name)
+        put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+        put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/Analog/Recordings")
+        put(MediaStore.Audio.Media.IS_PENDING, 1)
+    }
+    val resolver = context.contentResolver
+    val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+    return try {
+        resolver.openOutputStream(uri)?.use { output -> source.inputStream().use { input -> input.copyTo(output) } }
+            ?: throw IllegalStateException("Could not open exported file.")
+        val ready = ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) }
+        resolver.update(uri, ready, null, null)
+        true
+    } catch (_: Throwable) {
+        resolver.delete(uri, null, null)
+        false
+    }
 }
