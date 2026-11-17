@@ -223,7 +223,11 @@ struct LibraryView: View {
             }
             .overlay {
                 if player.tracks.isEmpty {
-                    ContentUnavailableView("Your library is empty", systemImage: "music.note.list", description: Text("Choose a music folder to import your local collection."))
+                    VStack(spacing: 10) {
+                        Image(systemName: "music.note.list").font(.system(size: 30)).foregroundStyle(AnalogPalette.amber)
+                        Text("Your library is empty").font(.system(size: 15, weight: .bold)).foregroundStyle(AnalogPalette.cream)
+                        Text("Choose a music folder to import your local collection.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                    }
                 }
             }
         }
