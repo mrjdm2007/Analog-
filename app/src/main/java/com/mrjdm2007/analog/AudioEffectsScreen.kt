@@ -29,6 +29,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bands by remember { mutableStateOf(emptyList<Float>()) }
     var bassLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_bass", 0f)) }
     var spaceLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_space", 0f)) }
+    var preampDb by remember { mutableFloatStateOf(prefs.getFloat("eq_preamp_db", 0f)) }
     var enabled by remember { mutableStateOf(prefs.getBoolean("eq_enabled", true)) }
     var available by remember { mutableStateOf(prefs.getBoolean("eq_available", false)) }
     var error by remember { mutableStateOf(prefs.getString("eq_error", "").orEmpty()) }
@@ -46,6 +47,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         bands = List(bandCount) { i -> saved?.getOrNull(i)?.coerceIn(-1f, 1f) ?: 0f }
         bassLevel = prefs.getFloat("eq_bass", 0f)
         spaceLevel = prefs.getFloat("eq_space", 0f)
+        preampDb = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 6f)
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
@@ -85,6 +87,20 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             )
         } else {
             Text("EQUALIZER • " + bandCount + " BANDS", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.width(82.dp)) {
+                    Text("PREAMP", color = text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("%+.1f dB".format(java.util.Locale.US, preampDb), color = green, fontSize = 9.sp)
+                }
+                Slider(value = preampDb, onValueChange = { value ->
+                    preampDb = value
+                    send(PlaybackService.ACTION_EQ_PREAMP) { putExtra(PlaybackService.EXTRA_STRENGTH, value) }
+                }, valueRange = -12f..6f, enabled = enabled && available,
+                    modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+            }
+            Text("Negative preamp creates headroom when boosted bands would otherwise clip.", color = text.copy(alpha = .5f), fontSize = 9.sp)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(panel).padding(16.dp)) {
                 bands.forEachIndexed { index, value ->
@@ -108,7 +124,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Spacer(Modifier.height(14.dp))
             Text("QUICK PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(8.dp))
-            val profileNames = listOf("Flat", "Bass", "Treble", "Vocal", "Rock", "Classical")
+            val profileNames = listOf("Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "Metal")
             profileNames.chunked(3).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     row.forEach { name ->
@@ -121,6 +137,12 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                                     "Vocal" -> (.48f - kotlin.math.abs(x - .5f) * 1.35f).coerceIn(-.35f, .48f)
                                     "Rock" -> when { x < .22f -> .55f; x < .45f -> .12f; x < .68f -> -.12f; else -> .48f }
                                     "Classical" -> when { x < .2f -> .32f; x < .45f -> .12f; x < .7f -> .18f; else -> .38f }
+                                    "Jazz" -> when { x < .2f -> .3f; x < .45f -> -.08f; x < .7f -> .16f; else -> .32f }
+                                    "Electronic" -> when { x < .2f -> .62f; x < .42f -> .08f; x < .65f -> -.2f; else -> .58f }
+                                    "Acoustic" -> when { x < .18f -> .18f; x < .42f -> .12f; x < .7f -> .28f; else -> .2f }
+                                    "Podcast" -> when { x < .18f -> -.4f; x < .42f -> .12f; x < .7f -> .35f; else -> .12f }
+                                    "Night" -> when { x < .2f -> -.22f; x < .5f -> .08f; else -> -.3f }
+                                    "Metal" -> when { x < .2f -> .48f; x < .42f -> -.08f; x < .65f -> .22f; else -> .55f }
                                     else -> 0f
                                 }
                             }
