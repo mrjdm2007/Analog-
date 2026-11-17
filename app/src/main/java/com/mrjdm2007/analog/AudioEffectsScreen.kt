@@ -94,16 +94,41 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 runCatching { eq?.enabled = value; bass?.enabled = value; virtualizer?.enabled = value }
             })
         }
+        Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18), RoundedCornerShape(10.dp)).padding(12.dp)) {
+            Text("OUTPUT ROUTE", color = Color(0xFF91A987), fontSize = 9.sp, letterSpacing = 1.5.sp)
+            Text(outputRoute.ifBlank { "Device default" }, color = Color(0xFFE8E1CF), fontSize = 12.sp, maxLines = 1)
+            Text(
+                if (activeSessionId > 0) "SESSION CONNECTED • ID $activeSessionId" else "WAITING FOR PLAYBACK SESSION",
+                color = if (activeSessionId > 0) Color(0xFFB5D69B) else Color(0xFFFFB45B),
+                fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 5.dp)
+            )
+        }
         if (!available) {
             Text(
                 if (activeSessionId <= 0) "Waiting for Analog playback audio… the equaliser will attach automatically as soon as the output session is ready."
                 else "The current output route did not expose an audio-effects session. Try reconnecting the output device; controls remain safely inactive.",
                 color = Color(0xFFE8E1CF), fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(top = 12.dp, bottom = 12.dp)
             )
         }
-        Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
-            Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                val effect = eq
+                if (effect != null) runCatching {
+                    for (i in 0 until effect.numberOfBands.toInt()) effect.setBandLevel(i.toShort(), 0)
+                }
+                bands = List(5) { 0f }
+                bassLevel = 0f
+                spaceLevel = 0f
+                runCatching { bass?.setStrength(0); virtualizer?.setStrength(0) }
+                context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit()
+                    .putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet())
+                    .putFloat(deviceProfileKey + "_bass", 0f)
+                    .putFloat(deviceProfileKey + "_space", 0f).apply()
+            }, enabled = enabled && available) { Text("RESET FLAT", color = Color(0xFFFFB45B), fontSize = 9.sp) }
+        }
+        Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(16.dp)) {
                 bands.forEachIndexed { index, value ->
                     val label = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")[index]
