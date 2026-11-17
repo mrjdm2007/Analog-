@@ -236,6 +236,7 @@ class PlaybackService : MediaSessionService() {
                 val speed = intent.getFloatExtra(EXTRA_PLAYBACK_SPEED, 1f).coerceIn(0.5f, 2f)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("playback_speed", speed).apply()
                 mediaSession?.player?.setPlaybackParameters(PlaybackParameters(speed, 1f))
+                crossfadePlayer?.setPlaybackParameters(PlaybackParameters(speed, 1f))
             }
         }
         updateWidget()
