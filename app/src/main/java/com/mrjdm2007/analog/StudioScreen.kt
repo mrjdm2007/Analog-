@@ -75,6 +75,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var highPassHz by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_high_pass_hz", 80f)) }
     var limiterCeilingDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_limiter_ceiling_db", -1f)) }
     var compressorRatio by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_ratio", 3f)) }
+    var compressorAttackMs by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_attack_ms", 10f)) }
+    var compressorReleaseMs by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_release_ms", 120f)) }
     val inputDevices = remember(inputRefresh) { context.getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).toList() }
     val selectedInputLabel = inputDevices.firstOrNull { it.id == selectedInputDeviceId }?.productName?.toString() ?: "System default input"
     var showSettings by remember { mutableStateOf(true) }
@@ -103,6 +105,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
             .putFloat("studio_high_pass_hz", highPassHz)
             .putFloat("studio_limiter_ceiling_db", limiterCeilingDb)
             .putFloat("studio_compressor_ratio", compressorRatio)
+            .putFloat("studio_compressor_attack_ms", compressorAttackMs)
+            .putFloat("studio_compressor_release_ms", compressorReleaseMs)
             .apply()
     }
 
@@ -258,6 +262,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     putExtra(RecordingService.EXTRA_HIGH_PASS_HZ, highPassHz)
                                     putExtra(RecordingService.EXTRA_LIMITER_CEILING_DB, limiterCeilingDb)
                                     putExtra(RecordingService.EXTRA_COMPRESSOR_RATIO, compressorRatio)
+                                    putExtra(RecordingService.EXTRA_COMPRESSOR_ATTACK_MS, compressorAttackMs)
+                                    putExtra(RecordingService.EXTRA_COMPRESSOR_RELEASE_MS, compressorReleaseMs)
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
@@ -403,6 +409,10 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text(String.format(Locale.US, "COMPRESSOR RATIO • %.1f:1", compressorRatio), color = StudioMuted, fontSize = 9.sp)
                             Slider(value = compressorRatio, onValueChange = { compressorRatio = it }, valueRange = 1f..8f, enabled = compressorEnabled && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text(String.format(Locale.US, "ATTACK • %.0f ms", compressorAttackMs), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = compressorAttackMs, onValueChange = { compressorAttackMs = it }, valueRange = 1f..100f, enabled = compressorEnabled && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text(String.format(Locale.US, "RELEASE • %.0f ms", compressorReleaseMs), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = compressorReleaseMs, onValueChange = { compressorReleaseMs = it }, valueRange = 20f..500f, enabled = compressorEnabled && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text("FORMAT: WAV • " + (if (bitDepth == 32) "32-BIT IEEE FLOAT" else "$bitDepth-BIT PCM") + " • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
                             Text("Input routing is requested from Android and may be overridden by device policy. Sample rates and stereo depend on connected hardware.", color = StudioMuted, fontSize = 9.sp)
                         }
