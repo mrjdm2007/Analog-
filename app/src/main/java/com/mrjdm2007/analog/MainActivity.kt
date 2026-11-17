@@ -611,6 +611,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
     val hapticView = LocalView.current
+    val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
     var artist by remember { mutableStateOf("Choose a song from your library") }
     var playing by remember { mutableStateOf(false) }
