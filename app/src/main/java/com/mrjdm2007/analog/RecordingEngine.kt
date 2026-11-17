@@ -63,8 +63,14 @@ object RecordingEngine {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
         var output = File(directory, "Analog_Take_" + stamp + ".wav")
         var suffix = 1
-        while (!runCatching { output.createNewFile() }.getOrDefault(false)) {
+        var created = runCatching { output.createNewFile() }.getOrDefault(false)
+        while (!created && suffix <= 100) {
             output = File(directory, "Analog_Take_" + stamp + "_" + suffix++ + ".wav")
+            created = runCatching { output.createNewFile() }.getOrDefault(false)
+        }
+        if (!created) {
+            mutableState.value = RecordingSnapshot(status = "ERROR", error = "Could not create a unique recording file.")
+            return
         }
         running = true
         Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f)) }, "AnalogAudioCapture")
