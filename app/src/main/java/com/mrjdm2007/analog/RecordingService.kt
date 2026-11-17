@@ -67,7 +67,7 @@ class RecordingService : Service() {
                         }
                         Handler(Looper.getMainLooper()).post {
                             stopForeground(STOP_FOREGROUND_REMOVE)
-                            stopSelfResult(startId)
+                            stopSelf()
                         }
                     }, "AnalogRecordingServiceMonitor").apply { isDaemon = true; start() }
                 }
