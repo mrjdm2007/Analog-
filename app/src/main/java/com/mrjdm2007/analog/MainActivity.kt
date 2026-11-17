@@ -631,6 +631,9 @@ class MainActivity : ComponentActivity() {
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
+    var loopStartMs by remember(trackId) { mutableStateOf<Long?>(null) }
+    var loopEndMs by remember(trackId) { mutableStateOf<Long?>(null) }
+    var bookmarkMs by remember(trackId) { mutableLongStateOf(trackId?.let { playerContextBookmark(playerContext, it) } ?: -1L) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
     val playerContext = LocalContext.current
     LaunchedEffect(trackId) {
@@ -679,6 +682,14 @@ class MainActivity : ComponentActivity() {
             duration = player.duration.coerceAtLeast(1L).toFloat()
             position = player.currentPosition.toFloat().coerceIn(0f, duration)
             delay(if (player.isPlaying) 250L else 1000L)
+        }
+    }
+    LaunchedEffect(player, loopStartMs, loopEndMs, trackId) {
+        while (player != null && loopStartMs != null && loopEndMs != null) {
+            val start = loopStartMs ?: break
+            val end = loopEndMs ?: break
+            if (PlaybackLoop.shouldWrap(player.currentPosition, start, end)) player.seekTo(start)
+            delay(40L)
         }
     }
     Column(Modifier.fillMaxSize().background(themedBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
@@ -816,6 +827,25 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = themedAccent) }
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { loopStartMs = player?.currentPosition ?: 0L; loopEndMs = null }, modifier = Modifier.weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, themedAccent.copy(alpha = .55f))) {
+                Text(if (loopStartMs == null) "A • SET START" else "A • ${timeText(loopStartMs!!)}", color = themedAccent, fontSize = 9.sp, maxLines = 1)
+            }
+            OutlinedButton(onClick = { val now = player?.currentPosition ?: 0L; val start = loopStartMs; if (start != null && PlaybackLoop.isValidRange(start, now)) loopEndMs = now }, enabled = loopStartMs != null, modifier = Modifier.weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, themedAccent.copy(alpha = .55f))) {
+                Text(if (loopEndMs == null) "B • SET END" else "B • ${timeText(loopEndMs!!)}", color = themedAccent, fontSize = 9.sp, maxLines = 1)
+            }
+            TextButton(onClick = { loopStartMs = null; loopEndMs = null }) { Text("CLEAR", color = themedMuted, fontSize = 9.sp) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = {
+                val id = trackId ?: return@TextButton
+                bookmarkMs = player?.currentPosition ?: 0L
+                playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putLong("bookmark:$id", bookmarkMs).apply()
+            }, modifier = Modifier.weight(1f)) { Text("SAVE POSITION", color = themedAccent, fontSize = 9.sp) }
+            TextButton(onClick = { val target = bookmarkMs; if (target >= 0L && target < (player?.duration ?: 0L)) player?.seekTo(target) }, enabled = bookmarkMs >= 0L, modifier = Modifier.weight(1f)) {
+                Text(if (bookmarkMs >= 0L) "RESUME ${timeText(bookmarkMs)}" else "NO BOOKMARK", color = themedMuted, fontSize = 9.sp)
+            }
+        }
         Spacer(Modifier.height(14.dp))
     }
     if (showQueue) {
@@ -847,5 +877,8 @@ class MainActivity : ComponentActivity() {
         )
     }
 }
+
+private fun playerContextBookmark(context: Context, trackId: Long): Long =
+    context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getLong("bookmark:$trackId", -1L)
 
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
