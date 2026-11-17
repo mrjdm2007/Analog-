@@ -76,7 +76,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             })
         }
         Text("OUTPUT • " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
-        if (!available || liveSession <= 0 || bandCount <= 0) {
+        if (!available || bandCount <= 0) {
             Text(
                 if (liveSession <= 0) "Start a song. The equaliser will attach to the active player session automatically."
                 else if (error.isNotBlank()) "Equaliser unavailable on this audio session: " + error
