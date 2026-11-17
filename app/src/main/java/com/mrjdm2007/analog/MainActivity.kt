@@ -428,7 +428,20 @@ class MainActivity : ComponentActivity() {
                                 title = { Text(if (pendingTrack == null) "Create playlist" else "Add to playlist", color = Cream) },
                                 text = { Column {
                                     if (pendingTrack != null) {
-                                        Text("Add this song to:", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
+                                        val selectedTrack = tracks.firstOrNull { it.id == pendingTrack }
+                                        Text("QUEUE ACTIONS", color = Green, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            TextButton(onClick = {
+                                                selectedTrack?.let { enqueueTrack(it, playNext = true) }
+                                                playlistDialog = false; pendingTrack = null
+                                            }, enabled = selectedTrack != null, modifier = Modifier.weight(1f)) { Text("PLAY NEXT", color = Amber, fontSize = 10.sp) }
+                                            TextButton(onClick = {
+                                                selectedTrack?.let { enqueueTrack(it, playNext = false) }
+                                                playlistDialog = false; pendingTrack = null
+                                            }, enabled = selectedTrack != null, modifier = Modifier.weight(1f)) { Text("ADD TO QUEUE", color = Amber, fontSize = 10.sp) }
+                                        }
+                                        Divider(color = Cream.copy(alpha = .12f))
+                                        Text("ADD TO PLAYLIST", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
                                         playlists.keys.sorted().forEach { name ->
                                             TextButton(onClick = {
                                                 val id = pendingTrack
@@ -459,6 +472,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun mediaItem(track: Track): MediaItem =
+        MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(
+            MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist)
+                .setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()
+        ).build()
+
+    private fun enqueueTrack(track: Track, playNext: Boolean) {
+        val c = controller ?: return
+        val item = mediaItem(track)
+        if (c.mediaItemCount == 0) {
+            c.setMediaItem(item)
+            c.prepare()
+            c.play()
+        } else if (playNext) {
+            c.addMediaItem((c.currentMediaItemIndex + 1).coerceIn(0, c.mediaItemCount), item)
+        } else {
+            c.addMediaItem(item)
+        }
+    }
+
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
@@ -481,10 +514,7 @@ class MainActivity : ComponentActivity() {
             .putString("daily_shuffle_order", orderedTracks.joinToString(",") { it.id.toString() })
             .apply()
         val queueIndex = orderedTracks.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-        c.setMediaItems(orderedTracks.map { track ->
-            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
-                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
-        }, queueIndex, 0L)
+        c.setMediaItems(orderedTracks.map(::mediaItem), queueIndex, 0L)
         c.prepare(); c.play()
     }
 
