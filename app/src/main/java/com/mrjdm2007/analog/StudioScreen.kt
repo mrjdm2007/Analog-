@@ -129,7 +129,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Text(formatBytes(snapshot.bytesWritten), color = StudioMuted, fontSize = 11.sp)
                         }
                     }
-                    Text("INPUT: " + selectedInputLabel, color = StudioMuted, fontSize = 9.sp, maxLines = 1)
+                    Text("REQUESTED INPUT: " + selectedInputLabel, color = StudioMuted, fontSize = 9.sp, maxLines = 1)
                 }
                 item {
                     Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
