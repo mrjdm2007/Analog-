@@ -343,7 +343,6 @@ object RecordingEngine {
             }
             finalSnapshot = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
         } finally {
-            running = false
             paused = false
             runCatching { stream?.close() }
             runCatching { audio?.stop() }
