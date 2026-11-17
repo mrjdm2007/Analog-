@@ -458,7 +458,8 @@ struct PlaylistCard: View {
                 Text("\(subtitle) • \(tracks.count) tracks").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
             }
             Spacer()
-            Button { player.playQueue(tracks) } label: { Image(systemName: "play.fill").foregroundStyle(AnalogPalette.amber).padding(10).background(AnalogPalette.amber.opacity(0.1), in: Circle()) }.buttonStyle(.plain)
+            Button { player.exportPlaylist(name, tracks: tracks) } label: { Image(systemName: "square.and.arrow.down").foregroundStyle(AnalogPalette.green).padding(10).background(AnalogPalette.green.opacity(0.1), in: Circle()) }.buttonStyle(.plain).help("Export as M3U8")
+            Button { player.playQueue(tracks) } label: { Image(systemName: "play.fill").foregroundStyle(AnalogPalette.amber).padding(10).background(AnalogPalette.amber.opacity(0.1), in: Circle()) }.buttonStyle(.plain).disabled(tracks.isEmpty).opacity(tracks.isEmpty ? 0.35 : 1)
         }
         .padding(10).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 12))
         .contextMenu {
