@@ -127,6 +127,15 @@ class AudioCoreRegressionTest {
         }
     }
 
+    @Test fun sleepFadeOutIsLinearAndClamped() {
+        assertEquals(1f, SleepFade.volumeAt(-10L, 15_000L), 0.0001f)
+        assertEquals(1f, SleepFade.volumeAt(0L, 15_000L), 0.0001f)
+        assertEquals(0.5f, SleepFade.volumeAt(7_500L, 15_000L), 0.0001f)
+        assertEquals(0f, SleepFade.volumeAt(15_000L, 15_000L), 0.0001f)
+        assertEquals(0f, SleepFade.volumeAt(20_000L, 15_000L), 0.0001f)
+        assertEquals(1f, SleepFade.volumeAt(7_500L, 0L), 0.0001f)
+    }
+
     @Test fun abLoopRequiresIncreasingRangeAndWrapsAtEnd() {
         assertEquals(false, PlaybackLoop.isValidRange(1000L, 1000L))
         assertEquals(false, PlaybackLoop.isValidRange(2000L, 1000L))
