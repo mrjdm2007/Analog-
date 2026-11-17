@@ -80,6 +80,7 @@ struct ContentView: View {
         switch player.selectedTab {
         case "Library": return "\(player.tracks.count) LOCAL TRACKS • LOSSLESS-READY PLAYBACK"
         case "Equalizer": return "10-BAND PARAMETRIC TONE CONTROL"
+        case "Visualiser": return "LIVE SPECTRUM ANALYSIS • MAC ONLY"
         case "Recorder": return "LOCAL RECORDING • PCM CAPTURE"
         case "Journal": return "YOUR TRACK NOTES AND RATINGS"
         default: return "ANALOG MUSIC SYSTEM"
@@ -93,6 +94,7 @@ struct ContentView: View {
         case "Playlists": PlaylistsView()
         case "Journal": JournalView()
         case "Equalizer": EqualizerView()
+        case "Visualiser": VisualiserView()
         case "Recorder": RecorderView()
         case "Settings": SettingsView()
         default: LibraryView()
@@ -108,6 +110,7 @@ struct SidebarView: View {
         ("Playlists", "music.note.list"),
         ("Journal", "book.closed.fill"),
         ("Equalizer", "slider.horizontal.3"),
+        ("Visualiser", "waveform.path"),
         ("Recorder", "waveform.badge.mic"),
         ("Settings", "gearshape.fill")
     ]
@@ -483,7 +486,7 @@ struct EqualizerView: View {
                     .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 10, weight: .bold))
             }
             HStack(spacing: 8) {
-                ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical"], id: \.self) { preset in
+                ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night"], id: \.self) { preset in
                     Button(preset.uppercased()) { player.applyPreset(preset) }.buttonStyle(AnalogOutlineButton())
                 }
                 Spacer()
@@ -501,6 +504,12 @@ struct EqualizerView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 18)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 14))
+            VStack(alignment: .leading, spacing: 12) {
+                HStack { Text("PREAMP").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted); Spacer(); Text(String(format: "%+.1f dB", player.preampDB)).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
+                Slider(value: Binding(get: { Double(player.preampDB) }, set: { player.preampDB = Float($0); player.setEQEnabled(player.eqEnabled) }), in: -12...12).tint(AnalogPalette.amber)
+                HStack { Text("STEREO BALANCE").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted); Spacer(); Text(player.stereoPan == 0 ? "CENTRE" : (player.stereoPan < 0 ? "L " : "R ") + String(format: "%.0f%%", abs(player.stereoPan) * 100)).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
+                Slider(value: Binding(get: { Double(player.stereoPan) }, set: { player.stereoPan = Float($0); player.setEQEnabled(player.eqEnabled) }), in: -1...1).tint(AnalogPalette.green)
+            }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             HStack(spacing: 10) {
                 Image(systemName: "info.circle").foregroundStyle(AnalogPalette.green)
                 Text("This is a native 10-band DSP equalizer in the Mac playback signal path. It does not depend on a system-wide audio effect or another app.")
@@ -735,4 +744,86 @@ struct AnalogOutlineButton: ButtonStyle {
 private func formatTime(_ seconds: Double) -> String {
     let value = max(0, Int(seconds))
     return String(format: "%d:%02d", value / 60, value % 60)
+}
+
+struct VisualiserView: View {
+    @EnvironmentObject private var player: AnalogPlayer
+    @State private var style = "Spectrum"
+    @State private var peakHold = true
+    @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("LIVE AUDIO ANALYSER").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                    Text("Real-time signal analysis from the Mac playback chain • Mac only").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Toggle("PEAK HOLD", isOn: $peakHold).toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+            }
+            HStack(spacing: 8) {
+                ForEach(["Spectrum", "Waveform"], id: \.self) { item in
+                    Button(item.uppercased()) { style = item }.buttonStyle(AnalogOutlineButton())
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(style == item ? AnalogPalette.amber.opacity(0.8) : .clear, lineWidth: 1))
+                }
+                Spacer()
+                Button { player.visualizerEnabled.toggle() } label: {
+                    Label(player.visualizerEnabled ? "ANALYSER ON" : "ANALYSER PAUSED", systemImage: player.visualizerEnabled ? "waveform" : "pause.fill")
+                }.buttonStyle(AnalogActionButton())
+            }
+            ZStack {
+                RoundedRectangle(cornerRadius: 15).fill(Color.black.opacity(0.68))
+                Canvas { context, size in
+                    let bins = player.visualizerBins
+                    let count = max(1, bins.count)
+                    let gap: CGFloat = 4
+                    let barWidth = max(2, (size.width - CGFloat(count - 1) * gap) / CGFloat(count))
+                    if style == "Spectrum" {
+                        for index in bins.indices {
+                            let value = CGFloat(bins[index])
+                            let height = max(2, value * (size.height - 20))
+                            let rect = CGRect(x: CGFloat(index) * (barWidth + gap), y: size.height - height - 10, width: barWidth, height: height)
+                            let color = index < 10 ? AnalogPalette.green : (index < 24 ? AnalogPalette.amber : Color(red: 0.9, green: 0.42, blue: 0.25))
+                            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [color.opacity(0.55), color]), startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+                        }
+                    } else {
+                        var path = Path()
+                        for index in bins.indices {
+                            let x = CGFloat(index) / CGFloat(max(1, count - 1)) * size.width
+                            let y = size.height / 2 - CGFloat(bins[index]) * size.height * 0.42
+                            if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+                        }
+                        context.stroke(path, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                        var mirror = Path()
+                        for index in bins.indices {
+                            let x = CGFloat(index) / CGFloat(max(1, count - 1)) * size.width
+                            let y = size.height / 2 + CGFloat(bins[index]) * size.height * 0.42
+                            if index == 0 { mirror.move(to: CGPoint(x: x, y: y)) } else { mirror.addLine(to: CGPoint(x: x, y: y)) }
+                        }
+                        context.stroke(mirror, with: .color(AnalogPalette.amber.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    }
+                    for fraction in [0.25, 0.5, 0.75] {
+                        var grid = Path(); grid.move(to: CGPoint(x: 0, y: size.height * fraction)); grid.addLine(to: CGPoint(x: size.width, y: size.height * fraction))
+                        context.stroke(grid, with: .color(.white.opacity(0.08)), lineWidth: 1)
+                    }
+                }
+                .padding(12)
+                if !player.isPlaying {
+                    VStack(spacing: 5) {
+                        Image(systemName: "waveform.path").font(.system(size: 25)).foregroundStyle(AnalogPalette.amber)
+                        Text(player.currentTrack == nil ? "PLAY A TRACK TO START ANALYSIS" : "PLAYBACK PAUSED").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.muted)
+                    }
+                }
+            }
+            .frame(height: 300)
+            .overlay(RoundedRectangle(cornerRadius: 15).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
+            HStack(alignment: .top, spacing: 10) {
+                MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
+                MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
+                MetricTile(label: "RANGE", value: "35 Hz–16 kHz", symbol: "waveform")
+            }
+            Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+            Spacer()
+        }.padding(22)
+    }
 }
