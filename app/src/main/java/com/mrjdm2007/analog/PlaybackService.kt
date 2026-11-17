@@ -155,6 +155,8 @@ class PlaybackService : MediaSessionService() {
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
                     cancelCrossfade()
+                    // A pause during a crossfade must never leave the primary deck attenuated.
+                    mediaSession?.player?.volume = 1f
                 }
             }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
