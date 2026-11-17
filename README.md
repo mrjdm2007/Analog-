@@ -24,7 +24,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Android input-device routing requests for available built-in, wired, USB and Bluetooth capture devices (routing remains device-policy dependent)
 - Three-band low/mid/high tone shaping and a basic 3:1 dynamics compressor with adjustable threshold
 - Recording take playback, rename, delete and secure share actions
-- Recent take browser with in-app playback; recordings stored in app-specific Music/Analog/Recordings
+- Recent take browser with in-app playback, rename, delete, secure share and export to public Music/Analog/Recordings on Android 10+; originals remain in app-specific storage
 - Offline-first operation; the app does not stream or download music
 
 ## Visual identity
