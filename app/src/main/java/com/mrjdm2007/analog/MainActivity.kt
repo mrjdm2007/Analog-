@@ -621,6 +621,7 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    var playbackSpeed by remember { mutableFloatStateOf(playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
@@ -832,6 +833,15 @@ class MainActivity : ComponentActivity() {
                 Text("30 SEC ", color = themedMuted, fontSize = 9.sp)
                 Icon(Icons.Default.Forward30, null, tint = themedAccent)
             }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = {
+                val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+                val next = speeds[(speeds.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }.takeIf { it >= 0 }?.plus(1) ?: 2) % speeds.size]
+                playbackSpeed = next
+                player?.setPlaybackParameters(androidx.media3.common.PlaybackParameters(next, 1f))
+                playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat("playback_speed", next).apply()
+            }) { Text("PLAYBACK SPEED  •  " + String.format(java.util.Locale.US, "%.2f×", playbackSpeed), color = themedAccent, fontSize = 10.sp) }
         }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
