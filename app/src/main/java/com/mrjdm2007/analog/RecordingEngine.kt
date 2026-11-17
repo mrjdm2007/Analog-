@@ -17,6 +17,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
@@ -47,6 +48,7 @@ object RecordingEngine {
     @Volatile private var pauseGeneration = 0L
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var startedAt = 0L
+    @Volatile private var recordingStartedWallClock = 0L
     @Volatile private var pausedAt = 0L
     @Volatile private var pausedTotal = 0L
     private var markers = mutableListOf<Long>()
@@ -58,6 +60,7 @@ object RecordingEngine {
         pausedTotal = 0L
         pausedAt = 0L
         startedAt = 0L
+        recordingStartedWallClock = 0L
         pauseGeneration = 0L
         mutableState.value = RecordingSnapshot(status = "STARTING")
         val directory = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir, "Analog/Recordings")
@@ -116,9 +119,10 @@ object RecordingEngine {
             }
             recorder = activeAudio
             stream = FileOutputStream(output)
-            stream.write(ByteArray(44))
+            stream.write(ByteArray(654))
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
+            recordingStartedWallClock = System.currentTimeMillis()
             mutableState.value = RecordingSnapshot(status = "RECORDING", file = output)
 
             val inputBuffer = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.LITTLE_ENDIAN)
@@ -373,13 +377,36 @@ object RecordingEngine {
     private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int) {
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
-            raf.writeBytes("RIFF"); writeInt(raf, (36L + dataSize).toInt())
-            raf.writeBytes("WAVEfmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
+            // Broadcast Wave (BWF) bext metadata chunk: fixed 602-byte payload.
+            raf.writeBytes("RIFF"); writeInt(raf, (646L + dataSize).toInt())
+            raf.writeBytes("WAVE")
+            raf.writeBytes("bext"); writeInt(raf, 602)
+            writeFixedAscii(raf, "Analog Studio field recording", 256)
+            writeFixedAscii(raf, "Analog Android", 32)
+            writeFixedAscii(raf, "ANALOG-" + recordingStartedWallClock.toString(), 32)
+            val started = Date(recordingStartedWallClock)
+            writeFixedAscii(raf, SimpleDateFormat("yyyy-MM-dd", Locale.US).format(started), 10)
+            writeFixedAscii(raf, SimpleDateFormat("HH:mm:ss", Locale.US).format(started), 8)
+            val calendar = Calendar.getInstance().apply { time = started }
+            val secondsSinceMidnight = calendar.get(Calendar.HOUR_OF_DAY) * 3600L +
+                calendar.get(Calendar.MINUTE) * 60L + calendar.get(Calendar.SECOND)
+            val timeReference = secondsSinceMidnight * rate.toLong()
+            writeInt(raf, timeReference.toInt())
+            writeInt(raf, (timeReference ushr 32).toInt())
+            writeShort(raf, 1)
+            raf.write(ByteArray(64 + 190))
+            raf.writeBytes("fmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
             writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * (bitDepth / 8))
             writeShort(raf, channels * (bitDepth / 8)); writeShort(raf, bitDepth)
             raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
         }
     }
+    private fun writeFixedAscii(raf: RandomAccessFile, value: String, length: Int) {
+        val bytes = value.toByteArray(Charsets.US_ASCII).take(length).toByteArray()
+        raf.write(bytes)
+        if (bytes.size < length) raf.write(ByteArray(length - bytes.size))
+    }
+
     private fun writeInt(raf: RandomAccessFile, value: Int) {
         raf.write(value and 255); raf.write((value shr 8) and 255)
         raf.write((value shr 16) and 255); raf.write((value shr 24) and 255)
