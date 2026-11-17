@@ -138,6 +138,9 @@ object RecordingEngine {
             val compressorRelease = 1f - kotlin.math.exp(-1f / (0.120f * rate))
             var leftSample = 0f
             val spectrogramHistory = ArrayDeque<List<Float>>()
+            val highPassAlpha = (1.0 / (1.0 + 1.0 / (2.0 * PI * 80.0 * rate))).toFloat()
+            val lowAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 250.0 / rate)).toFloat()
+            val highAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 4000.0 / rate)).toFloat()
             var lastUi = 0L
             while (running) {
                 if (paused) {
@@ -171,16 +174,11 @@ object RecordingEngine {
                     }
                     var value = sample * gain
                     if (highPass) {
-                        val rc = 1.0 / (2.0 * PI * 80.0)
-                        val dt = 1.0 / rate
-                        val alpha = (rc / (rc + dt)).toFloat()
-                        val filtered = alpha * (previousOut[channel] + value - previousIn[channel])
+                        val filtered = highPassAlpha * (previousOut[channel] + value - previousIn[channel])
                         previousIn[channel] = value
                         previousOut[channel] = filtered
                         value = filtered
                     }
-                    val lowAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 250.0 / rate)).toFloat()
-                    val highAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 4000.0 / rate)).toFloat()
                     lowState[channel] += lowAlpha * (value - lowState[channel])
                     highState[channel] += highAlpha * (value - highState[channel])
                     val lowBand = lowState[channel]
