@@ -880,6 +880,7 @@ class MainActivity : ComponentActivity() {
                 Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
             }
         }
+        PlayerJournalPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
@@ -918,8 +919,62 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } }
+
+            confirmButton = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { player?.clearMediaItems() }) { Text("CLEAR QUEUE", color = themedMuted) }
+                    TextButton(onClick = { showQueue = false }) { Text("DONE") }
+                }
+            }
         )
+    }
+}
+
+@Composable
+private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, panel: Color, textColor: Color, muted: Color) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
+    var rating by remember(trackId) { mutableIntStateOf(trackId?.let { prefs.getInt("rating:${it}", 0) } ?: 0) }
+    var note by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("journal:${it}", "") } ?: "") }
+    var mood by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("mood:${it}", "Unsorted") } ?: "Unsorted") }
+    var expanded by remember(trackId) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp).background(panel, RoundedCornerShape(16.dp)).border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("LISTENING JOURNAL", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
+                Text("Personal ratings, moods and track notes", color = muted, fontSize = 9.sp)
+            }
+            TextButton(onClick = { expanded = !expanded }, enabled = trackId != null) { Text(if (expanded) "COLLAPSE" else "OPEN", color = accent, fontSize = 9.sp) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("YOUR RATING", color = muted, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+            (1..5).forEach { star ->
+                IconButton(onClick = {
+                    rating = if (rating == star) 0 else star
+                    trackId?.let { prefs.edit().putInt("rating:${it}", rating).apply() }
+                }, enabled = trackId != null, modifier = Modifier.size(30.dp)) {
+                    Icon(if (star <= rating) Icons.Default.Star else Icons.Default.StarBorder, null, tint = if (star <= rating) accent else muted.copy(alpha = .5f), modifier = Modifier.size(19.dp))
+                }
+            }
+        }
+        Text("LISTENING MOOD", color = muted, fontSize = 9.sp, letterSpacing = 1.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf("Focus", "Calm", "Energy", "Nostalgia").forEach { label ->
+                FilterChip(selected = mood == label, onClick = {
+                    mood = label
+                    trackId?.let { prefs.edit().putString("mood:${it}", label).apply() }
+                }, enabled = trackId != null, label = { Text(label, fontSize = 9.sp) })
+            }
+        }
+        if (expanded) {
+            OutlinedTextField(value = note, onValueChange = { note = it }, enabled = trackId != null,
+                modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5,
+                label = { Text("Listening notes") }, placeholder = { Text("What stands out in this track?") })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(track?.let { "${it.album} • ${it.folder}" } ?: "No track selected", color = muted, fontSize = 9.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                Button(onClick = { trackId?.let { prefs.edit().putString("journal:${it}", note).putString("mood:${it}", mood).putInt("rating:${it}", rating).apply() } }, enabled = trackId != null) { Text("SAVE NOTES", fontSize = 9.sp) }
+            }
+        }
     }
 }
 
