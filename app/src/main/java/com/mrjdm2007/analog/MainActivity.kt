@@ -295,6 +295,16 @@ class MainActivity : ComponentActivity() {
                     nowPlaying -> PlayerPage(controller, tracks, favorites, lyricsRefreshKey = lyricsVersion, onImportLyrics = { id ->
                         lyricsTargetTrackId = id
                         importLyricsLauncher.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
+                    }, onArtistRadio = { id ->
+                        tracks.firstOrNull { it.id == id }?.let { seed ->
+                            val radio = tracks.filter { it.artist.equals(seed.artist, true) }.shuffled()
+                            if (radio.isNotEmpty()) { play(radio, 0); playCountVersion++ }
+                        }
+                    }, onAlbumShuffle = { id ->
+                        tracks.firstOrNull { it.id == id }?.let { seed ->
+                            val album = tracks.filter { it.album.equals(seed.album, true) && it.artist.equals(seed.artist, true) }.shuffled()
+                            if (album.isNotEmpty()) { play(album, 0); playCountVersion++ }
+                        }
                     }, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
@@ -648,7 +658,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, lyricsRefreshKey: Int, onImportLyrics: (Long) -> Unit, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, lyricsRefreshKey: Int, onImportLyrics: (Long) -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -902,6 +912,18 @@ class MainActivity : ComponentActivity() {
                 Text(if (loopEndMs == null) "B • SET END" else "B • ${timeText(loopEndMs!!)}", color = themedAccent, fontSize = 9.sp, maxLines = 1)
             }
             TextButton(onClick = { loopStartMs = null; loopEndMs = null }) { Text("CLEAR", color = themedMuted, fontSize = 9.sp) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { trackId?.let(onArtistRadio) }, enabled = trackId != null, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.GraphicEq, null, tint = themedAccent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("ARTIST RADIO", color = themedText, fontSize = 9.sp, maxLines = 1)
+            }
+            OutlinedButton(onClick = { trackId?.let(onAlbumShuffle) }, enabled = trackId != null, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Shuffle, null, tint = themedAccent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("SHUFFLE ALBUM", color = themedText, fontSize = 9.sp, maxLines = 1)
+            }
         }
         Column(Modifier.fillMaxWidth().background(themedPanel, RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
