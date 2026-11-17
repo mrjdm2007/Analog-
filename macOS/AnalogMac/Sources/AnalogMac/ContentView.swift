@@ -398,11 +398,6 @@ struct PlaylistsView: View {
             }
             Spacer()
         }
-        .onChange(of: player.visualizerBins) { _, values in
-            guard peakHold else { return }
-            if heldPeaks.count != values.count { heldPeaks = values; return }
-            heldPeaks = zip(heldPeaks, values).map { max($0 * 0.965, $1) }
-        }
         .padding(22)
     }
 }
@@ -848,7 +843,13 @@ struct VisualiserView: View {
             }
             Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
             Spacer()
-        }.padding(22)
+        }
+        .onChange(of: player.visualizerBins) { _, values in
+            guard peakHold else { return }
+            if heldPeaks.count != values.count { heldPeaks = values; return }
+            heldPeaks = zip(heldPeaks, values).map { max($0 * 0.965, $1) }
+        }
+        .padding(22)
     }
 }
 
