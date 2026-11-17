@@ -33,6 +33,8 @@ data class RecordingSnapshot(
     val peakHoldDbfs: Float = -96f,
     val clippedSamples: Long = 0L,
     val rmsDbfs: Float = -96f,
+    val channelPeakDbfs: List<Float> = listOf(-96f),
+    val channelRmsDbfs: List<Float> = listOf(-96f),
     val waveform: List<Float> = List(160) { 0f },
     val spectrum: List<Float> = List(48) { 0f },
     val spectrogram: List<List<Float>> = emptyList(),
@@ -186,6 +188,8 @@ object RecordingEngine {
                 inputBuffer.position(0)
                 var peak = 0f
                 var sum = 0.0
+                val channelPeaks = FloatArray(channels)
+                val channelSums = DoubleArray(channels)
                 for (i in 0 until count) {
                     val channel = i % channels
                     val sample = if (bitDepth == 32) {
@@ -205,9 +209,11 @@ object RecordingEngine {
                     val inputSample = RecordingPcm.finiteOrZero(sample)
                     val inputAbsolute = kotlin.math.abs(inputSample)
                     peak = max(peak, inputAbsolute)
+                    channelPeaks[channel] = max(channelPeaks[channel], inputAbsolute)
                     if (inputAbsolute >= 0.999f) clippedSamples++
                     peakHoldDbfs = max(peakHoldDbfs, toDb(inputAbsolute))
                     sum += inputSample.toDouble() * inputSample
+                    channelSums[channel] += inputSample.toDouble() * inputSample
                     // Raw mode bypasses every Analog DSP stage. Only finite-value protection
                     // and the selected WAV sample-format conversion remain.
                     var value = inputSample * if (rawMic) 1f else gain
@@ -299,6 +305,8 @@ object RecordingEngine {
                             peakHoldDbfs = peakHoldDbfs,
                             clippedSamples = clippedSamples,
                             rmsDbfs = toDb(rms),
+                            channelPeakDbfs = channelPeaks.map { toDb(it) },
+                            channelRmsDbfs = channelSums.map { channelSum -> toDb(sqrt(channelSum / (count / channels).coerceAtLeast(1)).toFloat()) },
                             waveform = wave,
                             spectrum = currentSpectrum,
                             spectrogram = spectrogramHistory.toList(),
