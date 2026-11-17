@@ -17,6 +17,11 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Full-screen retro FFT spectrum visualizer
 - Analog needle VU meter display
 - Audio effects screen with system equalizer, bass boost, and virtualizer controls (device/output support varies)
+- Native Analog Studio with AudioRecord PCM capture and a microphone foreground service
+- WAV 16-bit PCM recording, configurable 44.1/48/96 kHz capture, mono/stereo selection
+- Live sample-derived waveform, 48-band FFT spectrum, peak/RMS dBFS meters
+- Pause/resume, markers with sidecar notes, input gain, 80 Hz high-pass and peak limiter
+- Recent take browser with in-app playback; recordings stored in app-specific Music/Analog/Recordings
 - Offline-first operation; the app does not stream or download music
 
 ## Visual identity
@@ -28,6 +33,12 @@ Warm amber controls, phosphor-green accents, dark panels, and vintage hi-fi insp
 Open the repository in Android Studio with JDK 17 and Android SDK 35, allow Gradle sync, then run the `app` configuration on an Android device.
 
 GitHub Actions is configured to build a debug APK on pushes to `main` and upload it as the `Analog-debug` artifact. The build still needs confirmation on a successful CI run and physical-device testing.
+
+## Recording limitations
+
+- The recorder writes uncompressed 16-bit PCM WAV. 24-bit, FLAC, AAC, multitrack, timecode, LUFS, true-peak, advanced EQ/compression and noise reduction are not implemented in this first Studio pass.
+- Supported sample rates and stereo capture depend on the phone and connected input hardware. A requested unsupported combination reports an error.
+- The live FFT and meters analyze the actual captured PCM samples. Device routing and processing behavior remain hardware/Android dependent.
 
 ## Next development milestones
 
