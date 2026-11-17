@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,6 +31,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bassLevel by remember { mutableFloatStateOf(0f) }
     var spaceLevel by remember { mutableFloatStateOf(0f) }
     var enabled by remember { mutableStateOf(true) }
+    var activeSessionId by remember { mutableIntStateOf(audioSessionId) }
     var presets by remember { mutableStateOf(emptyList<String>()) }
     val context = LocalContext.current
     val deviceProfileKey = remember(context, outputRoute) {
@@ -37,12 +39,20 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         "eq_profile_" + route.replace(Regex("[^A-Za-z0-9]"), "_")
     }
 
-    DisposableEffect(deviceProfileKey, audioSessionId) {
+    LaunchedEffect(audioSessionId) {
+        while (true) {
+            val latest = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("audio_session_id", 0)
+            if (latest != activeSessionId) activeSessionId = latest
+            delay(300)
+        }
+    }
+
+    DisposableEffect(deviceProfileKey, activeSessionId) {
         runCatching {
-            if (audioSessionId > 0) {
-                eq = Equalizer(0, audioSessionId).apply { enabled = true }
-                bass = BassBoost(0, audioSessionId).apply { enabled = true }
-                virtualizer = Virtualizer(0, audioSessionId).apply { enabled = true }
+            if (activeSessionId > 0) {
+                eq = Equalizer(0, activeSessionId).apply { enabled = true }
+                bass = BassBoost(0, activeSessionId).apply { enabled = true }
+                virtualizer = Virtualizer(0, activeSessionId).apply { enabled = true }
                 available = eq != null
             } else {
                 available = false
@@ -86,8 +96,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         }
         if (!available) {
             Text(
-                if (audioSessionId <= 0) "Waiting for playback session… Start a song and the equaliser will connect automatically."
-                else "Android has not granted an audio-effects session for this route. The controls remain visible but inactive.",
+                if (activeSessionId <= 0) "Waiting for Analog playback audio… the equaliser will attach automatically as soon as the output session is ready."
+                else "The current output route did not expose an audio-effects session. Try reconnecting the output device; controls remain safely inactive.",
                 color = Color(0xFFE8E1CF), fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
