@@ -49,6 +49,8 @@ fun SettingsPage(
     onSleepTimer: (Int) -> Unit,
     onSleepTimerEndTrack: () -> Unit,
     onCancelSleepTimer: () -> Unit,
+    sleepFadeOut: Boolean,
+    onSleepFadeOutChanged: (Boolean) -> Unit,
     onMonthlyRecap: () -> Unit,
     onRescan: () -> Unit,
     onBack: () -> Unit
@@ -135,6 +137,13 @@ fun SettingsPage(
                     Column(Modifier.padding(12.dp)) {
                         Text("Sleep timer", color = SettingsCream, fontWeight = FontWeight.SemiBold)
                         Text("Pause playback automatically after a chosen interval.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Gentle fade-out", color = SettingsCream, fontSize = 12.sp)
+                                Text("Lower volume smoothly during the final 15 seconds.", color = SettingsCream.copy(alpha = .55f), fontSize = 10.sp)
+                            }
+                            Switch(checked = sleepFadeOut, onCheckedChange = onSleepFadeOutChanged)
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
                             listOf(15, 30, 45, 60).forEach { minutes -> TextButton(onClick = { onSleepTimer(minutes) }) { Text("${minutes}m", color = SettingsAmber) } }
                         }
