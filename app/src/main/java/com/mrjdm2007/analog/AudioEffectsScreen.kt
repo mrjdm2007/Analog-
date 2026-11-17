@@ -131,7 +131,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                                     val level = e.getBandLevel(index.toShort()).toFloat()
                                     if (range[1] == range[0]) 0f else ((level - range[0]) / (range[1] - range[0])) * 2f - 1f
                                 }
-                                context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
+                                context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(deviceProfileKey, bands.joinToString(",")).apply()
                             }
                         }, enabled = enabled && available, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
                     }
