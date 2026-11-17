@@ -154,13 +154,13 @@ object RecordingEngine {
             val midLinear = 10.0.pow(midGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
             val highLinear = 10.0.pow(highGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
             val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()
-            val limiterCeiling = 10.0.pow(limiterCeilingDb.coerceIn(-12f, -0.1f) / 20.0).toFloat()
+            val limiterCeiling = RecordingPcm.linearFromDb(limiterCeilingDb.coerceIn(-12f, -0.1f))
             val compressorRatio = compressorRatioSetting.coerceIn(1f, 10f)
             val compressorAttack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
             val compressorRelease = 1f - kotlin.math.exp(-1f / (0.120f * rate))
             var leftSample = 0f
             val spectrogramHistory = ArrayDeque<List<Float>>()
-            val highPassAlpha = (1.0 / (1.0 + 1.0 / (2.0 * PI * highPassHz.coerceIn(20f, 300f) * rate))).toFloat()
+            val highPassAlpha = RecordingPcm.highPassAlpha(highPassHz, rate)
             val lowAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 250.0 / rate)).toFloat()
             val highAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 4000.0 / rate)).toFloat()
             var lastUi = 0L
