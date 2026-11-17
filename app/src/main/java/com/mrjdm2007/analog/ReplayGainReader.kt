@@ -79,7 +79,7 @@ object ReplayGainReader {
         val useTrack = trackDb != null || commentTrack != null
         val gain = trackDb ?: commentTrack ?: albumDb ?: commentAlbum
         val peak = if (useTrack) trackPeak ?: commentTrackPeak else albumPeak ?: commentAlbumPeak
-        gain?.let { safeGainMilliBel(it, peak) }
+        return gain?.let { safeGainMilliBel(it, peak) }
     }
 
     private fun commentPeak(text: String, kind: String): Float? =
