@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.IBinder
 
 class RecordingService : Service() {
+    @Volatile private var monitorThread: Thread? = null
     companion object {
         const val ACTION_START = "com.mrjdm2007.analog.record.START"
         const val ACTION_PAUSE = "com.mrjdm2007.analog.record.PAUSE"
@@ -59,21 +60,29 @@ class RecordingService : Service() {
                     intent.getBooleanExtra(EXTRA_COMPRESSOR, false),
                     intent.getFloatExtra(EXTRA_COMPRESSOR_THRESHOLD, -18f)
                 )
-                Thread {
-                    while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
-                        try { Thread.sleep(100) } catch (_: InterruptedException) { break }
-                    }
-                    Handler(Looper.getMainLooper()).post {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
-                    }
-                }.start()
+                if (monitorThread?.isAlive != true) {
+                    monitorThread = Thread({
+                        while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
+                            try { Thread.sleep(150) } catch (_: InterruptedException) { break }
+                        }
+                        Handler(Looper.getMainLooper()).post {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelfResult(startId)
+                        }
+                    }, "AnalogRecordingServiceMonitor").apply { isDaemon = true; start() }
+                }
             }
             ACTION_PAUSE -> RecordingEngine.pause()
             ACTION_RESUME -> RecordingEngine.resume()
             ACTION_STOP -> RecordingEngine.stop()
         }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        monitorThread?.interrupt()
+        if (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) RecordingEngine.stop()
+        super.onDestroy()
     }
 
     private fun createChannel() {
