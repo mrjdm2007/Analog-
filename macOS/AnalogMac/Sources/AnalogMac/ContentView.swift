@@ -594,6 +594,24 @@ struct EqualizerView: View {
                     Text(String(format: "%.2f oct", player.eqBandwidths[selectedBandwidthBand])).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.amber).frame(width: 62, alignment: .trailing)
                 }
             }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("DYNAMIC PEAK GUARD").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                        Text("Optional dynamics processor after the 10-band EQ").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Toggle("LIMITER", isOn: Binding(get: { player.peakGuardEnabled }, set: { player.setPeakGuard(enabled: $0) }))
+                        .toggleStyle(.switch).tint(AnalogPalette.green).labelsHidden()
+                }
+                HStack {
+                    Text("OUTPUT CEILING").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Text(String(format: "%.1f dB", player.peakGuardThresholdDB)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                }
+                Slider(value: Binding(get: { Double(player.peakGuardThresholdDB) }, set: { player.setPeakGuardThreshold(Float($0)) }), in: -12 ... -0.1)
+                    .tint(AnalogPalette.amber).disabled(!player.peakGuardEnabled)
+            }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
