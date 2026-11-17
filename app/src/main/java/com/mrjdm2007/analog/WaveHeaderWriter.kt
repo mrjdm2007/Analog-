@@ -11,17 +11,24 @@ import java.util.TimeZone
 /** Writes a fixed-layout Broadcast Wave header, including optional standard RIFF cue points. */
 internal object WaveHeaderWriter {
     private const val CUE_RESERVE_BYTES = 3084
-    const val HEADER_SIZE_BYTES = 3738
-    const val MAX_DATA_BYTES = 0xFFFF_FFFFL - (HEADER_SIZE_BYTES - 8L)
+    private const val PCM_HEADER_SIZE_BYTES = 3738
+    private const val FLOAT_HEADER_SIZE_BYTES = 3750
+
+    fun headerSizeBytes(bitDepth: Int): Int = if (bitDepth == 32) FLOAT_HEADER_SIZE_BYTES else PCM_HEADER_SIZE_BYTES
+
+    fun maxDataBytes(bitDepth: Int): Long = 0xFFFF_FFFFL - (headerSizeBytes(bitDepth) - 8L) - 1L
 
     fun write(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int, startedAtMillis: Long, markerTimes: List<Long>) {
-        require(dataSize in 0..MAX_DATA_BYTES) { "Audio data exceeds the RIFF/WAV size limit." }
+        require(dataSize >= 0L && dataSize <= maxDataBytes(bitDepth)) { "Audio data exceeds the RIFF/WAV size limit." }
         require(rate > 0 && channels in 1..2 && bitDepth in listOf(16, 24, 32))
         val bytesPerSample = bitDepth / 8
+        val blockAlign = channels * bytesPerSample
+        val headerSize = headerSizeBytes(bitDepth)
+        val padBytes = (dataSize and 1L).toInt()
         val cues = markerTimes.take(128)
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
-            raf.writeBytes("RIFF"); writeInt(raf, (HEADER_SIZE_BYTES - 8L + dataSize).toInt())
+            raf.writeBytes("RIFF"); writeInt(raf, (headerSize - 8L + dataSize + padBytes).toInt())
             raf.writeBytes("WAVE")
             raf.writeBytes("bext"); writeInt(raf, 602)
             writeFixedAscii(raf, "Analog Studio field recording", 256)
@@ -44,7 +51,12 @@ internal object WaveHeaderWriter {
             raf.write(ByteArray(64 + 190))
             raf.writeBytes("fmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
             writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * bytesPerSample)
-            writeShort(raf, channels * bytesPerSample); writeShort(raf, bitDepth)
+            writeShort(raf, blockAlign); writeShort(raf, bitDepth)
+            // IEEE-float WAVE carries a fact chunk with the number of sample frames.
+            if (bitDepth == 32) {
+                raf.writeBytes("fact"); writeInt(raf, 4)
+                writeInt(raf, (dataSize / blockAlign).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            }
 
             val cuePayloadSize = 4 + cues.size * 24
             raf.writeBytes("cue "); writeInt(raf, cuePayloadSize); writeInt(raf, cues.size)
@@ -66,7 +78,8 @@ internal object WaveHeaderWriter {
             writeInt(raf, junkBytes - 8)
             raf.write(ByteArray(junkBytes - 8))
             raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
-            raf.setLength(HEADER_SIZE_BYTES.toLong() + dataSize)
+            if (padBytes != 0) raf.write(0)
+            raf.setLength(headerSize.toLong() + dataSize + padBytes)
         }
     }
 
