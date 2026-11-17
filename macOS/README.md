@@ -10,7 +10,7 @@ Requires macOS 13 or newer and Xcode Command Line Tools.
 bash macOS/package-macos-app.sh
 ```
 
-The script builds `macOS/AnalogMac` with Swift Package Manager and creates `build/Analog.app` plus `build/Analog-macOS.zip`.
+The script cross-compiles an Apple Silicon (`arm64`) build of `macOS/AnalogMac` with Swift Package Manager and creates `build/Analog.app` plus `build/Analog-macOS.zip`.
 
 ## Current desktop features
 
