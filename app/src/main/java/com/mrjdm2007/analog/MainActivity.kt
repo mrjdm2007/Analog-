@@ -1139,7 +1139,7 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
                 label = { Text("Listening notes") }, placeholder = { Text("What stands out in this track?") })
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(track?.let { "${it.album} • ${it.folder}" } ?: "No track selected", color = muted, fontSize = 9.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                Button(onClick = { trackId?.let { prefs.edit().putString("journal:${it}", note).putString("mood:${it}", mood).putInt("rating:${it}", rating).apply() } }, enabled = trackId != null) { Text("SAVE NOTES", fontSize = 9.sp) }
+                Button(onClick = { trackId?.let { prefs.edit().putString("journal:${it}", note).putInt("rating:${it}", rating).apply(); if (mood in moodNames) assignMood(mood) } }, enabled = trackId != null) { Text("SAVE NOTES", fontSize = 9.sp) }
             }
         }
     }
