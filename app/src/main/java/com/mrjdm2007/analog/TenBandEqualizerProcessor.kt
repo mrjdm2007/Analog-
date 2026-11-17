@@ -21,6 +21,8 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
 
     @Volatile private var gainsDb = FloatArray(10)
     @Volatile private var enabled = true
+    @Volatile private var preampDb = 0f
+    @Volatile private var preampLinear = 1f
 
     private var sampleRate = 44_100f
     private var channelCount = 2
@@ -36,6 +38,11 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
 
     fun setEnabled(value: Boolean) {
         enabled = value
+    }
+
+    fun setPreamp(gainDb: Float) {
+        preampDb = gainDb.coerceIn(-12f, 6f)
+        preampLinear = 10.0.pow(preampDb.toDouble() / 20.0).toFloat()
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -82,7 +89,7 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     }
 
     private fun processSample(input: Float, channel: Int): Float {
-        var value = input
+        var value = input * preampLinear
         for (band in 0 until 10) {
             val c = coefficients[band]
             val output = c.b0 * value + z1[band][channel]
@@ -115,8 +122,6 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
                     a2 = ((1.0 - alpha / a) / a0).toFloat()
                 )
             }
-            z1[index].fill(0f)
-            z2[index].fill(0f)
         }
         previousGains = current.copyOf()
     }
