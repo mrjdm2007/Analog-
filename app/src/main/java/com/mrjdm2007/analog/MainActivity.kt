@@ -173,7 +173,7 @@ class MainActivity : ComponentActivity() {
                         val resolved = entries.mapNotNull { entry ->
                             tracks.firstOrNull { it.path.equals(entry, true) || it.uri.toString() == entry }
                                 ?: run {
-                                    val fileName = entry.substringAfterLast('/').substringAfterLast('\\\\')
+                                    val fileName = entry.substringAfterLast('/').substringAfterLast('\\')
                                     val matches = tracks.filter { it.path.substringAfterLast('/').equals(fileName, true) }
                                     matches.singleOrNull()
                                 }
