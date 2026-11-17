@@ -3,6 +3,9 @@ package com.mrjdm2007.analog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class AudioCoreRegressionTest {
     @Test fun stereoPcmDropsIncompleteTrailingFrames() {
@@ -46,6 +49,73 @@ class AudioCoreRegressionTest {
         val tag = id3Tag(version = 3, extendedHeader = false, txxx("ARTIST", "Analog"))
         assertNull(ReplayGainReader.parseBytes(tag))
     }
+
+    @Test fun writesValidBwfHeaderWithEmbeddedCuePoints() {
+        val file = File.createTempFile("analog-bwf-test", ".wav")
+        try {
+            file.writeBytes(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES + 16))
+            WaveHeaderWriter.write(
+                file, dataSize = 16, rate = 48000, channels = 2, bitDepth = 32,
+                startedAtMillis = 1_794_923_696_000L, markerTimes = listOf(0L, 1000L)
+            )
+            val bytes = file.readBytes()
+            assertEquals("RIFF", String(bytes, 0, 4, Charsets.US_ASCII))
+            assertEquals(bytes.size - 8, leInt(bytes, 4))
+            assertEquals("WAVE", String(bytes, 8, 4, Charsets.US_ASCII))
+            assertEquals("bext", String(bytes, 12, 4, Charsets.US_ASCII))
+            assertEquals("fmt ", String(bytes, 622, 4, Charsets.US_ASCII))
+            assertEquals(3, leShort(bytes, 630)) // IEEE float format code
+            assertEquals(2, leShort(bytes, 632))
+            assertEquals(48000, leInt(bytes, 634))
+            assertEquals(32, leShort(bytes, 644))
+            assertEquals("cue ", String(bytes, 646, 4, Charsets.US_ASCII))
+            assertEquals(2, leInt(bytes, 654))
+            assertEquals(0, leInt(bytes, 662))
+            assertEquals(48000, leInt(bytes, 686))
+            assertEquals("data", String(bytes, 3730, 4, Charsets.US_ASCII))
+            assertEquals(16, leInt(bytes, 3734))
+            assertEquals(WaveHeaderWriter.HEADER_SIZE_BYTES + 16, bytes.size)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun writesIntegerPcmFormatCodeFor24BitWav() {
+        val file = File.createTempFile("analog-pcm-test", ".wav")
+        try {
+            file.writeBytes(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES))
+            WaveHeaderWriter.write(file, 0, 44100, 1, 24, 0L, emptyList())
+            val bytes = file.readBytes()
+            assertEquals(1, leShort(bytes, 630)) // Integer PCM
+            assertEquals(1, leShort(bytes, 632))
+            assertEquals(44100, leInt(bytes, 634))
+            assertEquals(3, leShort(bytes, 642))
+            assertEquals(24, leShort(bytes, 644))
+            assertEquals(0, leInt(bytes, 3734))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun rejectsRiffDataSizesThatWouldOverflowTheContainer() {
+        val file = File.createTempFile("analog-limit-test", ".wav")
+        try {
+            try {
+                WaveHeaderWriter.write(file, WaveHeaderWriter.MAX_DATA_BYTES + 1, 48000, 2, 24, 0L, emptyList())
+                throw AssertionError("Expected oversized RIFF data to be rejected")
+            } catch (_: IllegalArgumentException) {
+                // Expected: caller must stop and finalize before the 32-bit RIFF limit.
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun leInt(bytes: ByteArray, offset: Int): Int =
+        ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN).int
+
+    private fun leShort(bytes: ByteArray, offset: Int): Int =
+        ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff
 
     private fun txxx(description: String, value: String): ByteArray {
         val payload = byteArrayOf(3) + description.toByteArray(Charsets.UTF_8) +
