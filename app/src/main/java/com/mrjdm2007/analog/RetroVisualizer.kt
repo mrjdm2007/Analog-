@@ -120,7 +120,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                             outputLevel = maxOf(level, outputLevel * .84f)
                         }
                     }
-                }, Visualizer.getMaxCaptureRate() / 2, false, true)
+                }, Visualizer.getMaxCaptureRate() / 2, true, true)
                 instance.enabled = true
                 visualizer = instance
                 captureActive = instance.enabled
