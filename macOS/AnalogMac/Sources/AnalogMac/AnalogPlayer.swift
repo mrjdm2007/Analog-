@@ -35,6 +35,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var shuffleQueue = false
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
+    @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerEnabled = true
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
@@ -62,9 +63,11 @@ final class AnalogPlayer: ObservableObject {
             guard count > 0 else { return }
             let samples = Array(UnsafeBufferPointer(start: channel, count: count))
             let bins = analogSpectrum(samples: samples, sampleRate: buffer.format.sampleRate, binCount: 36)
+            let waveform = analogWaveform(samples: samples, pointCount: 128)
             Task { @MainActor [weak self] in
                 guard let self, self.visualizerEnabled else { return }
                 self.visualizerBins = bins
+                self.visualizerWaveform = waveform
             }
         }
         for (index, band) in equalizer.bands.enumerated() {
@@ -440,5 +443,13 @@ private func analogSpectrum(samples: [Float], sampleRate: Double, binCount: Int)
         let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
         let magnitude = sqrt(power) / Double(count)
         return min(1, max(0, pow(magnitude * 14.0, 0.55)))
+    }
+}
+
+private func analogWaveform(samples: [Float], pointCount: Int) -> [Double] {
+    guard !samples.isEmpty, pointCount > 0 else { return Array(repeating: 0, count: pointCount) }
+    return (0..<pointCount).map { index in
+        let sampleIndex = min(samples.count - 1, index * samples.count / pointCount)
+        return min(1, max(-1, Double(samples[sampleIndex])))
     }
 }
