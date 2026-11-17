@@ -36,6 +36,7 @@ data class RecordingSnapshot(
     val waveform: List<Float> = List(160) { 0f },
     val spectrum: List<Float> = List(48) { 0f },
     val spectrogram: List<List<Float>> = emptyList(),
+    val activeInput: String? = null,
     val error: String? = null
 )
 
@@ -124,7 +125,7 @@ object RecordingEngine {
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
-            mutableState.value = RecordingSnapshot(status = "RECORDING", file = output)
+            mutableState.value = RecordingSnapshot(status = "RECORDING", file = output, activeInput = activeAudio.routedDevice?.productName?.toString())
 
             val inputBuffer = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.LITTLE_ENDIAN)
             val pcm = ByteArray(bufferSize)
@@ -161,7 +162,10 @@ object RecordingEngine {
                 val readBytes = activeAudio.read(inputBuffer, inputBuffer.capacity(), AudioRecord.READ_BLOCKING)
                 if (readBytes < 0) throw IllegalStateException("Microphone read failed: " + readBytes)
                 if (readBytes == 0 || paused || readGeneration != pauseGeneration) continue
-                val count = readBytes / bytesPerSample
+                // AudioRecord may return a partial final frame. Drop incomplete channel frames
+                // rather than writing a malformed interleaved PCM stream.
+                val samplesRead = readBytes / bytesPerSample
+                val count = (samplesRead / channels) * channels
                 if (count == 0) continue
                 inputBuffer.position(0)
                 var peak = 0f
@@ -180,7 +184,7 @@ object RecordingEngine {
                     } else {
                         inputBuffer.getShort(i * 2).toFloat() / 32768f
                     }
-                    var value = sample * gain
+                    var value = (if (sample.isFinite()) sample else 0f) * gain
                     if (highPass) {
                         val filtered = highPassAlpha * (previousOut[channel] + value - previousIn[channel])
                         previousIn[channel] = value
@@ -214,13 +218,13 @@ object RecordingEngine {
                         pcm[offset + 2] = ((raw shr 16) and 255).toByte()
                         pcm[offset + 3] = ((raw shr 24) and 255).toByte()
                     } else if (bitDepth == 24) {
-                        val packed = (value * 8388607f).toInt().coerceIn(-8388608, 8388607)
+                        val packed = (value * 8388608f).toInt().coerceIn(-8388608, 8388607)
                         val offset = i * 3
                         pcm[offset] = (packed and 255).toByte()
                         pcm[offset + 1] = ((packed shr 8) and 255).toByte()
                         pcm[offset + 2] = ((packed shr 16) and 255).toByte()
                     } else {
-                        val shortValue = (value * 32767f).toInt().coerceIn(-32768, 32767)
+                        val shortValue = (value * 32768f).toInt().coerceIn(-32768, 32767)
                         pcm[i * 2] = (shortValue and 255).toByte()
                         pcm[i * 2 + 1] = ((shortValue shr 8) and 255).toByte()
                     }
@@ -256,7 +260,8 @@ object RecordingEngine {
                             rmsDbfs = toDb(rms),
                             waveform = wave,
                             spectrum = currentSpectrum,
-                            spectrogram = spectrogramHistory.toList()
+                            spectrogram = spectrogramHistory.toList(),
+                            activeInput = activeAudio.routedDevice?.productName?.toString()
                         )
                         lastUi = now
                     }
