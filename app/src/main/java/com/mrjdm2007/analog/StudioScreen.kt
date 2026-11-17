@@ -57,20 +57,20 @@ private val StudioMuted = Color(0xFF849184)
 fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val snapshot by RecordingEngine.state.collectAsState()
-    var sampleRate by remember { mutableIntStateOf(48000) }
-    var bitDepth by remember { mutableIntStateOf(16) }
-    var channels by remember { mutableIntStateOf(1) }
-    var highPass by remember { mutableStateOf(false) }
-    var limiter by remember { mutableStateOf(true) }
-    var gain by remember { mutableFloatStateOf(1f) }
+    var sampleRate by remember { mutableIntStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("studio_sample_rate", 48000)) }
+    var bitDepth by remember { mutableIntStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("studio_bit_depth", 16)) }
+    var channels by remember { mutableIntStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("studio_channels", 1)) }
+    var highPass by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_high_pass", false)) }
+    var limiter by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_limiter", true)) }
+    var gain by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_gain", 1f)) }
     var selectedInputDeviceId by remember { mutableIntStateOf(-1) }
     var inputMenuExpanded by remember { mutableStateOf(false) }
     var inputRefresh by remember { mutableIntStateOf(0) }
-    var lowGainDb by remember { mutableFloatStateOf(0f) }
-    var midGainDb by remember { mutableFloatStateOf(0f) }
-    var highGainDb by remember { mutableFloatStateOf(0f) }
-    var compressorEnabled by remember { mutableStateOf(false) }
-    var compressorThresholdDb by remember { mutableFloatStateOf(-18f) }
+    var lowGainDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_low_gain", 0f)) }
+    var midGainDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_mid_gain", 0f)) }
+    var highGainDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_high_gain", 0f)) }
+    var compressorEnabled by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_compressor", false)) }
+    var compressorThresholdDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_threshold", -18f)) }
     val inputDevices = remember(inputRefresh) { context.getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).toList() }
     val selectedInputLabel = inputDevices.firstOrNull { it.id == selectedInputDeviceId }?.productName?.toString() ?: "System default input"
     var showSettings by remember { mutableStateOf(true) }
@@ -80,6 +80,23 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var renameTarget by remember { mutableStateOf<File?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<File?>(null) }
+
+    // Keep the complete capture chain as the user's last-used studio setup.
+    SideEffect {
+        context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit()
+            .putInt("studio_sample_rate", sampleRate)
+            .putInt("studio_bit_depth", bitDepth)
+            .putInt("studio_channels", channels)
+            .putBoolean("studio_high_pass", highPass)
+            .putBoolean("studio_limiter", limiter)
+            .putFloat("studio_gain", gain)
+            .putFloat("studio_low_gain", lowGainDb)
+            .putFloat("studio_mid_gain", midGainDb)
+            .putFloat("studio_high_gain", highGainDb)
+            .putBoolean("studio_compressor", compressorEnabled)
+            .putFloat("studio_compressor_threshold", compressorThresholdDb)
+            .apply()
+    }
 
     fun sendCommand(action: String) {
         context.startService(Intent(context, RecordingService::class.java).setAction(action))
