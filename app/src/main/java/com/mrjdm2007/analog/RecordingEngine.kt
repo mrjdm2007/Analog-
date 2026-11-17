@@ -12,14 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
-import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Calendar
-import java.util.Locale
-import java.util.TimeZone
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -43,8 +37,6 @@ data class RecordingSnapshot(
 
 /** Real AudioRecord capture with live waveform/FFT and standards-compliant PCM WAV output. */
 object RecordingEngine {
-    private const val CUE_RESERVE_BYTES = 3084 // 128 standard WAV cue points plus a JUNK filler chunk.
-    private const val MAX_RIFF_DATA_BYTES = 0xFFFF_FFFFL - 3730L
     private val mutableState = MutableStateFlow(RecordingSnapshot())
     val state: StateFlow<RecordingSnapshot> = mutableState
     @Volatile private var running = false
@@ -123,7 +115,7 @@ object RecordingEngine {
             }
             recorder = activeAudio
             stream = FileOutputStream(output)
-            stream.write(ByteArray(654 + CUE_RESERVE_BYTES))
+            stream.write(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES))
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
@@ -238,7 +230,7 @@ object RecordingEngine {
                     }
                 }
                 val outputBytes = count * bytesPerSample
-                val remainingRiffBytes = (MAX_RIFF_DATA_BYTES - totalBytes).coerceAtLeast(0L)
+                val remainingRiffBytes = (WaveHeaderWriter.MAX_DATA_BYTES - totalBytes).coerceAtLeast(0L)
                 if (outputBytes.toLong() > remainingRiffBytes) {
                     // Keep the final WAV frame-aligned and finalize a valid RIFF file instead of
                     // silently overflowing the 32-bit RIFF chunk-size fields on long takes.
@@ -286,7 +278,7 @@ object RecordingEngine {
             stream.close()
             stream = null
             val markerSnapshot = synchronized(this) { markers.toList() }
-            writeHeader(output, totalBytes, rate, channels, bitDepth, markerSnapshot)
+            WaveHeaderWriter.write(output, totalBytes, rate, channels, bitDepth, recordingStartedWallClock, markerSnapshot)
             if (markerSnapshot.isNotEmpty()) {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
                     .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
@@ -298,7 +290,7 @@ object RecordingEngine {
                 stream?.fd?.sync()
                 stream?.close()
                 stream = null
-                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels, bitDepth, synchronized(this) { markers.toList() })
+                if (totalBytes > 0L && output.exists()) WaveHeaderWriter.write(output, totalBytes, rate, channels, bitDepth, recordingStartedWallClock, synchronized(this) { markers.toList() })
                 else output.delete()
             }
             mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
@@ -393,64 +385,5 @@ object RecordingEngine {
         }
     }
 
-    private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int, markerTimes: List<Long>) {
-        RandomAccessFile(file, "rw").use { raf ->
-            raf.seek(0)
-            // Broadcast Wave (BWF) bext metadata chunk: fixed 602-byte payload.
-            raf.writeBytes("RIFF"); writeInt(raf, (3730L + dataSize).toInt())
-            raf.writeBytes("WAVE")
-            raf.writeBytes("bext"); writeInt(raf, 602)
-            writeFixedAscii(raf, "Analog Studio field recording", 256)
-            writeFixedAscii(raf, "Analog Android", 32)
-            writeFixedAscii(raf, "ANALOG-" + recordingStartedWallClock.toString(), 32)
-            val started = Date(recordingStartedWallClock)
-            writeFixedAscii(raf, SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(started), 10)
-            writeFixedAscii(raf, SimpleDateFormat("HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(started), 8)
-            val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.US).apply { time = started }
-            val secondsSinceMidnight = calendar.get(Calendar.HOUR_OF_DAY) * 3600L +
-                calendar.get(Calendar.MINUTE) * 60L + calendar.get(Calendar.SECOND)
-            val timeReference = secondsSinceMidnight * rate.toLong()
-            writeInt(raf, timeReference.toInt())
-            writeInt(raf, (timeReference ushr 32).toInt())
-            writeShort(raf, 1)
-            raf.write(ByteArray(64 + 190))
-            raf.writeBytes("fmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
-            writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * (bitDepth / 8))
-            writeShort(raf, channels * (bitDepth / 8)); writeShort(raf, bitDepth)
-            // Standard RIFF cue points are embedded in the WAV; a JUNK chunk keeps the data offset fixed.
-            val cues = markerTimes.take(128)
-            val cuePayloadSize = 4 + cues.size * 24
-            raf.writeBytes("cue "); writeInt(raf, cuePayloadSize); writeInt(raf, cues.size)
-            cues.forEachIndexed { index, markerMs ->
-                val sampleOffset = ((markerMs * rate.toLong()) / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                writeInt(raf, index + 1)
-                writeInt(raf, sampleOffset)
-                raf.writeBytes("data")
-                writeInt(raf, 0)
-                writeInt(raf, 0)
-                writeInt(raf, sampleOffset)
-            }
-            val cueChunkBytes = 8 + cuePayloadSize
-            val junkBytes = CUE_RESERVE_BYTES - cueChunkBytes
-            if (junkBytes >= 8) {
-                raf.writeBytes("JUNK")
-                writeInt(raf, junkBytes - 8)
-                raf.write(ByteArray(junkBytes - 8))
-            }
-            raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
-        }
-    }
-    private fun writeFixedAscii(raf: RandomAccessFile, value: String, length: Int) {
-        val bytes = value.toByteArray(Charsets.US_ASCII).take(length).toByteArray()
-        raf.write(bytes)
-        if (bytes.size < length) raf.write(ByteArray(length - bytes.size))
-    }
 
-    private fun writeInt(raf: RandomAccessFile, value: Int) {
-        raf.write(value and 255); raf.write((value shr 8) and 255)
-        raf.write((value shr 16) and 255); raf.write((value shr 24) and 255)
-    }
-    private fun writeShort(raf: RandomAccessFile, value: Int) {
-        raf.write(value and 255); raf.write((value shr 8) and 255)
-    }
 }
