@@ -111,6 +111,8 @@ class PlaybackService : MediaSessionService() {
         }
         crossfadePlayer = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
+            val savedSpeed = getSharedPreferences("analog_library", MODE_PRIVATE).getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
+            setPlaybackParameters(PlaybackParameters(savedSpeed, 1f))
             volume = 0f
         }
         val callback = object : MediaSession.Callback {
