@@ -198,15 +198,31 @@ struct LibraryView: View {
     @State private var showCreate = false
     @State private var playlistName = ""
     @State private var libraryMode = "Songs"
+    @State private var sortMode = "Title"
+    @State private var sortAscending = true
+
+    private var sortedTracks: [MusicTrack] {
+        player.filteredTracks.sorted { left, right in
+            let result: Bool
+            switch sortMode {
+            case "Artist": result = left.artist.localizedCaseInsensitiveCompare(right.artist) == .orderedAscending
+            case "Album": result = left.album.localizedCaseInsensitiveCompare(right.album) == .orderedAscending
+            case "Duration": result = left.duration < right.duration
+            case "Play Count": result = (player.playCounts[left.id] ?? 0) < (player.playCounts[right.id] ?? 0)
+            default: result = left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+            }
+            return sortAscending ? result : !result
+        }
+    }
 
     private var albumGroups: [TrackGroup] {
-        Dictionary(grouping: player.filteredTracks, by: { $0.album }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        Dictionary(grouping: sortedTracks, by: { $0.album }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
     private var artistGroups: [TrackGroup] {
-        Dictionary(grouping: player.filteredTracks, by: { $0.artist }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        Dictionary(grouping: sortedTracks, by: { $0.artist }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
     private var folderGroups: [TrackGroup] {
-        Dictionary(grouping: player.filteredTracks, by: { $0.url.deletingLastPathComponent().lastPathComponent }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        Dictionary(grouping: sortedTracks, by: { $0.url.deletingLastPathComponent().lastPathComponent }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     var body: some View {
@@ -242,6 +258,16 @@ struct LibraryView: View {
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(libraryMode == mode ? AnalogPalette.amber.opacity(0.7) : .clear, lineWidth: 1))
                 }
             }
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(["Title", "Artist", "Album", "Duration", "Play Count"], id: \.self) { option in
+                        Button { sortMode = option } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
+                    }
+                } label: { Label("SORT: \(sortMode.uppercased())", systemImage: "arrow.up.arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.cream).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }
+                Button { sortAscending.toggle() } label: { Image(systemName: sortAscending ? "arrow.up" : "arrow.down").foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Reverse sort order")
+                Spacer()
+                Text("\(player.filteredTracks.count) MATCHING TRACKS").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+            }
             HStack {
                 Text(libraryMode == "Albums" ? "ALBUM" : libraryMode == "Artists" ? "ARTIST" : libraryMode == "Folders" ? "FOLDER" : "TRACK").frame(maxWidth: .infinity, alignment: .leading)
                 Text("ALBUM").frame(width: 135, alignment: .leading)
@@ -274,7 +300,7 @@ struct LibraryView: View {
                             }
                         }
                     } else {
-                        ForEach(libraryMode == "Favourites" ? player.filteredTracks.filter { player.favorites.contains($0.id) } : player.filteredTracks) { track in
+                        ForEach(libraryMode == "Favourites" ? sortedTracks.filter { player.favorites.contains($0.id) } : sortedTracks) { track in
                             TrackRow(track: track)
                         }
                     }
