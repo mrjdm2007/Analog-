@@ -164,8 +164,7 @@ object RecordingEngine {
                 if (readBytes == 0 || paused || readGeneration != pauseGeneration) continue
                 // AudioRecord may return a partial final frame. Drop incomplete channel frames
                 // rather than writing a malformed interleaved PCM stream.
-                val samplesRead = readBytes / bytesPerSample
-                val count = (samplesRead / channels) * channels
+                val count = RecordingPcm.completeSampleCount(readBytes, bytesPerSample, channels)
                 if (count == 0) continue
                 inputBuffer.position(0)
                 var peak = 0f
@@ -184,7 +183,7 @@ object RecordingEngine {
                     } else {
                         inputBuffer.getShort(i * 2).toFloat() / 32768f
                     }
-                    var value = (if (sample.isFinite()) sample else 0f) * gain
+                    var value = RecordingPcm.finiteOrZero(sample) * gain
                     if (highPass) {
                         val filtered = highPassAlpha * (previousOut[channel] + value - previousIn[channel])
                         previousIn[channel] = value
@@ -218,13 +217,13 @@ object RecordingEngine {
                         pcm[offset + 2] = ((raw shr 16) and 255).toByte()
                         pcm[offset + 3] = ((raw shr 24) and 255).toByte()
                     } else if (bitDepth == 24) {
-                        val packed = (value * 8388608f).toInt().coerceIn(-8388608, 8388607)
+                        val packed = RecordingPcm.toPcm24(value)
                         val offset = i * 3
                         pcm[offset] = (packed and 255).toByte()
                         pcm[offset + 1] = ((packed shr 8) and 255).toByte()
                         pcm[offset + 2] = ((packed shr 16) and 255).toByte()
                     } else {
-                        val shortValue = (value * 32768f).toInt().coerceIn(-32768, 32767)
+                        val shortValue = RecordingPcm.toPcm16(value)
                         pcm[i * 2] = (shortValue and 255).toByte()
                         pcm[i * 2 + 1] = ((shortValue shr 8) and 255).toByte()
                     }
