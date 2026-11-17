@@ -39,6 +39,7 @@ object RecordingEngine {
     val state: StateFlow<RecordingSnapshot> = mutableState
     @Volatile private var running = false
     @Volatile private var paused = false
+    @Volatile private var pauseGeneration = 0L
     @Volatile private var recorder: AudioRecord? = null
     private var startedAt = 0L
     private var pausedAt = 0L
@@ -51,14 +52,20 @@ object RecordingEngine {
         markers = mutableListOf()
         pausedTotal = 0L
         pausedAt = 0L
+        startedAt = 0L
+        pauseGeneration = 0L
         mutableState.value = RecordingSnapshot(status = "STARTING")
         val directory = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir, "Analog/Recordings")
         if (!directory.exists() && !directory.mkdirs()) {
             mutableState.value = RecordingSnapshot(status = "ERROR", error = "Could not create recordings folder.")
             return
         }
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val output = File(directory, "Analog_Take_" + stamp + ".wav")
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+        var output = File(directory, "Analog_Take_" + stamp + ".wav")
+        var suffix = 1
+        while (!runCatching { output.createNewFile() }.getOrDefault(false)) {
+            output = File(directory, "Analog_Take_" + stamp + "_" + suffix++ + ".wav")
+        }
         running = true
         Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f)) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
@@ -97,10 +104,16 @@ object RecordingEngine {
             var totalBytes = 0L
             var lastUi = 0L
             while (running) {
-                if (paused) { Thread.sleep(30); continue }
+                if (paused) {
+                    // Drain input while paused so buffered audio cannot be written after resume.
+                    val discarded = activeAudio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
+                    if (discarded < 0) throw IllegalStateException("Microphone read failed: " + discarded)
+                    continue
+                }
+                val readGeneration = pauseGeneration
                 val count = activeAudio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                 if (count < 0) throw IllegalStateException("Microphone read failed: " + count)
-                if (count == 0 || paused) continue
+                if (count == 0 || paused || readGeneration != pauseGeneration) continue
                 var peak = 0f
                 var sum = 0.0
                 for (i in 0 until count) {
@@ -151,9 +164,10 @@ object RecordingEngine {
             stream.close()
             stream = null
             writeHeader(output, totalBytes, rate, channels)
-            if (markers.isNotEmpty()) {
+            val markerSnapshot = synchronized(this) { markers.toList() }
+            if (markerSnapshot.isNotEmpty()) {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
-                    .writeText(markers.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
+                    .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
             }
             mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes)
         } catch (error: Throwable) {
@@ -171,6 +185,7 @@ object RecordingEngine {
     @Synchronized fun pause() {
         if (!running || paused) return
         paused = true
+        pauseGeneration++
         pausedAt = SystemClock.elapsedRealtime()
         mutableState.value = mutableState.value.copy(status = "PAUSED")
     }
