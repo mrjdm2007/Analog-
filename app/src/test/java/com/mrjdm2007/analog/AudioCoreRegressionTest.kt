@@ -35,7 +35,7 @@ class AudioCoreRegressionTest {
         assertEquals(true, low.isFinite())
         assertEquals(true, high.isFinite())
         assertEquals(true, high < low)
-        assertEquals(RecordingPcm.highPassAlpha(300f, 48000), RecordingPcm.highPassAlpha(900f, 48000))
+        assertEquals(RecordingPcm.highPassAlpha(20f, 48000), RecordingPcm.highPassAlpha(5f, 48000))
     }
 
     @Test fun parsesFlacAndOggVorbisCommentGainAndPeak() {
