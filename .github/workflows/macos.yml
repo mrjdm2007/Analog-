@@ -1,0 +1,29 @@
+name: Analog macOS
+
+on:
+  push:
+    branches: [feature/pro-audio-studio]
+    paths:
+      - "macOS/**"
+      - ".github/workflows/macos.yml"
+  pull_request:
+    paths:
+      - "macOS/**"
+      - ".github/workflows/macos.yml"
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native macOS app
+        run: |
+          swift --version
+          bash macOS/package-macos-app.sh
+      - name: Upload Analog macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Analog-macOS
+          path: build/Analog-macOS.zip
+          if-no-files-found: error
