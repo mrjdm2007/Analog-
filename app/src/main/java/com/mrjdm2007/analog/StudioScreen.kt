@@ -375,7 +375,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(String.format(Locale.US, "High-pass filter • %.0f Hz", highPassHz), color = StudioText, fontSize = 12.sp)
-                                    Text("Variable cutoff • 12 dB/octave rumble reduction", color = StudioMuted, fontSize = 9.sp)
+                                    Text("Variable cutoff • 6 dB/octave rumble reduction", color = StudioMuted, fontSize = 9.sp)
                                 }
                                 Switch(checked = highPass, onCheckedChange = { highPass = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
