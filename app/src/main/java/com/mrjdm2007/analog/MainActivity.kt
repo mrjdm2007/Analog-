@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
             var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
             var recap by remember { mutableStateOf(false) }
+            var studio by remember { mutableStateOf(false) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
@@ -176,8 +177,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            BackHandler(enabled = settings || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+            BackHandler(enabled = settings || studio || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
+                    studio -> studio = false
                     settings -> settings = false
                     visualizer -> visualizer = false
                     effects -> effects = false
@@ -189,6 +191,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
+                    studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
@@ -242,6 +245,14 @@ class MainActivity : ComponentActivity() {
                         }) {
                             TopHeader(onSettings = { settings = true })
                             SearchBox(search) { search = it }
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("MUSIC LIBRARY", color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }) {
+                                    Icon(Icons.Default.Mic, contentDescription = null, tint = Amber)
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("STUDIO", color = Amber, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                }
+                            }
                             val tabs = swipeTabs
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
