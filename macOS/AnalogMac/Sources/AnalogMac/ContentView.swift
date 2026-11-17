@@ -535,6 +535,7 @@ struct JournalView: View {
 
 struct EqualizerView: View {
     @EnvironmentObject private var player: AnalogPlayer
+    @State private var selectedBandwidthBand = 4
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -565,6 +566,25 @@ struct EqualizerView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 18)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 14))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("PARAMETRIC BANDWIDTH").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Menu {
+                        ForEach(1..<9, id: \.self) { index in
+                            Button(freqLabel(player.frequencies[index])) { selectedBandwidthBand = index }
+                        }
+                    } label: {
+                        Text(freqLabel(player.frequencies[selectedBandwidthBand]) + " Hz").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                    }
+                }
+                HStack {
+                    Text("NARROW").font(.system(size: 8, weight: .bold)).foregroundStyle(AnalogPalette.muted)
+                    Slider(value: Binding(get: { Double(player.eqBandwidths[selectedBandwidthBand]) }, set: { player.setEQBandwidth(selectedBandwidthBand, Float($0)) }), in: 0.1...4.0).tint(AnalogPalette.green).disabled(!player.eqEnabled)
+                    Text("WIDE").font(.system(size: 8, weight: .bold)).foregroundStyle(AnalogPalette.muted)
+                    Text(String(format: "%.2f oct", player.eqBandwidths[selectedBandwidthBand])).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.amber).frame(width: 62, alignment: .trailing)
+                }
+            }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
