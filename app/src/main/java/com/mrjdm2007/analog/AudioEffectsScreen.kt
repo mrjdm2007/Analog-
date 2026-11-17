@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalContext
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
