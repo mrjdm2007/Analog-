@@ -35,6 +35,7 @@ class AudioCoreRegressionTest {
         assertEquals(true, low.isFinite())
         assertEquals(true, high.isFinite())
         assertEquals(true, high < low)
+        assertEquals(0.9896f, RecordingPcm.highPassAlpha(80f, 48000), 0.0002f)
         assertEquals(RecordingPcm.highPassAlpha(20f, 48000), RecordingPcm.highPassAlpha(5f, 48000))
     }
 
