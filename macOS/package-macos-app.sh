@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE="$ROOT/macOS/AnalogMac"
 APP="$ROOT/build/Analog.app"
-swift build --package-path "$PACKAGE" -c release
+swift build --package-path "$PACKAGE" --triple arm64-apple-macosx13.0 -c release
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$PACKAGE/.build/release/AnalogMac" "$APP/Contents/MacOS/AnalogMac"
