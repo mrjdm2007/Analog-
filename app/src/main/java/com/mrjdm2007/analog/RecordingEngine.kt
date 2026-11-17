@@ -74,6 +74,7 @@ object RecordingEngine {
     private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
+        var totalBytes = 0L
         try {
             val mask = if (channels == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
             val minimum = AudioRecord.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT)
@@ -101,7 +102,6 @@ object RecordingEngine {
             var fftCount = 0
             var previousIn = FloatArray(channels)
             var previousOut = FloatArray(channels)
-            var totalBytes = 0L
             var lastUi = 0L
             while (running) {
                 if (paused) {
@@ -142,7 +142,11 @@ object RecordingEngine {
                 if (fftCount == fft.size) {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastUi >= 33) {
-                        val wave = List(160) { index -> kotlin.math.abs(fft[(index * fft.size / 160).coerceIn(0, fft.lastIndex)]) }
+                        val wave = List(160) { index ->
+                            val start = index * fft.size / 160
+                            val end = ((index + 1) * fft.size / 160).coerceAtMost(fft.size)
+                            (start until end).maxOfOrNull { kotlin.math.abs(fft[it]) } ?: 0f
+                        }
                         val rms = sqrt(sum / count.coerceAtLeast(1)).toFloat()
                         mutableState.value = RecordingSnapshot(
                             status = if (paused) "PAUSED" else "RECORDING",
@@ -171,7 +175,15 @@ object RecordingEngine {
             }
             mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes)
         } catch (error: Throwable) {
-            mutableState.value = mutableState.value.copy(status = "ERROR", error = error.message ?: "Recording failed.")
+            runCatching {
+                stream?.flush()
+                stream?.fd?.sync()
+                stream?.close()
+                stream = null
+                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels)
+                else output.delete()
+            }
+            mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
         } finally {
             running = false
             paused = false
@@ -214,7 +226,10 @@ object RecordingEngine {
 
     private fun spectrumOf(source: FloatArray): List<Float> {
         val n = source.size
-        val real = source.copyOf()
+        val real = FloatArray(n) { index ->
+            val window = 0.5f - 0.5f * cos((2.0 * PI * index / (n - 1)).toFloat())
+            source[index] * window
+        }
         val imag = FloatArray(n)
         var j = 0
         for (i in 1 until n) {
@@ -254,7 +269,9 @@ object RecordingEngine {
             val high = (2.0 * (n / 2.0).pow((band + 1) / 48.0)).toInt().coerceIn(low, n / 2 - 1)
             var energy = 0.0
             for (bin in low..high) energy += real[bin] * real[bin] + imag[bin] * imag[bin]
-            (sqrt(energy / (high - low + 1)) / 18.0).toFloat().coerceIn(0.01f, 1f)
+            val amplitude = sqrt(energy / (high - low + 1)) * (4.0 / n)
+            val dbfs = if (amplitude <= 1.0e-6) -120.0 else 20.0 * kotlin.math.log10(amplitude)
+            ((dbfs + 72.0) / 72.0).toFloat().coerceIn(0.01f, 1f)
         }
     }
 
