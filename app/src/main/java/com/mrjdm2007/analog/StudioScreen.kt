@@ -278,12 +278,14 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            Text("PCM BIT DEPTH", color = StudioMuted, fontSize = 9.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected = bitDepth == 16, onClick = { bitDepth = 16 }, label = { Text("16-BIT") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
-                                FilterChip(selected = bitDepth == 24, onClick = { bitDepth = 24 }, label = { Text("24-BIT") }, enabled = Build.VERSION.SDK_INT >= 31 && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text("WAV ENCODING", color = StudioMuted, fontSize = 9.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                FilterChip(selected = bitDepth == 16, onClick = { bitDepth = 16 }, label = { Text("16-BIT PCM") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = bitDepth == 24, onClick = { bitDepth = 24 }, label = { Text("24-BIT PCM") }, enabled = Build.VERSION.SDK_INT >= 31 && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = bitDepth == 32, onClick = { bitDepth = 32 }, label = { Text("32-BIT FLOAT") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
-                            if (Build.VERSION.SDK_INT < 31) Text("24-bit packed capture requires Android 12 or newer.", color = StudioMuted, fontSize = 9.sp)
+                            if (Build.VERSION.SDK_INT < 31) Text("24-bit packed capture requires Android 12 or newer. 32-bit float input is requested from Android and may not be supported by every microphone route.", color = StudioMuted, fontSize = 9.sp)
+                            else Text("32-bit float preserves digital headroom through processing when the input route supports float capture; it cannot increase the microphone ADC's native dynamic range.", color = StudioMuted, fontSize = 9.sp)
                             Spacer(Modifier.height(8.dp))
                             Text("INPUT CHANNELS", color = StudioMuted, fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,7 +326,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             }
                             Text("COMPRESSOR THRESHOLD • " + String.format(Locale.US, "%.0f dBFS", compressorThresholdDb), color = StudioMuted, fontSize = 9.sp)
                             Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
-                            Text("FORMAT: WAV • " + bitDepth + "-BIT PCM • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
+                            Text("FORMAT: WAV • " + if (bitDepth == 32) "32-BIT IEEE FLOAT" else "$bitDepth-BIT PCM" + " • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
                             Text("Input routing is requested from Android and may be overridden by device policy. Sample rates and stereo depend on connected hardware.", color = StudioMuted, fontSize = 9.sp)
                         }
                     }
