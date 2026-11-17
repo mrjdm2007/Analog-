@@ -98,7 +98,7 @@ final class AnalogPlayer: ObservableObject {
 
     func restoreState() {
         favorites = Set(defaults.stringArray(forKey: "favorites") ?? [])
-        if let data = defaults.data(forKey: "libraryTracks"), let saved = try? JSONDecoder().decode([MusicTrack].self, from: data) { tracks = saved }
+        if let data = defaults.data(forKey: "libraryTracks"), let saved = try? JSONDecoder().decode([MusicTrack].self, from: data) { tracks = saved.filter { FileManager.default.fileExists(atPath: $0.path) } }
         moods = defaults.dictionary(forKey: "moods") as? [String: String] ?? [:]
         journal = defaults.dictionary(forKey: "journal") as? [String: String] ?? [:]
         ratings = defaults.dictionary(forKey: "ratings") as? [String: Int] ?? [:]
@@ -399,7 +399,7 @@ final class AnalogPlayer: ObservableObject {
         ratings.removeValue(forKey: track.id)
         playHistory.removeAll { $0 == track.id }
         playCounts.removeValue(forKey: track.id)
-        for name in customPlaylists.keys { customPlaylists[name]?.removeAll { $0 == track.id } }
+        for name in Array(customPlaylists.keys) { customPlaylists[name]?.removeAll { $0 == track.id } }
         queue.removeAll { $0.id == track.id }
         if let currentTrack, currentTrack.id == track.id {
             playerNode.stop(); isPlaying = false; self.currentTrack = nil; currentTime = 0; timer?.invalidate()
