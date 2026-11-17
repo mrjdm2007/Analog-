@@ -115,7 +115,7 @@ object RecordingEngine {
             }
             recorder = activeAudio
             stream = FileOutputStream(output)
-            stream.write(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES))
+            stream.write(ByteArray(WaveHeaderWriter.headerSizeBytes(bitDepth)))
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
@@ -230,7 +230,7 @@ object RecordingEngine {
                     }
                 }
                 val outputBytes = count * bytesPerSample
-                val remainingRiffBytes = (WaveHeaderWriter.MAX_DATA_BYTES - totalBytes).coerceAtLeast(0L)
+                val remainingRiffBytes = (WaveHeaderWriter.maxDataBytes(bitDepth) - totalBytes).coerceAtLeast(0L)
                 if (outputBytes.toLong() > remainingRiffBytes) {
                     // Keep the final WAV frame-aligned and finalize a valid RIFF file instead of
                     // silently overflowing the 32-bit RIFF chunk-size fields on long takes.
