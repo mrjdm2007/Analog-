@@ -34,6 +34,10 @@ final class AnalogPlayer: ObservableObject {
     @Published var repeatQueue = false
     @Published var shuffleQueue = false
     @Published var sleepMinutes = 0
+    @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
+    @Published var visualizerEnabled = true
+    @Published var preampDB: Float = 0
+    @Published var stereoPan: Float = 0
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -51,6 +55,17 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.attach(equalizer)
         audioEngine.connect(playerNode, to: equalizer, format: nil)
         audioEngine.connect(equalizer, to: audioEngine.mainMixerNode, format: nil)
+        equalizer.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
+            guard let channel = buffer.floatChannelData?[0] else { return }
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { return }
+            let samples = Array(UnsafeBufferPointer(start: channel, count: count))
+            let bins = analogSpectrum(samples: samples, sampleRate: buffer.format.sampleRate, binCount: 36)
+            Task { @MainActor [weak self] in
+                guard let self, self.visualizerEnabled else { return }
+                self.visualizerBins = bins
+            }
+        }
         for (index, band) in equalizer.bands.enumerated() {
             band.filterType = .parametric
             band.frequency = frequencies[index]
@@ -81,6 +96,8 @@ final class AnalogPlayer: ObservableObject {
         ratings = defaults.dictionary(forKey: "ratings") as? [String: Int] ?? [:]
         customPlaylists = defaults.dictionary(forKey: "customPlaylists") as? [String: [String]] ?? [:]
         eqEnabled = defaults.object(forKey: "eqEnabled") as? Bool ?? true
+        preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
+        stereoPan = defaults.object(forKey: "stereoPan") as? Float ?? 0
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
     }
 
@@ -91,6 +108,8 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(ratings, forKey: "ratings")
         defaults.set(customPlaylists, forKey: "customPlaylists")
         defaults.set(eqEnabled, forKey: "eqEnabled")
+        defaults.set(preampDB, forKey: "preampDB")
+        defaults.set(stereoPan, forKey: "stereoPan")
         defaults.set(eqGains, forKey: "eqGains")
     }
 
@@ -288,6 +307,8 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func applyEqualizer() {
+        equalizer.globalGain = preampDB
+        playerNode.pan = stereoPan
         for index in equalizer.bands.indices {
             equalizer.bands[index].gain = eqGains[index]
             equalizer.bands[index].bypass = !eqEnabled
@@ -302,6 +323,11 @@ final class AnalogPlayer: ObservableObject {
         case "Vocal": values = [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1]
         case "Rock": values = [5, 3, -1, -2, 1, 3, 5, 5, 3, 3]
         case "Classical": values = [4, 3, 2, 1, -1, -1, 1, 2, 3, 4]
+        case "Jazz": values = [3, 2, 1, 2, -1, -1, 0, 2, 3, 4]
+        case "Electronic": values = [5, 4, 1, 0, -1, 2, 1, 3, 4, 5]
+        case "Acoustic": values = [2, 2, 1, 0, 2, 3, 3, 2, 1, 1]
+        case "Podcast": values = [-3, -2, 0, 3, 5, 4, 2, 0, -1, -2]
+        case "Night": values = [-4, -3, -1, 2, 3, 2, 0, -1, -2, -3]
         default: values = Array(repeating: 0, count: 10)
         }
         eqGains = values
@@ -376,5 +402,28 @@ final class AnalogRecorder: ObservableObject {
         timer?.invalidate()
         isRecording = false
         startedAt = nil
+    }
+}
+
+private func analogSpectrum(samples: [Float], sampleRate: Double, binCount: Int) -> [Double] {
+    guard samples.count > 8, sampleRate > 0 else { return Array(repeating: 0, count: binCount) }
+    let low = 35.0
+    let high = min(16_000.0, sampleRate * 0.45)
+    return (0..<binCount).map { index in
+        let fraction = Double(index) / Double(max(1, binCount - 1))
+        let frequency = low * pow(high / low, fraction)
+        let omega = 2.0 * Double.pi * frequency / sampleRate
+        let coefficient = 2.0 * cos(omega)
+        var q1 = 0.0, q2 = 0.0
+        let count = min(samples.count, 1024)
+        for i in 0..<count {
+            let window = 0.5 - 0.5 * cos(2.0 * Double.pi * Double(i) / Double(max(1, count - 1)))
+            let sample = Double(samples[i]) * window
+            let q0 = coefficient * q1 - q2 + sample
+            q2 = q1; q1 = q0
+        }
+        let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
+        let magnitude = sqrt(power) / Double(count)
+        return min(1, max(0, pow(magnitude * 14.0, 0.55)))
     }
 }
