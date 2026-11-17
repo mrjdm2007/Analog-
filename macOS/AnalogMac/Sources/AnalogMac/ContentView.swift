@@ -674,6 +674,22 @@ struct RecorderView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("MIC INPUT PEAK").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Text(String(format: "%.1f dBFS", 20 * log10(Double(max(recorder.inputPeak, 0.00001)))))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(recorder.inputPeak >= 0.95 ? AnalogPalette.amber : AnalogPalette.green)
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(AnalogPalette.panel)
+                        Capsule().fill(recorder.inputPeak >= 0.95 ? AnalogPalette.amber : AnalogPalette.green)
+                            .frame(width: geometry.size.width * CGFloat(min(1, recorder.inputPeak)))
+                    }
+                }.frame(height: 9)
+                HStack { Text("RMS").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.muted); Spacer(); Text(String(format: "%.4f", recorder.inputRMS)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.cream) }
+            }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             HStack {
                 Spacer()
                 Button {
