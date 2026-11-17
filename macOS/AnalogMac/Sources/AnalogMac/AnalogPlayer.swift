@@ -34,6 +34,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var eqOutputRMS: Float = 0
     @Published var eqGains: [Float] = Array(repeating: 0, count: 10)
     @Published var eqBandwidths: [Float] = Array(repeating: 1.0, count: 10)
+    @Published var eqSnapshotA: [Float] = Array(repeating: 0, count: 10)
+    @Published var eqSnapshotB: [Float] = Array(repeating: 0, count: 10)
     @Published var repeatQueue = false
     @Published var repeatCurrentTrack = false
     @Published var shuffleQueue = false
@@ -127,6 +129,8 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
         if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
+        if let values = defaults.array(forKey: "eqSnapshotA") as? [Float], values.count == 10 { eqSnapshotA = values }
+        if let values = defaults.array(forKey: "eqSnapshotB") as? [Float], values.count == 10 { eqSnapshotB = values }
     }
 
     func persistState() {
@@ -144,6 +148,8 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(playCounts, forKey: "playCounts")
         defaults.set(eqGains, forKey: "eqGains")
         defaults.set(eqBandwidths, forKey: "eqBandwidths")
+        defaults.set(eqSnapshotA, forKey: "eqSnapshotA")
+        defaults.set(eqSnapshotB, forKey: "eqSnapshotB")
     }
 
     func importAudioFiles() {
@@ -472,6 +478,19 @@ final class AnalogPlayer: ObservableObject {
 
     func setPreamp(_ gain: Float) {
         preampDB = min(12, max(-12, gain))
+        applyEqualizer()
+        persistState()
+    }
+
+    func storeEQSnapshot(_ slot: String) {
+        if slot == "A" { eqSnapshotA = eqGains } else { eqSnapshotB = eqGains }
+        persistState()
+    }
+
+    func recallEQSnapshot(_ slot: String) {
+        let values = slot == "A" ? eqSnapshotA : eqSnapshotB
+        guard values.count == frequencies.count else { return }
+        eqGains = values.map { min(12, max(-12, $0)) }
         applyEqualizer()
         persistState()
     }
