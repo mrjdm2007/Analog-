@@ -23,6 +23,12 @@ class RecordingService : Service() {
         const val EXTRA_HIGH_PASS = "high_pass"
         const val EXTRA_LIMITER = "limiter"
         const val EXTRA_GAIN = "gain"
+        const val EXTRA_INPUT_DEVICE_ID = "input_device_id"
+        const val EXTRA_LOW_GAIN_DB = "low_gain_db"
+        const val EXTRA_MID_GAIN_DB = "mid_gain_db"
+        const val EXTRA_HIGH_GAIN_DB = "high_gain_db"
+        const val EXTRA_COMPRESSOR = "compressor"
+        const val EXTRA_COMPRESSOR_THRESHOLD = "compressor_threshold"
         private const val CHANNEL_ID = "analog_recording"
         private const val NOTIFICATION_ID = 4102
     }
@@ -45,7 +51,13 @@ class RecordingService : Service() {
                     intent.getIntExtra(EXTRA_CHANNELS, 1),
                     intent.getBooleanExtra(EXTRA_HIGH_PASS, false),
                     intent.getBooleanExtra(EXTRA_LIMITER, true),
-                    intent.getFloatExtra(EXTRA_GAIN, 1f)
+                    intent.getFloatExtra(EXTRA_GAIN, 1f),
+                    intent.getIntExtra(EXTRA_INPUT_DEVICE_ID, -1),
+                    intent.getFloatExtra(EXTRA_LOW_GAIN_DB, 0f),
+                    intent.getFloatExtra(EXTRA_MID_GAIN_DB, 0f),
+                    intent.getFloatExtra(EXTRA_HIGH_GAIN_DB, 0f),
+                    intent.getBooleanExtra(EXTRA_COMPRESSOR, false),
+                    intent.getFloatExtra(EXTRA_COMPRESSOR_THRESHOLD, -18f)
                 )
                 Thread {
                     while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
