@@ -107,8 +107,6 @@ class PlaybackService : MediaSessionService() {
         }
         crossfadePlayer = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
-            val savedSpeed = getSharedPreferences("analog_library", MODE_PRIVATE).getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
-            setPlaybackParameters(PlaybackParameters(savedSpeed, 1f))
             volume = 0f
         }
         val callback = object : MediaSession.Callback {
@@ -247,12 +245,6 @@ class PlaybackService : MediaSessionService() {
                 cancelCrossfade()
                 mediaSession?.player?.volume = 1f
                 if (mediaSession?.player?.isPlaying == true) timerHandler.post(crossfadeTick)
-            }
-            ACTION_SET_PLAYBACK_SPEED -> {
-                val speed = intent.getFloatExtra(EXTRA_PLAYBACK_SPEED, 1f).coerceIn(0.5f, 2f)
-                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("playback_speed", speed).apply()
-                mediaSession?.player?.setPlaybackParameters(PlaybackParameters(speed, 1f))
-                crossfadePlayer?.setPlaybackParameters(PlaybackParameters(speed, 1f))
             }
         }
         updateWidget()
