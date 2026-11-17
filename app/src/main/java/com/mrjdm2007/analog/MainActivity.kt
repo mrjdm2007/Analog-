@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -91,7 +92,7 @@ private val Cream = Color(0xFFE8E1CF)
 private var Amber by mutableStateOf(DefaultAmber)
 private val Green = Color(0xFFB5D69B)
 
-data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)
+data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long, val path: String = "")
 fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
@@ -138,6 +139,59 @@ class MainActivity : ComponentActivity() {
             var headsetTriple by remember { mutableStateOf(prefs().getString("headset_triple", "Previous track") ?: "Previous track") }
             val librarySections = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
             var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
+            var exportTracks by remember { mutableStateOf(emptyList<Track>()) }
+            var exportName by remember { mutableStateOf("Analog Playlist") }
+            val exportPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
+                if (uri != null) {
+                    val text = buildString {
+                        append("#EXTM3U\\n")
+                        exportTracks.forEach { track ->
+                            append("#EXTINF:")
+                            append((track.duration / 1000L).coerceAtLeast(-1L))
+                            append(",")
+                            append((track.title + " - " + track.artist).replace("\\n", " ").replace("\\r", " "))
+                            append("\\n")
+                            append(track.path.ifBlank { track.uri.toString() })
+                            append("\\n")
+                        }
+                    }
+                    val saved = runCatching {
+                        contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
+                            ?: throw IllegalStateException("Could not open playlist destination.")
+                    }.isSuccess
+                    Toast.makeText(this@MainActivity, if (saved) "M3U playlist exported" else "Playlist export failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+            val importPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    val importedLines = runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readLines() }
+                            ?: throw IllegalStateException("Could not read playlist.")
+                    }.getOrNull()
+                    if (importedLines != null) {
+                        val entries = importedLines.map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
+                        val resolved = entries.mapNotNull { entry ->
+                            tracks.firstOrNull { it.path.equals(entry, true) || it.uri.toString() == entry }
+                                ?: run {
+                                    val fileName = entry.substringAfterLast('/').substringAfterLast('\\\\')
+                                    val matches = tracks.filter { it.path.substringAfterLast('/').equals(fileName, true) }
+                                    matches.singleOrNull()
+                                }
+                        }
+                        if (resolved.isNotEmpty()) {
+                            val baseName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Imported playlist"
+                            var name = baseName
+                            var suffix = 2
+                            while (name in playlists) name = "$baseName ($suffix++)".replace("++", (suffix++).toString())
+                            playlists = playlists.toMutableMap().apply { put(name, resolved.map { it.id }.toSet()) }
+                            storePlaylists(playlists)
+                            Toast.makeText(this@MainActivity, "Imported $name • ${resolved.size} tracks", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "No playlist entries matched music in this library", Toast.LENGTH_LONG).show()
+                        }
+                    } else Toast.makeText(this@MainActivity, "Could not read this playlist file", Toast.LENGTH_LONG).show()
+                }
+            }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
@@ -277,6 +331,7 @@ class MainActivity : ComponentActivity() {
                                 Column(Modifier.weight(1f)) {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                                        TextButton(onClick = { importPlaylistLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain", "*/*")) }) { Text("IMPORT M3U") }
                                         TextButton(onClick = { pendingTrack = null; playlistDialog = true }) { Icon(Icons.Default.Add, null); Text("NEW") }
                                     }
                                     LazyColumn {
@@ -294,7 +349,14 @@ class MainActivity : ComponentActivity() {
                                 }
                             } else {
                                 if (tab == "Playlists" && activePlaylist != null) {
-                                    TextButton(onClick = { activePlaylist = null }, modifier = Modifier.padding(start = 12.dp)) { Icon(Icons.Default.ArrowBack, null); Text("ALL PLAYLISTS") }
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = { activePlaylist = null }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.ArrowBack, null); Text("ALL PLAYLISTS") }
+                                        TextButton(onClick = {
+                                            exportTracks = currentTracks
+                                            exportName = (activePlaylist ?: "Analog Playlist").removePrefix("smart:")
+                                            exportPlaylistLauncher.launch(exportName.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "Analog Playlist" } + ".m3u")
+                                        }) { Text("EXPORT M3U", color = Amber) }
+                                    }
                                 }
                                 if (currentTracks.isEmpty()) {
                                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -401,7 +463,7 @@ class MainActivity : ComponentActivity() {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
-                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }, c.getLong(albumId))
+                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }, c.getLong(albumId), path)
             }
         }
         return found
