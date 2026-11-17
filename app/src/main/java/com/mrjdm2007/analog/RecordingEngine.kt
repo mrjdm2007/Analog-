@@ -373,8 +373,6 @@ object RecordingEngine {
         return (now - startedAt - pausedTotal).coerceAtLeast(0L)
     }
 
-    private fun peakHoldLinearThreshold(): Float = 0.999f
-
     private fun toDb(value: Float): Float = if (value <= 0.000015f) -96f else (20f * log10(value)).coerceAtLeast(-96f)
 
     private fun spectrumOf(source: FloatArray): List<Float> {
