@@ -220,6 +220,10 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                 item {
                     Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
                         Text("INPUT METERS", color = StudioGreen, fontSize = 10.sp, letterSpacing = 1.6.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("PEAK HOLD  " + String.format(Locale.US, "%.1f dBFS", snapshot.peakHoldDbfs), color = StudioText, fontSize = 10.sp)
+                            Text("CLIPPED SAMPLES  " + snapshot.clippedSamples, color = if (snapshot.clippedSamples > 0) StudioAmber else StudioMuted, fontSize = 10.sp)
+                        }
                         Spacer(Modifier.height(10.dp))
                         MeterRow("PEAK", snapshot.peakDbfs)
                         MeterRow("RMS", snapshot.rmsDbfs)
