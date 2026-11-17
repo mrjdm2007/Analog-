@@ -46,9 +46,9 @@ object RecordingEngine {
     @Volatile private var paused = false
     @Volatile private var pauseGeneration = 0L
     @Volatile private var recorder: AudioRecord? = null
-    private var startedAt = 0L
-    private var pausedAt = 0L
-    private var pausedTotal = 0L
+    @Volatile private var startedAt = 0L
+    @Volatile private var pausedAt = 0L
+    @Volatile private var pausedTotal = 0L
     private var markers = mutableListOf<Long>()
 
     @Synchronized
