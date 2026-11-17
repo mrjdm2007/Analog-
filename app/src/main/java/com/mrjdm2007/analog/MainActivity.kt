@@ -637,6 +637,7 @@ class MainActivity : ComponentActivity() {
     val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
+    var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     var loopStartMs by remember(trackId) { mutableStateOf<Long?>(null) }
     var loopEndMs by remember(trackId) { mutableStateOf<Long?>(null) }
@@ -668,6 +669,7 @@ class MainActivity : ComponentActivity() {
         trackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         currentQueueIndex = player?.currentMediaItemIndex ?: -1
         shuffleEnabled = player?.shuffleModeEnabled ?: false
+        repeatMode = player?.repeatMode ?: Player.REPEAT_MODE_OFF
     }
     LaunchedEffect(trackId) {
         artAccent = DefaultAmber
@@ -677,6 +679,8 @@ class MainActivity : ComponentActivity() {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffleEnabled = shuffleModeEnabled }
+            override fun onRepeatModeChanged(repeatMode: Int) { this@PlayerPage.run { /* keep the UI in sync with media-session repeat changes */ }; syncPlayerState() }
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         }
         player?.addListener(listener)
@@ -843,6 +847,11 @@ class MainActivity : ComponentActivity() {
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = themedAccent) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (shuffleEnabled) "SHUFFLE ON" else "SHUFFLE OFF", color = if (shuffleEnabled) themedAccent else themedMuted, fontSize = 9.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.width(18.dp))
+            Text("REPEAT • " + when (repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, color = if (repeatMode == Player.REPEAT_MODE_OFF) themedMuted else themedAccent, fontSize = 9.sp, letterSpacing = 1.sp)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = { loopStartMs = player?.currentPosition ?: 0L; loopEndMs = null }, modifier = Modifier.weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, themedAccent.copy(alpha = .55f))) {
