@@ -913,7 +913,13 @@ class MainActivity : ComponentActivity() {
                                     Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = themedText, maxLines = 1)
                                     Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = themedMuted, fontSize = 10.sp)
                                 }
-                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
+                                IconButton(onClick = { if (index > 0) player.moveMediaItem(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Default.KeyboardArrowUp, "Move track up", tint = if (index > 0) themedAccent else themedMuted.copy(alpha = .25f))
+                                }
+                                IconButton(onClick = { if (index < player.mediaItemCount - 1) player.moveMediaItem(index, index + 1) }, enabled = index < player.mediaItemCount - 1, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Default.KeyboardArrowDown, "Move track down", tint = if (index < player.mediaItemCount - 1) themedAccent else themedMuted.copy(alpha = .25f))
+                                }
+                                IconButton(onClick = { player.removeMediaItem(index) }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
                             }
                         }
                     }
