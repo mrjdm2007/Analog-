@@ -121,13 +121,6 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
         previousGains = current.copyOf()
     }
 
-    override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
-        for (band in 0 until 10) {
-            z1[band].fill(0f)
-            z2[band].fill(0f)
-        }
-    }
-
     override fun onReset() {
         z1 = Array(10) { FloatArray(channelCount) }
         z2 = Array(10) { FloatArray(channelCount) }
