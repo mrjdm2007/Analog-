@@ -23,6 +23,21 @@ class AudioCoreRegressionTest {
         assertEquals(0, RecordingPcm.toPcm24(Float.POSITIVE_INFINITY))
     }
 
+    @Test fun dspDbAndLinearConversionsAreConsistent() {
+        assertEquals(1f, RecordingPcm.linearFromDb(0f), 0.0001f)
+        assertEquals(0.5012f, RecordingPcm.linearFromDb(-6f), 0.001f)
+        assertEquals(0.2512f, RecordingPcm.linearFromDb(-12f), 0.001f)
+    }
+
+    @Test fun highPassCoefficientStaysFiniteAndRisesWithCutoff() {
+        val low = RecordingPcm.highPassAlpha(40f, 48000)
+        val high = RecordingPcm.highPassAlpha(160f, 48000)
+        assertEquals(true, low.isFinite())
+        assertEquals(true, high.isFinite())
+        assertEquals(true, high < low)
+        assertEquals(RecordingPcm.highPassAlpha(300f, 48000), RecordingPcm.highPassAlpha(900f, 48000))
+    }
+
     @Test fun parsesFlacAndOggVorbisCommentGainAndPeak() {
         val comment = "fLaC\u0000vendor=Analog\u0000REPLAYGAIN_TRACK_GAIN=+6.00 dB\u0000REPLAYGAIN_TRACK_PEAK=2.0"
         assertEquals(-602, ReplayGainReader.parseBytes(comment.toByteArray(Charsets.UTF_8)))
