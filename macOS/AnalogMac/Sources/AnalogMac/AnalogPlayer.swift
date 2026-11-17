@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MusicTrack: Identifiable, Hashable, Codable {
     var path: String
@@ -137,7 +138,12 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func addNext(_ track: MusicTrack) {
-        let insertion = min(queueIndex + 1, queue.count)
+        if queue.isEmpty {
+            queue = [track]
+            queueIndex = 0
+            return
+        }
+        let insertion = min(max(queueIndex + 1, 0), queue.count)
         queue.insert(track, at: insertion)
     }
 
@@ -191,7 +197,13 @@ final class AnalogPlayer: ObservableObject {
 
     func seek(to seconds: Double) {
         guard let track = currentTrack else { return }
+        let wasPlaying = isPlaying
         startTrack(track, at: min(max(0, seconds), track.duration))
+        if !wasPlaying {
+            playerNode.pause()
+            isPlaying = false
+            timer?.invalidate()
+        }
     }
 
     func previous() {
@@ -205,7 +217,7 @@ final class AnalogPlayer: ObservableObject {
     func next() { advance() }
 
     private func advance() {
-        guard !queue.isEmpty else { isPlaying = false; return }
+        guard !queue.isEmpty else { isPlaying = false; timer?.invalidate(); return }
         var nextIndex = queueIndex + 1
         if shuffleQueue && queue.count > 1 {
             nextIndex = Int.random(in: 0..<queue.count)
