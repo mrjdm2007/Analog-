@@ -237,7 +237,15 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                         Spacer(Modifier.height(10.dp))
                         MeterRow("PEAK", snapshot.peakDbfs)
                         MeterRow("RMS", snapshot.rmsDbfs)
-                        Text("dBFS • mono/stereo input channels are hardware dependent", color = StudioMuted, fontSize = 8.sp)
+                        if (snapshot.channelPeakDbfs.size > 1) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("STEREO CHANNELS", color = StudioGreen, fontSize = 8.sp, letterSpacing = 1.sp)
+                            MeterRow("LEFT PK", snapshot.channelPeakDbfs[0])
+                            MeterRow("LEFT RMS", snapshot.channelRmsDbfs[0])
+                            MeterRow("RIGHT PK", snapshot.channelPeakDbfs[1])
+                            MeterRow("RIGHT RMS", snapshot.channelRmsDbfs[1])
+                        }
+                        Text("dBFS • independent channel meters are pre-DSP", color = StudioMuted, fontSize = 8.sp)
                     }
                 }
                 item {
