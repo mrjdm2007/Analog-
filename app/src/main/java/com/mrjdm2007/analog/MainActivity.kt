@@ -585,6 +585,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun MiniPlayer(player: MediaController?, onOpen: () -> Unit) {
     val hapticView = LocalView.current
+    val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Choose a track") }
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
     var playing by remember { mutableStateOf(false) }
@@ -635,7 +636,6 @@ class MainActivity : ComponentActivity() {
     var loopEndMs by remember(trackId) { mutableStateOf<Long?>(null) }
     var bookmarkMs by remember(trackId) { mutableLongStateOf(trackId?.let { playerContextBookmark(playerContext, it) } ?: -1L) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
-    val playerContext = LocalContext.current
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
         fileInfo = if (uri == null) "LOCAL AUDIO" else withContext(Dispatchers.IO) {
