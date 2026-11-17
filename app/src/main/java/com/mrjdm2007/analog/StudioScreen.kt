@@ -280,6 +280,15 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                     }
                     if (showSettings) {
                         Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
+                            Text("QUICK RECORDING PRESETS", color = StudioGreen, fontSize = 9.sp)
+                            Text("Starting points only — check the live meters and input level before recording.", color = StudioMuted, fontSize = 9.sp)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FilterChip(selected = false, onClick = { sampleRate = 48000; bitDepth = 24; channels = 1; highPass = true; limiter = true; gain = 1f; lowGainDb = 0f; midGainDb = 0f; highGainDb = 0f; compressorEnabled = true; compressorThresholdDb = -20f }, label = { Text("DIALOGUE") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = false, onClick = { sampleRate = 48000; bitDepth = 24; channels = 2; highPass = false; limiter = true; gain = 1f; lowGainDb = 0f; midGainDb = 0f; highGainDb = 0f; compressorEnabled = false; compressorThresholdDb = -18f }, label = { Text("MUSIC / STEREO") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = false, onClick = { sampleRate = 48000; bitDepth = 24; channels = 2; highPass = true; limiter = true; gain = 0.8f; lowGainDb = 0f; midGainDb = 0f; highGainDb = 0f; compressorEnabled = false; compressorThresholdDb = -18f }, label = { Text("AMBIENCE") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = false, onClick = { sampleRate = 48000; bitDepth = 16; channels = 1; highPass = true; limiter = true; gain = 1f; lowGainDb = 0f; midGainDb = 0f; highGainDb = 0f; compressorEnabled = true; compressorThresholdDb = -18f }, label = { Text("INTERVIEW") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            }
+                            Spacer(Modifier.height(12.dp))
                             Text("INPUT DEVICE", color = StudioMuted, fontSize = 9.sp)
                             Box {
                                 OutlinedButton(onClick = { inputMenuExpanded = true }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING")) { Text(selectedInputLabel, maxLines = 1) }
