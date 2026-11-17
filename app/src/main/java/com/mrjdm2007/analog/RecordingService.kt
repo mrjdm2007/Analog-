@@ -80,12 +80,12 @@ class RecordingService : Service() {
                 val generation = ++monitorGeneration
                 monitorThread = Thread({
                     while (generation == monitorGeneration &&
-                        RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
+                        RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED", "FINALIZING")) {
                         try { Thread.sleep(150) } catch (_: InterruptedException) { break }
                     }
                     Handler(Looper.getMainLooper()).post {
                         if (generation == monitorGeneration &&
-                            RecordingEngine.state.value.status !in listOf("STARTING", "RECORDING", "PAUSED")) {
+                            RecordingEngine.state.value.status !in listOf("STARTING", "RECORDING", "PAUSED", "FINALIZING")) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
                         }
@@ -102,7 +102,7 @@ class RecordingService : Service() {
     override fun onDestroy() {
         monitorGeneration++
         monitorThread?.interrupt()
-        if (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) RecordingEngine.stop()
+        if (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED", "FINALIZING")) RecordingEngine.stop()
         super.onDestroy()
     }
 
