@@ -3,6 +3,8 @@ package com.mrjdm2007.analog
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Canvas
@@ -25,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -50,12 +53,20 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var highPass by remember { mutableStateOf(false) }
     var limiter by remember { mutableStateOf(true) }
     var gain by remember { mutableFloatStateOf(1f) }
+    var selectedInputDeviceId by remember { mutableIntStateOf(-1) }
+    var inputMenuExpanded by remember { mutableStateOf(false) }
+    var inputRefresh by remember { mutableIntStateOf(0) }
+    var lowGainDb by remember { mutableFloatStateOf(0f) }
+    var midGainDb by remember { mutableFloatStateOf(0f) }
+    var highGainDb by remember { mutableFloatStateOf(0f) }
+    var compressorEnabled by remember { mutableStateOf(false) }
+    var compressorThresholdDb by remember { mutableFloatStateOf(-18f) }
+    val inputDevices = remember(inputRefresh) { context.getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).toList() }
+    val selectedInputLabel = inputDevices.firstOrNull { it.id == selectedInputDeviceId }?.productName?.toString() ?: "System default input"
     var showSettings by remember { mutableStateOf(true) }
     var takes by remember { mutableStateOf(listTakes(context)) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingFile by remember { mutableStateOf<File?>(null) }
-    // AudioRecord follows Android's active input route; explicit device selection is not implemented yet.
-    val inputLabel = "SYSTEM-ROUTED MICROPHONE INPUT"
 
     fun sendCommand(action: String) {
         context.startService(Intent(context, RecordingService::class.java).setAction(action))
@@ -105,7 +116,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Text(formatBytes(snapshot.bytesWritten), color = StudioMuted, fontSize = 11.sp)
                         }
                     }
-                    Text("INPUT: " + inputLabel, color = StudioMuted, fontSize = 9.sp, maxLines = 1)
+                    Text("INPUT: " + selectedInputLabel, color = StudioMuted, fontSize = 9.sp, maxLines = 1)
                 }
                 item {
                     Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
@@ -152,6 +163,21 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             }
                         }
                         Text("LIVE INPUT • LOG-FREQUENCY BANDS", color = StudioMuted, fontSize = 8.sp, letterSpacing = 1.2.sp)
+                        Spacer(Modifier.height(14.dp))
+                        Text("LIVE SPECTROGRAM • RECENT 64 FRAMES", color = StudioGreen, fontSize = 9.sp, letterSpacing = 1.2.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Canvas(Modifier.fillMaxWidth().height(104.dp)) {
+                            val rows = snapshot.spectrogram
+                            if (rows.isNotEmpty()) {
+                                val cellWidth = size.width / 48f
+                                val cellHeight = size.height / rows.size
+                                rows.forEachIndexed { row, bands ->
+                                    bands.forEachIndexed { column, level ->
+                                        drawRect(color = StudioGreen.copy(alpha = level.coerceIn(0.04f, 1f)), topLeft = Offset(column * cellWidth, row * cellHeight), size = Size(cellWidth + .5f, cellHeight + .5f))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 item {
@@ -174,6 +200,12 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     putExtra(RecordingService.EXTRA_HIGH_PASS, highPass)
                                     putExtra(RecordingService.EXTRA_LIMITER, limiter)
                                     putExtra(RecordingService.EXTRA_GAIN, gain)
+                                    putExtra(RecordingService.EXTRA_INPUT_DEVICE_ID, selectedInputDeviceId)
+                                    putExtra(RecordingService.EXTRA_LOW_GAIN_DB, lowGainDb)
+                                    putExtra(RecordingService.EXTRA_MID_GAIN_DB, midGainDb)
+                                    putExtra(RecordingService.EXTRA_HIGH_GAIN_DB, highGainDb)
+                                    putExtra(RecordingService.EXTRA_COMPRESSOR, compressorEnabled)
+                                    putExtra(RecordingService.EXTRA_COMPRESSOR_THRESHOLD, compressorThresholdDb)
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
@@ -213,6 +245,18 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                     }
                     if (showSettings) {
                         Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
+                            Text("INPUT DEVICE", color = StudioMuted, fontSize = 9.sp)
+                            Box {
+                                OutlinedButton(onClick = { inputMenuExpanded = true }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING")) { Text(selectedInputLabel, maxLines = 1) }
+                                DropdownMenu(expanded = inputMenuExpanded, onDismissRequest = { inputMenuExpanded = false }) {
+                                    DropdownMenuItem(text = { Text("System default input") }, onClick = { selectedInputDeviceId = -1; inputMenuExpanded = false })
+                                    inputDevices.forEach { device ->
+                                        DropdownMenuItem(text = { Text(device.productName.toString() + " • " + device.typeLabel()) }, onClick = { selectedInputDeviceId = device.id; inputMenuExpanded = false })
+                                    }
+                                }
+                            }
+                            TextButton(onClick = { inputRefresh++ }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING")) { Text("REFRESH INPUT DEVICES") }
+                            Spacer(Modifier.height(8.dp))
                             Text("SAMPLE RATE", color = StudioMuted, fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf(44100, 48000, 96000).forEach { rate ->
@@ -242,8 +286,25 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 }
                                 Switch(checked = limiter, onCheckedChange = { limiter = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
+                            Spacer(Modifier.height(12.dp))
+                            Text("THREE-BAND TONE CONTROL", color = StudioGreen, fontSize = 9.sp)
+                            Text("LOW 250 Hz • " + String.format(Locale.US, "%+.0f dB", lowGainDb), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = lowGainDb, onValueChange = { lowGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text("MID BAND • " + String.format(Locale.US, "%+.0f dB", midGainDb), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = midGainDb, onValueChange = { midGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text("HIGH 4 kHz • " + String.format(Locale.US, "%+.0f dB", highGainDb), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = highGainDb, onValueChange = { highGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Compressor", color = StudioText, fontSize = 12.sp)
+                                    Text("3:1 ratio • 10 ms attack • 120 ms release", color = StudioMuted, fontSize = 9.sp)
+                                }
+                                Switch(checked = compressorEnabled, onCheckedChange = { compressorEnabled = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            }
+                            Text("COMPRESSOR THRESHOLD • " + String.format(Locale.US, "%.0f dBFS", compressorThresholdDb), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text("FORMAT: WAV • 16-BIT PCM • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
-                            Text("96 kHz, stereo and unprocessed input depend on phone hardware. Unsupported combinations show an error instead of silently changing the output.", color = StudioMuted, fontSize = 9.sp)
+                            Text("Input routing is requested from Android and may be overridden by device policy. Sample rates and stereo depend on connected hardware.", color = StudioMuted, fontSize = 9.sp)
                         }
                     }
                 }
@@ -316,4 +377,12 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1048576L -> String.format(Locale.US, "%.1f MB", bytes / 1048576.0)
     bytes >= 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
     else -> bytes.toString() + " B"
+}
+
+private fun AudioDeviceInfo.typeLabel(): String = when (type) {
+    AudioDeviceInfo.TYPE_BUILTIN_MIC -> "Built-in mic"
+    AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "USB audio"
+    AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth"
+    AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headset"
+    else -> "Audio input"
 }
