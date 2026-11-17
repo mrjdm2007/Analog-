@@ -855,7 +855,6 @@ class MainActivity : ComponentActivity() {
         }
         Column(Modifier.fillMaxWidth().background(themedPanel, RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Bedtime, null, tint = themedAccent)
                 Spacer(Modifier.width(8.dp))
                 Text("SLEEP TIMER", color = themedAccent, fontSize = 10.sp, letterSpacing = 1.2.sp)
                 Spacer(Modifier.weight(1f))
