@@ -566,10 +566,27 @@ struct EqualizerView: View {
             .padding(.horizontal, 10).padding(.vertical, 18)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("POST-EQ SIGNAL MONITOR").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                        Text(player.eqOutputPeak > 0.0001 ? "LIVE AUDIO DETECTED" : "WAITING FOR PLAYBACK").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(player.eqOutputPeak > 0.0001 ? AnalogPalette.green : AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Text(String(format: "PEAK %.1f dBFS", 20 * log10(Double(max(player.eqOutputPeak, 0.00001)))))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(player.eqOutputPeak >= 0.95 ? AnalogPalette.amber : AnalogPalette.green)
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(AnalogPalette.ink)
+                        Capsule().fill(player.eqOutputPeak >= 0.95 ? AnalogPalette.amber : AnalogPalette.green)
+                            .frame(width: geometry.size.width * CGFloat(min(1, player.eqOutputPeak)))
+                    }
+                }.frame(height: 9)
+                HStack { Text("RMS").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.muted); Spacer(); Text(String(format: "%.4f", player.eqOutputRMS)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.cream) }
                 HStack { Text("PREAMP").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted); Spacer(); Text(String(format: "%+.1f dB", player.preampDB)).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
-                Slider(value: Binding(get: { Double(player.preampDB) }, set: { player.preampDB = Float($0); player.setEQEnabled(player.eqEnabled) }), in: -12...12).tint(AnalogPalette.amber)
+                Slider(value: Binding(get: { Double(player.preampDB) }, set: { player.setPreamp(Float($0)) }), in: -12...12).tint(AnalogPalette.amber)
                 HStack { Text("STEREO BALANCE").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted); Spacer(); Text(player.stereoPan == 0 ? "CENTRE" : (player.stereoPan < 0 ? "L " : "R ") + String(format: "%.0f%%", abs(player.stereoPan) * 100)).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
-                Slider(value: Binding(get: { Double(player.stereoPan) }, set: { player.stereoPan = Float($0); player.setEQEnabled(player.eqEnabled) }), in: -1...1).tint(AnalogPalette.green)
+                Slider(value: Binding(get: { Double(player.stereoPan) }, set: { player.stereoPan = Float($0); player.applyEqualizer(); player.persistState() }), in: -1...1).tint(AnalogPalette.green)
             }.padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             HStack(spacing: 10) {
                 Image(systemName: "info.circle").foregroundStyle(AnalogPalette.green)
