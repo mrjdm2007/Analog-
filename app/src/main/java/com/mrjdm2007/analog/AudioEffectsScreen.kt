@@ -51,7 +51,18 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             if (e != null) {
                 val range = e.bandLevelRange
                 val count = e.numberOfBands.toInt().coerceAtLeast(1)
-                val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString(deviceProfileKey, null)?.split(",")?.mapNotNull { it.toFloatOrNull() }
+                val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+                // Older builds stored band values in a Set, whose iteration order is not guaranteed.
+                // Migrate it safely; a typed getString on that legacy key would throw ClassCastException.
+                val orderedSaved = runCatching { prefs.getString(deviceProfileKey, null) }.getOrNull()
+                val legacySaved = if (orderedSaved == null) runCatching {
+                    prefs.getStringSet(deviceProfileKey, null)?.toList()
+                }.getOrNull() else null
+                val saved = orderedSaved?.split(",")?.mapNotNull { it.toFloatOrNull() }
+                    ?: legacySaved?.mapNotNull { it.toFloatOrNull() }
+                if (orderedSaved == null && legacySaved != null) {
+                    prefs.edit().putString(deviceProfileKey, legacySaved.joinToString(",")).apply()
+                }
                 bands = if (saved != null && saved.size == count) saved else (0 until count).map { i ->
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
