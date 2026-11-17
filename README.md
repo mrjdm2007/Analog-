@@ -31,7 +31,10 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Three-band low/mid/high tone shaping and a basic 3:1 dynamics compressor with adjustable threshold
 - Quick recording presets for dialogue, interview, stereo music and ambience, with editable settings and device-version-aware bit-depth defaults
 - Raw Mic Capture mode requests Android's `UNPROCESSED` source when the device reports support and bypasses Analog gain, EQ, compression, high-pass filtering and limiting; clearly reports when it must fall back to the regular microphone source
-- Player now has 10-second rewind, 30-second skip-forward and an in-player playback-speed cycle
+- Player now has 10-second rewind and 30-second skip-forward
+- Player sleep timer controls directly in Now Playing: 15/30/45/60-minute timers, stop after current track, and cancel timer
+- Recording cue markers are visible live with millisecond timecodes and are written to a sidecar marker file
+- Playback-speed controls and service support have been removed
 - Recent take browser with in-app playback, rename, delete, secure share and export to public Music/Analog/Recordings on Android 10+; originals remain in app-specific storage
 - Offline-first operation; the app does not stream or download music
 
