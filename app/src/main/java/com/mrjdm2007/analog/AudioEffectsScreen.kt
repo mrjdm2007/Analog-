@@ -51,7 +51,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             if (e != null) {
                 val range = e.bandLevelRange
                 val count = e.numberOfBands.toInt().coerceAtLeast(1)
-                val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet(deviceProfileKey, null)?.mapNotNull { it.toFloatOrNull() }
+                val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString(deviceProfileKey, null)?.split(",")?.mapNotNull { it.toFloatOrNull() }
                 bands = if (saved != null && saved.size == count) saved else (0 until count).map { i ->
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
@@ -103,7 +103,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                         Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(62.dp))
                         Slider(value = value, onValueChange = { v ->
                             bands = bands.toMutableList().also { it[index] = v }
-                            context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
+                            context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putString(deviceProfileKey, bands.joinToString(",")).apply()
                             runCatching {
                                 val effect = eq ?: return@runCatching
                                 val range = effect.bandLevelRange
