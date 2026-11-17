@@ -30,6 +30,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var ratings: [String: Int] = [:]
     @Published var customPlaylists: [String: [String]] = [:]
     @Published var eqEnabled = true
+    @Published var eqOutputPeak: Float = 0
+    @Published var eqOutputRMS: Float = 0
     @Published var eqGains: [Float] = Array(repeating: 0, count: 10)
     @Published var repeatQueue = false
     @Published var repeatCurrentTrack = false
@@ -67,14 +69,26 @@ final class AnalogPlayer: ObservableObject {
             let samples = Array(UnsafeBufferPointer(start: channel, count: count))
             let bins = analogSpectrum(samples: samples, sampleRate: buffer.format.sampleRate, binCount: 36)
             let waveform = analogWaveform(samples: samples, pointCount: 128)
+            var peak: Float = 0
+            var sumSquares: Double = 0
+            for sample in samples {
+                let magnitude = abs(sample)
+                if magnitude > peak { peak = magnitude }
+                sumSquares += Double(sample) * Double(sample)
+            }
+            let rms = Float(sqrt(sumSquares / Double(count)))
             Task { @MainActor [weak self] in
-                guard let self, self.visualizerEnabled else { return }
-                self.visualizerBins = bins
-                self.visualizerWaveform = waveform
+                guard let self else { return }
+                self.eqOutputPeak = peak
+                self.eqOutputRMS = rms
+                if self.visualizerEnabled {
+                    self.visualizerBins = bins
+                    self.visualizerWaveform = waveform
+                }
             }
         }
         for (index, band) in equalizer.bands.enumerated() {
-            band.filterType = .parametric
+            band.filterType = index == 0 ? .lowShelf : (index == frequencies.count - 1 ? .highShelf : .parametric)
             band.frequency = frequencies[index]
             band.bandwidth = 1.0
             band.gain = 0
@@ -449,6 +463,12 @@ final class AnalogPlayer: ObservableObject {
     func setEQ(_ index: Int, _ gain: Float) {
         guard eqGains.indices.contains(index) else { return }
         eqGains[index] = min(12, max(-12, gain))
+        applyEqualizer()
+        persistState()
+    }
+
+    func setPreamp(_ gain: Float) {
+        preampDB = min(12, max(-12, gain))
         applyEqualizer()
         persistState()
     }
