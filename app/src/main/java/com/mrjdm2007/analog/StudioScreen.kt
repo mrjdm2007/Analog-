@@ -62,6 +62,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var channels by remember { mutableIntStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("studio_channels", 1)) }
     var highPass by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_high_pass", false)) }
     var limiter by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_limiter", true)) }
+    var rawMicMode by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_raw_mic", false)) }
     var gain by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_gain", 1f)) }
     var selectedInputDeviceId by remember { mutableIntStateOf(-1) }
     var inputMenuExpanded by remember { mutableStateOf(false) }
@@ -89,6 +90,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
             .putInt("studio_channels", channels)
             .putBoolean("studio_high_pass", highPass)
             .putBoolean("studio_limiter", limiter)
+            .putBoolean("studio_raw_mic", rawMicMode)
             .putFloat("studio_gain", gain)
             .putFloat("studio_low_gain", lowGainDb)
             .putFloat("studio_mid_gain", midGainDb)
@@ -241,6 +243,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     putExtra(RecordingService.EXTRA_COMPRESSOR, compressorEnabled)
                                     putExtra(RecordingService.EXTRA_COMPRESSOR_THRESHOLD, compressorThresholdDb)
                                     putExtra(RecordingService.EXTRA_BIT_DEPTH, bitDepth)
+                                    putExtra(RecordingService.EXTRA_RAW_MIC, rawMicMode)
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
@@ -327,36 +330,45 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 FilterChip(selected = channels == 2, onClick = { channels = 2 }, label = { Text("STEREO") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
                             Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("RAW MICROPHONE CAPTURE", color = StudioAmber, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Bypass Analog gain, EQ, compressor, high-pass and limiter. Android/device DSP may still remain.", color = StudioMuted, fontSize = 9.sp)
+                                }
+                                Switch(checked = rawMicMode, onCheckedChange = { rawMicMode = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            }
+                            if (rawMicMode) Text("RAW MODE: use UNPROCESSED input when supported. If Android falls back to MIC, system processing may still apply. Integer WAV formats still require normal quantization.", color = StudioAmber, fontSize = 9.sp)
+                            Spacer(Modifier.height(8.dp))
                             Text("DIGITAL INPUT GAIN • " + String.format(Locale.US, "%.1f", gain) + "×", color = StudioMuted, fontSize = 9.sp)
-                            Slider(value = gain, onValueChange = { gain = it }, valueRange = .25f..2f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Slider(value = gain, onValueChange = { gain = it }, valueRange = .25f..2f, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("80 Hz high-pass", color = StudioText, fontSize = 12.sp)
                                     Text("Reduces low-frequency rumble", color = StudioMuted, fontSize = 9.sp)
                                 }
-                                Switch(checked = highPass, onCheckedChange = { highPass = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                Switch(checked = highPass, onCheckedChange = { highPass = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Peak limiter", color = StudioText, fontSize = 12.sp)
                                     Text("Hard safety ceiling before PCM encoding", color = StudioMuted, fontSize = 9.sp)
                                 }
-                                Switch(checked = limiter, onCheckedChange = { limiter = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                Switch(checked = limiter, onCheckedChange = { limiter = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
                             Spacer(Modifier.height(12.dp))
                             Text("THREE-BAND TONE CONTROL", color = StudioGreen, fontSize = 9.sp)
                             Text("LOW 250 Hz • " + String.format(Locale.US, "%+.0f dB", lowGainDb), color = StudioMuted, fontSize = 9.sp)
-                            Slider(value = lowGainDb, onValueChange = { lowGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Slider(value = lowGainDb, onValueChange = { lowGainDb = it }, valueRange = -12f..12f, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text("MID BAND • " + String.format(Locale.US, "%+.0f dB", midGainDb), color = StudioMuted, fontSize = 9.sp)
-                            Slider(value = midGainDb, onValueChange = { midGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Slider(value = midGainDb, onValueChange = { midGainDb = it }, valueRange = -12f..12f, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text("HIGH 4 kHz • " + String.format(Locale.US, "%+.0f dB", highGainDb), color = StudioMuted, fontSize = 9.sp)
-                            Slider(value = highGainDb, onValueChange = { highGainDb = it }, valueRange = -12f..12f, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Slider(value = highGainDb, onValueChange = { highGainDb = it }, valueRange = -12f..12f, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Compressor", color = StudioText, fontSize = 12.sp)
                                     Text("3:1 ratio • 10 ms attack • 120 ms release", color = StudioMuted, fontSize = 9.sp)
                                 }
-                                Switch(checked = compressorEnabled, onCheckedChange = { compressorEnabled = it }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                Switch(checked = compressorEnabled, onCheckedChange = { compressorEnabled = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
                             Text("COMPRESSOR THRESHOLD • " + String.format(Locale.US, "%.0f dBFS", compressorThresholdDb), color = StudioMuted, fontSize = 9.sp)
                             Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
