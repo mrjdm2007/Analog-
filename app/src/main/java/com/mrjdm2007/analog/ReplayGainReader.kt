@@ -3,19 +3,33 @@ package com.mrjdm2007.analog
 import android.content.ContentResolver
 import android.net.Uri
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.charset.Charset
 import kotlin.math.roundToInt
 
 /** Reads standard ID3v2 TXXX ReplayGain fields without loading the audio payload. */
 object ReplayGainReader {
     fun trackGainMilliBel(contentResolver: ContentResolver, uri: Uri): Int? = runCatching {
-        val bytes = contentResolver.openInputStream(uri)?.use { input ->
-            val buffer = ByteArray(1024 * 1024)
-            val read = BufferedInputStream(input).read(buffer)
-            if (read <= 0) return@runCatching null
-            buffer.copyOf(read)
+        val bytes = contentResolver.openInputStream(uri)?.use { raw ->
+            val input = BufferedInputStream(raw)
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (total < 2 * 1024 * 1024) {
+                val count = input.read(buffer, 0, minOf(buffer.size, 2 * 1024 * 1024 - total))
+                if (count <= 0) break
+                output.write(buffer, 0, count)
+                total += count
+            }
+            output.toByteArray()
         } ?: return@runCatching null
-        if (bytes.size < 10 || bytes[0] != 'I'.code.toByte() || bytes[1] != 'D'.code.toByte() || bytes[2] != '3'.code.toByte()) return@runCatching null
+        // FLAC Vorbis-comment blocks and Ogg Vorbis comments store ReplayGain as UTF-8 key/value text.
+        val comments = String(bytes, Charsets.UTF_8)
+        val commentTrack = commentGain(comments, "TRACK")
+        val commentAlbum = commentGain(comments, "ALBUM")
+        if (bytes.size < 10 || bytes[0] != 'I'.code.toByte() || bytes[1] != 'D'.code.toByte() || bytes[2] != '3'.code.toByte()) {
+            return@runCatching (commentTrack ?: commentAlbum)?.let { (it * 100f).roundToInt().coerceIn(-1200, 0) }
+        }
         val version = bytes[3].toInt() and 0xff
         if (version !in 3..4) return@runCatching null
         val tagSize = synchsafe(bytes, 6).coerceAtMost(bytes.size - 10)
@@ -45,8 +59,12 @@ object ReplayGainReader {
             offset += 10 + frameSize
         }
         // Track gain takes priority; album gain is a standards-compliant fallback.
-        (trackDb ?: albumDb)?.let { (it * 100f).roundToInt().coerceIn(-1200, 0) }
+        (trackDb ?: commentTrack ?: albumDb ?: commentAlbum)?.let { (it * 100f).roundToInt().coerceIn(-1200, 0) }
     }.getOrNull()
+
+    private fun commentGain(text: String, kind: String): Float? =
+        Regex("(?i)REPLAYGAIN_${kind}_GAIN\\s*=\\s*([-+]?\\d+(?:\\.\\d+)?)")
+            .find(text)?.groupValues?.getOrNull(1)?.toFloatOrNull()
 
     private fun decodeTxxx(payload: ByteArray): Pair<String, String> {
         if (payload.isEmpty()) return "" to ""
