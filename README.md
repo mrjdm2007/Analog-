@@ -18,7 +18,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Analog needle VU meter display
 - Audio effects screen with system equalizer, bass boost, and virtualizer controls (device/output support varies)
 - Native Analog Studio with AudioRecord PCM capture and a microphone foreground service
-- WAV 16-bit PCM recording, configurable 44.1/48/96 kHz capture, mono/stereo selection
+- WAV 16-bit PCM and Android 12+ 24-bit packed PCM recording where the input hardware supports it; configurable 44.1/48/96 kHz capture and mono/stereo selection
 - Live sample-derived waveform, 48-band FFT spectrum, rolling 64-frame spectrogram, peak/RMS dBFS meters
 - Pause/resume, markers with sidecar notes, input gain, 80 Hz high-pass and peak limiter
 - Android input-device routing requests for available built-in, wired, USB and Bluetooth capture devices (routing remains device-policy dependent)
@@ -39,7 +39,7 @@ GitHub Actions is configured to build a debug APK on pushes to `main` and upload
 
 ## Recording limitations
 
-- The recorder writes uncompressed 16-bit PCM WAV. 24-bit capture, FLAC/AAC, multitrack, timecode, standards-compliant LUFS/true-peak metering, advanced parametric EQ, look-ahead limiting and spectral noise reduction are not implemented.
+- The recorder writes uncompressed 16-bit PCM WAV. FLAC/AAC, multitrack, timecode, standards-compliant LUFS/true-peak metering, advanced parametric EQ, look-ahead limiting and spectral noise reduction are not implemented.
 - The built-in tone stage is a lightweight three-band filter and the compressor is a basic single-band dynamics processor; neither should be treated as a mastering-grade signal chain.
 - Supported sample rates and stereo capture depend on the phone and connected input hardware. A requested unsupported combination reports an error.
 - The live FFT and meters analyze the actual captured PCM samples. Device routing and processing behavior remain hardware/Android dependent.
