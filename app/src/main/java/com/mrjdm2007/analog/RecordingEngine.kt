@@ -266,7 +266,7 @@ object RecordingEngine {
                 stream?.fd?.sync()
                 stream?.close()
                 stream = null
-                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels)
+                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels, bitDepth)
                 else output.delete()
             }
             mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
