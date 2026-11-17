@@ -446,28 +446,31 @@ class PlaybackService : MediaSessionService() {
         virtualizer = null
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         try {
-            equalizer = Equalizer(0, sessionId).apply {
-                val count = numberOfBands.toInt()
-                val range = bandLevelRange
-                prefs.edit()
-                    .putInt("eq_band_count", count)
-                    .putInt("eq_band_min", range[0].toInt())
-                    .putInt("eq_band_max", range[1].toInt())
-                    .putString("eq_band_centers", (0 until count).joinToString(",") { getCenterFreq(it.toShort()).toString() })
-                    .apply()
-                enabled = prefs.getBoolean("eq_enabled", true)
-            }
-            bassBoost = BassBoost(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) }
-            virtualizer = Virtualizer(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) }
+            val effect = Equalizer(0, sessionId)
+            equalizer = effect
+            val count = effect.numberOfBands.toInt()
+            val range = effect.bandLevelRange
+            prefs.edit()
+                .putInt("eq_band_count", count)
+                .putInt("eq_band_min", range[0].toInt())
+                .putInt("eq_band_max", range[1].toInt())
+                .putString("eq_band_centers", (0 until count).joinToString(",") { effect.getCenterFreq(it.toShort()).toString() })
+                .apply()
+            effect.enabled = prefs.getBoolean("eq_enabled", true)
+            // Bass and stereo-width effects are optional; their absence must never disable the core EQ.
+            bassBoost = runCatching { BassBoost(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) } }.getOrNull()
+            virtualizer = runCatching { Virtualizer(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) } }.getOrNull()
             runCatching { bassBoost?.setStrength((prefs.getFloat("eq_bass", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
             runCatching { virtualizer?.setStrength((prefs.getFloat("eq_space", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
             applyEqualizerBands()
             prefs.edit().putBoolean("eq_available", true).putString("eq_error", "").apply()
         } catch (error: Throwable) {
             prefs.edit().putBoolean("eq_available", false).putString("eq_error", error.message ?: error.javaClass.simpleName).apply()
-            runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
+            runCatching { equalizer?.release() }
             equalizer = null
+            runCatching { bassBoost?.release() }
             bassBoost = null
+            runCatching { virtualizer?.release() }
             virtualizer = null
         }
     }
