@@ -35,6 +35,8 @@ class RecordingService : Service() {
         const val EXTRA_HIGH_PASS_HZ = "high_pass_hz"
         const val EXTRA_LIMITER_CEILING_DB = "limiter_ceiling_db"
         const val EXTRA_COMPRESSOR_RATIO = "compressor_ratio"
+        const val EXTRA_COMPRESSOR_ATTACK_MS = "compressor_attack_ms"
+        const val EXTRA_COMPRESSOR_RELEASE_MS = "compressor_release_ms"
         private const val CHANNEL_ID = "analog_recording"
         private const val NOTIFICATION_ID = 4102
     }
@@ -68,7 +70,9 @@ class RecordingService : Service() {
                     intent.getBooleanExtra(EXTRA_RAW_MIC, false),
                     intent.getFloatExtra(EXTRA_HIGH_PASS_HZ, 80f),
                     intent.getFloatExtra(EXTRA_LIMITER_CEILING_DB, -1f),
-                    intent.getFloatExtra(EXTRA_COMPRESSOR_RATIO, 3f)
+                    intent.getFloatExtra(EXTRA_COMPRESSOR_RATIO, 3f),
+                    intent.getFloatExtra(EXTRA_COMPRESSOR_ATTACK_MS, 10f),
+                    intent.getFloatExtra(EXTRA_COMPRESSOR_RELEASE_MS, 120f)
                 )
                 if (monitorThread?.isAlive != true) {
                     monitorThread = Thread({
