@@ -18,6 +18,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -157,14 +158,21 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                if (audioSessionId > 0) {
-                    getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", audioSessionId).apply()
-                    runCatching { loudnessEnhancer?.release(); loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true } }
-                    applyReplayGain()
+        })
+        // Audio-session changes are ExoPlayer analytics events, not Media3 Player.Listener events.
+        // Publish only the live session so UI effects can attach/re-attach without a screen restart.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+                    .putInt("audio_session_id", audioSessionId.coerceAtLeast(0)).apply()
+                runCatching {
+                    loudnessEnhancer?.release()
+                    loudnessEnhancer = if (audioSessionId > 0) LoudnessEnhancer(audioSessionId).apply { enabled = true } else null
                 }
+                if (audioSessionId > 0) applyReplayGain()
             }
         })
+        getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", 0).apply()
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val sessionActivity = launchIntent?.let { PendingIntent.getActivity(this, 90, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
         val builder = MediaSession.Builder(this, player).setCallback(callback)
@@ -374,6 +382,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", 0).apply()
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepTimer = null
         sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
