@@ -30,6 +30,8 @@ data class RecordingSnapshot(
     val elapsedMs: Long = 0L,
     val bytesWritten: Long = 0L,
     val peakDbfs: Float = -96f,
+    val peakHoldDbfs: Float = -96f,
+    val clippedSamples: Long = 0L,
     val rmsDbfs: Float = -96f,
     val waveform: List<Float> = List(160) { 0f },
     val spectrum: List<Float> = List(48) { 0f },
@@ -53,11 +55,15 @@ object RecordingEngine {
     @Volatile private var pausedAt = 0L
     @Volatile private var pausedTotal = 0L
     private var markers = mutableListOf<Long>()
+    @Volatile private var peakHoldDbfs = -96f
+    @Volatile private var clippedSamples = 0L
 
     @Synchronized
     fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false) {
         if (running) return
         markers = mutableListOf()
+        peakHoldDbfs = -96f
+        clippedSamples = 0L
         pausedTotal = 0L
         pausedAt = 0L
         startedAt = 0L
@@ -220,7 +226,10 @@ object RecordingEngine {
                     // Integer PCM must be quantized into its representable range. Float WAV
                     // retains finite samples outside +/-1 when raw mode is selected.
                     if (bitDepth != 32) value = value.coerceIn(-1f, 0.99997f)
-                    peak = max(peak, kotlin.math.abs(value))
+                    val absoluteSample = kotlin.math.abs(value)
+                    peak = max(peak, absoluteSample)
+                    if (absoluteSample > peakHoldLinearThreshold()) clippedSamples++
+                    peakHoldDbfs = max(peakHoldDbfs, toDb(absoluteSample))
                     sum += value.toDouble() * value
                     if (bitDepth == 32) {
                         val raw = java.lang.Float.floatToIntBits(value)
@@ -281,6 +290,8 @@ object RecordingEngine {
                             elapsedMs = elapsed(),
                             bytesWritten = totalBytes,
                             peakDbfs = toDb(peak),
+                            peakHoldDbfs = peakHoldDbfs,
+                            clippedSamples = clippedSamples,
                             rmsDbfs = toDb(rms),
                             waveform = wave,
                             spectrum = currentSpectrum,
@@ -357,6 +368,8 @@ object RecordingEngine {
         val now = if (paused) pausedAt else SystemClock.elapsedRealtime()
         return (now - startedAt - pausedTotal).coerceAtLeast(0L)
     }
+
+    private fun peakHoldLinearThreshold(): Float = 0.999f
 
     private fun toDb(value: Float): Float = if (value <= 0.000015f) -96f else (20f * log10(value)).coerceAtLeast(-96f)
 
