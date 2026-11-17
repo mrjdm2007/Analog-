@@ -18,7 +18,8 @@ internal object RecordingPcm {
     fun highPassAlpha(cutoffHz: Float, sampleRate: Int): Float {
         val safeRate = sampleRate.coerceAtLeast(1)
         val safeCutoff = cutoffHz.coerceIn(20f, safeRate * 0.45f)
-        return (1.0 / (1.0 + 1.0 / (2.0 * PI * safeCutoff * safeRate))).toFloat()
+        // One-pole RC high-pass: alpha = RC / (RC + dt) = 1 / (1 + 2πfc/fs).
+        return (1.0 / (1.0 + 2.0 * PI * safeCutoff / safeRate)).toFloat()
     }
 
     fun toPcm16(sample: Float): Int =
