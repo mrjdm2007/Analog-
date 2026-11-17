@@ -552,6 +552,7 @@ class MainActivity : ComponentActivity() {
     val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
+    var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
     val playerContext = LocalContext.current
@@ -581,6 +582,7 @@ class MainActivity : ComponentActivity() {
         trackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         currentQueueIndex = player?.currentMediaItemIndex ?: -1
         shuffleEnabled = player?.shuffleModeEnabled ?: false
+        repeatMode = player?.repeatMode ?: Player.REPEAT_MODE_OFF
     }
     LaunchedEffect(trackId) {
         artAccent = DefaultAmber
@@ -591,6 +593,8 @@ class MainActivity : ComponentActivity() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffleEnabled = shuffleModeEnabled }
+            override fun onRepeatModeChanged(repeatModeValue: Int) { repeatMode = repeatModeValue }
         }
         player?.addListener(listener)
         syncPlayerState()
@@ -763,7 +767,7 @@ class MainActivity : ComponentActivity() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DeckReadout("QUEUE", if (currentQueueIndex >= 0) "${currentQueueIndex + 1} / ${player?.mediaItemCount ?: 0}" else "—", themedAccent, Modifier.weight(1f))
                 DeckReadout("MODE", if (shuffleEnabled) "SHUFFLE" else "SEQUENTIAL", themedAccent, Modifier.weight(1f))
-                DeckReadout("REPEAT", when (player?.repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, themedAccent, Modifier.weight(1f))
+                DeckReadout("REPEAT", when (repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, themedAccent, Modifier.weight(1f))
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, themedAccent.copy(alpha = .55f), Color.Transparent))))
             Row(verticalAlignment = Alignment.CenterVertically) {
