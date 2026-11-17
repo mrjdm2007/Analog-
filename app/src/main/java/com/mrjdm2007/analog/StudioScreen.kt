@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.AudioDeviceInfo
 import android.os.Environment
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,6 +23,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,6 +71,9 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var takes by remember { mutableStateOf(listTakes(context)) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingFile by remember { mutableStateOf<File?>(null) }
+    var renameTarget by remember { mutableStateOf<File?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<File?>(null) }
 
     fun sendCommand(action: String) {
         context.startService(Intent(context, RecordingService::class.java).setAction(action))
@@ -339,6 +346,23 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 Text(formatBytes(file.length()) + " • " + file.lastModified(), color = StudioMuted, fontSize = 8.sp)
                             }
                             if (playingFile == file) Text("PLAYING", color = StudioGreen, fontSize = 8.sp)
+                            IconButton(onClick = {
+                                runCatching {
+                                    val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+                                    val share = Intent(Intent.ACTION_SEND).apply {
+                                        type = "audio/wav"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(share, "Share Analog recording"))
+                                }
+                            }) { Icon(Icons.Default.Share, "Share recording", tint = StudioMuted) }
+                            IconButton(onClick = { renameTarget = file; renameText = file.nameWithoutExtension }) {
+                                Icon(Icons.Default.Edit, "Rename recording", tint = StudioMuted)
+                            }
+                            IconButton(onClick = { deleteTarget = file }) {
+                                Icon(Icons.Default.Delete, "Delete recording", tint = StudioAmber)
+                            }
                         }
                     }
                 }
@@ -347,6 +371,52 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                 }
             }
         }
+    }
+    renameTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            containerColor = StudioPanel,
+            title = { Text("RENAME TAKE", color = StudioAmber) },
+            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it.take(64) }, singleLine = true, label = { Text("Recording name") }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val safeName = renameText.trim().replace(Regex("[^A-Za-z0-9 _-]"), "").take(64)
+                    if (safeName.isNotBlank()) {
+                        val renamed = File(file.parentFile, safeName + ".wav")
+                        if (!renamed.exists() && file.renameTo(renamed)) {
+                            val oldMarkers = File(file.parentFile, file.nameWithoutExtension + ".markers.txt")
+                            if (oldMarkers.exists()) oldMarkers.renameTo(File(file.parentFile, safeName + ".markers.txt"))
+                            takes = listTakes(context)
+                        }
+                    }
+                    renameTarget = null
+                }) { Text("SAVE") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("CANCEL") } }
+        )
+    }
+    deleteTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor = StudioPanel,
+            title = { Text("DELETE RECORDING?", color = StudioAmber) },
+            text = { Text("This permanently deletes " + file.name + ".", color = StudioText) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (playingFile == file) {
+                        runCatching { mediaPlayer?.stop() }
+                        runCatching { mediaPlayer?.release() }
+                        mediaPlayer = null
+                        playingFile = null
+                    }
+                    file.delete()
+                    File(file.parentFile, file.nameWithoutExtension + ".markers.txt").delete()
+                    takes = listTakes(context)
+                    deleteTarget = null
+                }) { Text("DELETE", color = StudioAmber) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("CANCEL") } }
+        )
     }
 }
 
