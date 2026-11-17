@@ -60,12 +60,14 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     val currentTrack = tracks.firstOrNull { it.id == currentTrackId }
 
     LaunchedEffect(player, audioPermissionGranted, audioSessionId) {
-        if (audioSessionId > 0) liveAudioSessionId = audioSessionId
-        while (audioPermissionGranted && player != null && liveAudioSessionId <= 0) {
+        liveAudioSessionId = audioSessionId.coerceAtLeast(0)
+        while (audioPermissionGranted && player != null) {
+            // The service publishes the ID from Media3's audio-session callback.
+            // Keep observing it so a recreated AudioTrack/session is rebound too.
             val publishedId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE)
-                .getInt("audio_session_id", 0)
-            if (publishedId > 0 && publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
-            delay(250)
+                .getInt("audio_session_id", 0).coerceAtLeast(0)
+            if (publishedId != liveAudioSessionId) liveAudioSessionId = publishedId
+            delay(300)
         }
     }
 
