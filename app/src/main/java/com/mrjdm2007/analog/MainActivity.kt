@@ -210,6 +210,7 @@ class MainActivity : ComponentActivity() {
 
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onEffects = { nowPlaying = false; effects = true },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
                     else -> {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
@@ -527,7 +528,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onEffects: () -> Unit, onFavorite: (Long) -> Unit) {
     val hapticView = LocalView.current
     var title by remember { mutableStateOf("Nothing playing") }
     var artist by remember { mutableStateOf("Choose a song from your library") }
@@ -607,14 +608,19 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
-            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = themedAccent) }
+            IconButton(onClick = onEffects) { Icon(Icons.Default.Tune, "Equaliser", tint = themedText) }
+            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, "Visualizer", tint = themedAccent) }
         }
         Spacer(Modifier.height(20.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
         val previousTrack = if (player != null && player.previousMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.previousMediaItemIndex).mediaId.toLongOrNull() } else null
         val nextTrack = if (player != null && player.nextMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.nextMediaItemIndex).mediaId.toLongOrNull() } else null
         BoxWithConstraints(
-            Modifier.fillMaxWidth().aspectRatio(1f).clipToBounds()
+            Modifier.fillMaxWidth().aspectRatio(1f)
+                .shadow(22.dp, RoundedCornerShape(22.dp), clip = false)
+                .background(Brush.linearGradient(listOf(Color(0xFF596052), Color(0xFF171A16), Color(0xFF77705F), Color(0xFF171A16))), RoundedCornerShape(22.dp))
+                .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .48f), themedAccent.copy(alpha = .45f), Color.Black.copy(alpha = .55f))), RoundedCornerShape(22.dp))
+                .padding(8.dp).clipToBounds()
                 .pointerInput(trackId) {
                     detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> swipeDistance += amount }, onDragEnd = {
                         if (swipeDistance < -55f) player?.seekToNext()
@@ -729,13 +735,53 @@ class MainActivity : ComponentActivity() {
         Row { Text(timeText(position.toLong()), color = themedMuted, fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = themedMuted, fontSize = 10.sp) }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = if (shuffleEnabled) themedAccent else themedMuted) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = themedText, modifier = Modifier.size(36.dp)) }
             FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = themedAccent) }
+        }
+        // A physical-deck inspired information panel: real queue/playback state, not decorative fake telemetry.
+        Column(
+            Modifier.fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(themedPanel, themedBackground)), RoundedCornerShape(16.dp))
+                .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = .22f), themedAccent.copy(alpha = .18f), Color.Black.copy(alpha = .35f))), RoundedCornerShape(16.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("ANALOG  /  MASTER DECK", color = themedAccent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.7.sp, modifier = Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    repeat(3) { i ->
+                        Box(Modifier.size(6.dp).background(if (playing) listOf(Color(0xFFB5D69B), Color(0xFFFFB45B), Color(0xFFB5D69B))[i] else themedMuted.copy(alpha = .35f), RoundedCornerShape(50)))
+                    }
+                    Text(if (playing) "ON AIR" else "STANDBY", color = if (playing) themedAccent else themedMuted, fontSize = 8.sp, letterSpacing = 1.sp)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DeckReadout("QUEUE", if (currentQueueIndex >= 0) "${currentQueueIndex + 1} / ${player?.mediaItemCount ?: 0}" else "—", themedAccent, Modifier.weight(1f))
+                DeckReadout("MODE", if (shuffleEnabled) "SHUFFLE" else "SEQUENTIAL", themedAccent, Modifier.weight(1f))
+                DeckReadout("REPEAT", when (player?.repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, themedAccent, Modifier.weight(1f))
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, themedAccent.copy(alpha = .55f), Color.Transparent))))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Album, null, tint = themedAccent.copy(alpha = .85f), modifier = Modifier.size(17.dp))
+                Text(currentTrack?.album ?: "LOCAL LIBRARY", color = themedText, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                Text(if (playing) "PLAYBACK ACTIVE" else "PLAYBACK PAUSED", color = themedMuted, fontSize = 8.sp, letterSpacing = .8.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onEffects, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = themedAccent)) {
+                    Icon(Icons.Default.Tune, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text("EQUALISER", fontSize = 8.sp, letterSpacing = .5.sp)
+                }
+                OutlinedButton(onClick = onVisualizer, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = themedAccent)) {
+                    Icon(Icons.Default.GraphicEq, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text("VISUALIZER", fontSize = 8.sp, letterSpacing = .5.sp)
+                }
+                OutlinedButton(onClick = { showQueue = true }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = themedAccent)) {
+                    Icon(Icons.Default.QueueMusic, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text("QUEUE", fontSize = 8.sp, letterSpacing = .5.sp)
+                }
+            }
         }
         Spacer(Modifier.height(14.dp))
     }
@@ -770,3 +816,11 @@ class MainActivity : ComponentActivity() {
 }
 
 private fun timeText(ms: Long): String { val sec = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(sec / 60, sec % 60) }
+
+
+@Composable private fun DeckReadout(label: String, value: String, accent: Color, modifier: Modifier = Modifier) {
+    Column(modifier.background(Color.Black.copy(alpha = .17f), RoundedCornerShape(8.dp)).border(1.dp, accent.copy(alpha = .18f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 7.dp)) {
+        Text(label, color = accent.copy(alpha = .75f), fontSize = 7.sp, letterSpacing = 1.sp)
+        Text(value, color = Cream, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
