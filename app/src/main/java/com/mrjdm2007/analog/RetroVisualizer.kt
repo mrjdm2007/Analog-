@@ -36,6 +36,8 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
     val waveformSamples = remember { mutableStateListOf<Float>().apply { repeat(96) { add(0f) } } }
     var visualMode by remember { mutableStateOf("SPECTRUM") }
     var sensitivity by remember { mutableFloatStateOf(1f) }
+    val sensitivityRef = remember { java.util.concurrent.atomic.AtomicReference(1f) }
+    SideEffect { sensitivityRef.set(sensitivity) }
     var outputLevel by remember { mutableFloatStateOf(0.02f) }
     var captureActive by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
@@ -112,7 +114,7 @@ fun RetroVisualizerScreen(onBack: () -> Unit, audioPermissionGranted: Boolean, a
                                 }
                             }
                             val magnitude = if (count > 0) sqrt(energy / count) else 0.0
-                            (magnitude / 72.0 * sensitivity).toFloat().coerceIn(0.025f, 1f)
+                            (magnitude / 72.0 * sensitivityRef.get()).toFloat().coerceIn(0.025f, 1f)
                         }
                         val level = sqrt(next.sumOf { (it * it).toDouble() } / next.size).toFloat()
                         Handler(Looper.getMainLooper()).post {
