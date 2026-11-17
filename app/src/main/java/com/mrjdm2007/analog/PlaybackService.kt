@@ -163,6 +163,8 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateWidget()
                 if (isPlaying) {
+                    val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
+                    if (activeSessionId > 0 && equalizer == null) initializeAudioEffects(activeSessionId)
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
