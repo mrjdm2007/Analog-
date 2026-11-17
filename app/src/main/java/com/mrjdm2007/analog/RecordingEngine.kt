@@ -34,6 +34,7 @@ data class RecordingSnapshot(
     val waveform: List<Float> = List(160) { 0f },
     val spectrum: List<Float> = List(48) { 0f },
     val spectrogram: List<List<Float>> = emptyList(),
+    val markersMs: List<Long> = emptyList(),
     val activeInput: String? = null,
     val captureMode: String = "PROCESSED",
     val error: String? = null
@@ -284,6 +285,7 @@ object RecordingEngine {
                             waveform = wave,
                             spectrum = currentSpectrum,
                             spectrogram = spectrogramHistory.toList(),
+                            markersMs = synchronized(this) { markers.toList() },
                             activeInput = activeAudio.routedDevice?.productName?.toString(),
                             captureMode = captureModeLabel
                         )
@@ -302,7 +304,7 @@ object RecordingEngine {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
                     .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
             }
-            mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes)
+            mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes, markersMs = markerSnapshot)
         } catch (error: Throwable) {
             runCatching {
                 stream?.flush()
@@ -343,7 +345,12 @@ object RecordingEngine {
         running = false
     }
 
-    @Synchronized fun addMarker() { if (running && markers.size < 128) markers.add(elapsed()) }
+    @Synchronized fun addMarker() {
+        if (running && markers.size < 128) {
+            markers.add(elapsed())
+            mutableState.value = mutableState.value.copy(markersMs = markers.toList())
+        }
+    }
 
     private fun elapsed(): Long {
         if (startedAt == 0L) return 0L
