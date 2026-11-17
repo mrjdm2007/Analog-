@@ -267,6 +267,13 @@ final class AnalogPlayer: ObservableObject {
         return ids.compactMap { id in tracks.first { $0.id == id } }
     }
 
+    func add(_ track: MusicTrack, toPlaylist name: String) {
+        var ids = customPlaylists[name] ?? []
+        if !ids.contains(track.id) { ids.append(track.id) }
+        customPlaylists[name] = ids
+        persistState()
+    }
+
     func setEQ(_ index: Int, _ gain: Float) {
         guard eqGains.indices.contains(index) else { return }
         eqGains[index] = min(12, max(-12, gain))
