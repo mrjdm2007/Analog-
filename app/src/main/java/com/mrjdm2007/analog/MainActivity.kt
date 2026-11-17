@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity() {
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
             var playbackSpeed by remember { mutableFloatStateOf(prefs().getFloat("playback_speed", 1f)) }
+            var sleepFadeOut by remember { mutableStateOf(prefs().getBoolean("sleep_fade_out", true)) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
@@ -270,6 +271,7 @@ class MainActivity : ComponentActivity() {
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
+                        sleepFadeOut = sleepFadeOut, onSleepFadeOutChanged = { enabled -> sleepFadeOut = enabled; prefs().edit().putBoolean("sleep_fade_out", enabled).apply() },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
