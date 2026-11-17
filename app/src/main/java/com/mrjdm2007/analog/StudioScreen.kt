@@ -383,8 +383,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Slider(value = highPassHz, onValueChange = { highPassHz = it }, valueRange = 40f..200f, steps = 15, enabled = highPass && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("Peak limiter", color = StudioText, fontSize = 12.sp)
-                                    Text("Hard safety ceiling before PCM encoding", color = StudioMuted, fontSize = 9.sp)
+                                    Text("Hard peak ceiling", color = StudioText, fontSize = 12.sp)
+                                    Text("Hard safety clamp before PCM encoding • not look-ahead limiting", color = StudioMuted, fontSize = 9.sp)
                                 }
                                 Switch(checked = limiter, onCheckedChange = { limiter = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
