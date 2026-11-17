@@ -35,6 +35,7 @@ data class RecordingSnapshot(
     val spectrum: List<Float> = List(48) { 0f },
     val spectrogram: List<List<Float>> = emptyList(),
     val activeInput: String? = null,
+    val captureMode: String = "PROCESSED",
     val error: String? = null
 )
 
@@ -53,7 +54,7 @@ object RecordingEngine {
     private var markers = mutableListOf<Long>()
 
     @Synchronized
-    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16) {
+    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false) {
         if (running) return
         markers = mutableListOf()
         pausedTotal = 0L
@@ -80,11 +81,11 @@ object RecordingEngine {
             return
         }
         running = true
-        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth) }, "AnalogAudioCapture")
+        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
     }
 
-    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int) {
+    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int, rawMic: Boolean) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
@@ -102,7 +103,8 @@ object RecordingEngine {
                 AudioRecord.Builder().setAudioSource(MediaRecorder.AudioSource.UNPROCESSED)
                     .setAudioFormat(audioFormat).setBufferSizeInBytes(bufferSize).build()
             }.getOrNull()
-            audio = if (unprocessed?.state == AudioRecord.STATE_INITIALIZED) {
+            val unprocessedSelected = unprocessed?.state == AudioRecord.STATE_INITIALIZED
+            audio = if (unprocessedSelected) {
                 unprocessed
             } else {
                 runCatching { unprocessed?.release() }
@@ -122,7 +124,12 @@ object RecordingEngine {
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
-            mutableState.value = RecordingSnapshot(status = "RECORDING", file = output, activeInput = activeAudio.routedDevice?.productName?.toString())
+            val captureModeLabel = if (rawMic) {
+                if (unprocessedSelected) "RAW REQUEST • UNPROCESSED SOURCE" else "RAW REQUEST • MIC FALLBACK (DSP MAY APPLY)"
+            } else {
+                if (unprocessedSelected) "STUDIO DSP • UNPROCESSED SOURCE" else "STUDIO DSP • MIC SOURCE"
+            }
+            mutableState.value = RecordingSnapshot(status = "RECORDING", file = output, activeInput = activeAudio.routedDevice?.productName?.toString(), captureMode = captureModeLabel)
 
             val inputBuffer = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.LITTLE_ENDIAN)
             val pcm = ByteArray(bufferSize)
@@ -180,20 +187,24 @@ object RecordingEngine {
                     } else {
                         inputBuffer.getShort(i * 2).toFloat() / 32768f
                     }
-                    var value = RecordingPcm.finiteOrZero(sample) * gain
-                    if (highPass) {
+                    // Raw mode bypasses every Analog DSP stage. Only finite-value protection
+                    // and the selected WAV sample-format conversion remain.
+                    var value = RecordingPcm.finiteOrZero(sample) * if (rawMic) 1f else gain
+                    if (!rawMic && highPass) {
                         val filtered = highPassAlpha * (previousOut[channel] + value - previousIn[channel])
                         previousIn[channel] = value
                         previousOut[channel] = filtered
                         value = filtered
                     }
-                    lowState[channel] += lowAlpha * (value - lowState[channel])
-                    highState[channel] += highAlpha * (value - highState[channel])
-                    val lowBand = lowState[channel]
-                    val highBand = value - highState[channel]
-                    val midBand = value - lowBand - highBand
-                    value = lowBand * lowLinear + midBand * midLinear + highBand * highLinear
-                    if (compressorEnabled) {
+                    if (!rawMic) {
+                        lowState[channel] += lowAlpha * (value - lowState[channel])
+                        highState[channel] += highAlpha * (value - highState[channel])
+                        val lowBand = lowState[channel]
+                        val highBand = value - highState[channel]
+                        val midBand = value - lowBand - highBand
+                        value = lowBand * lowLinear + midBand * midLinear + highBand * highLinear
+                    }
+                    if (!rawMic && compressorEnabled) {
                         val coefficient = if (kotlin.math.abs(value) > compressorEnvelope[channel]) compressorAttack else compressorRelease
                         compressorEnvelope[channel] += coefficient * (kotlin.math.abs(value) - compressorEnvelope[channel])
                         if (compressorEnvelope[channel] > compressorThreshold) {
@@ -201,8 +212,9 @@ object RecordingEngine {
                             value *= (compressed / compressorEnvelope[channel].coerceAtLeast(1.0e-6f))
                         }
                     }
-                    if (limiter) value = value.coerceIn(-0.98f, 0.98f)
-                    // IEEE float WAV preserves internal headroom when the limiter is bypassed.
+                    if (!rawMic && limiter) value = value.coerceIn(-0.98f, 0.98f)
+                    // Integer PCM must be quantized into its representable range. Float WAV
+                    // retains finite samples outside +/-1 when raw mode is selected.
                     if (bitDepth != 32) value = value.coerceIn(-1f, 0.99997f)
                     peak = max(peak, kotlin.math.abs(value))
                     sum += value.toDouble() * value
@@ -269,7 +281,8 @@ object RecordingEngine {
                             waveform = wave,
                             spectrum = currentSpectrum,
                             spectrogram = spectrogramHistory.toList(),
-                            activeInput = activeAudio.routedDevice?.productName?.toString()
+                            activeInput = activeAudio.routedDevice?.productName?.toString(),
+                            captureMode = captureModeLabel
                         )
                         lastUi = now
                     }
