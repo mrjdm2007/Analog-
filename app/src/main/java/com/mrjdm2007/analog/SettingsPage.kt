@@ -41,8 +41,6 @@ fun SettingsPage(
     onReplayGainChanged: (Boolean) -> Unit,
     crossfadeSeconds: Int,
     onCrossfadeChanged: (Int) -> Unit,
-    playbackSpeed: Float,
-    onPlaybackSpeedChanged: (Float) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
     onVisualizer: () -> Unit,
@@ -124,13 +122,6 @@ fun SettingsPage(
                 }
                 ActionDropdown("Crossfade transition", if (crossfadeSeconds == 0) "Off" else "$crossfadeSeconds seconds", listOf("Off", "3 seconds", "5 seconds", "8 seconds", "10 seconds")) {
                     onCrossfadeChanged(it.substringBefore(" ").toIntOrNull() ?: 0)
-                }
-                ActionDropdown(
-                    "Playback speed • pitch preserved",
-                    String.format(java.util.Locale.US, "%.2f×", playbackSpeed),
-                    listOf("0.50×", "0.75×", "0.90×", "1.00×", "1.10×", "1.25×", "1.50×", "1.75×", "2.00×")
-                ) {
-                    onPlaybackSpeedChanged(it.removeSuffix("×").toFloatOrNull() ?: 1f)
                 }
                 Text("LISTENING TOOLS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
