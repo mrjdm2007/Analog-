@@ -51,9 +51,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     DisposableEffect(deviceProfileKey, activeSessionId) {
         runCatching {
             if (activeSessionId > 0) {
-                eq = Equalizer(0, activeSessionId).apply { enabled = true }
-                bass = BassBoost(0, activeSessionId).apply { enabled = true }
-                virtualizer = Virtualizer(0, activeSessionId).apply { enabled = true }
+                // OEMs may expose Equalizer, BassBoost and Virtualizer independently.
+                // One unsupported effect must not disable the effects that did attach.
+                eq = runCatching { Equalizer(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
+                bass = runCatching { BassBoost(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
+                virtualizer = runCatching { Virtualizer(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
                 available = eq != null
             } else {
                 available = false
@@ -62,10 +64,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             if (e != null) {
                 val range = e.bandLevelRange
                 val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet(deviceProfileKey, null)?.mapNotNull { it.toFloatOrNull() }
-                bands = if (saved != null && saved.size >= 5) saved.take(5) else (0 until minOf(5, e.numberOfBands.toInt())).map { i ->
+                val bandCount = e.numberOfBands.toInt().coerceIn(1, 32)
+                bands = if (saved != null && saved.size == bandCount) saved else (0 until bandCount).map { i ->
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
-                }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                }
                 bands.forEachIndexed { i, value -> if (i < e.numberOfBands.toInt()) {
                     val level = (range[0] + ((value + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
                     runCatching { e.setBandLevel(i.toShort(), level) }
@@ -116,10 +119,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Text("EQUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             TextButton(onClick = {
                 val effect = eq
+                val resetCount = effect?.numberOfBands?.toInt()?.coerceIn(1, 32) ?: bands.size
                 if (effect != null) runCatching {
-                    for (i in 0 until effect.numberOfBands.toInt()) effect.setBandLevel(i.toShort(), 0)
+                    for (i in 0 until resetCount) effect.setBandLevel(i.toShort(), 0)
                 }
-                bands = List(5) { 0f }
+                bands = List(resetCount) { 0f }
                 bassLevel = 0f
                 spaceLevel = 0f
                 runCatching { bass?.setStrength(0); virtualizer?.setStrength(0) }
@@ -132,7 +136,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(16.dp)) {
                 bands.forEachIndexed { index, value ->
-                    val label = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")[index]
+                    val label = eq?.let { effect -> runCatching { formatBandFrequency(effect.getCenterFreq(index.toShort())) }.getOrDefault("Band ${index + 1}") } ?: "Band ${index + 1}"
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(54.dp))
                         Slider(value = value, onValueChange = { v ->
@@ -161,10 +165,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                             val e = eq
                             if (e != null) {
                                 val range = e.bandLevelRange
-                                bands = (0 until minOf(5, e.numberOfBands.toInt())).map { index ->
+                                bands = (0 until e.numberOfBands.toInt().coerceIn(1, 32)).map { index ->
                                     val level = e.getBandLevel(index.toShort()).toFloat()
                                     if (range[1] == range[0]) 0f else ((level - range[0]) / (range[1] - range[0])) * 2f - 1f
-                                }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                                }
                                 context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
                             }
                         }, enabled = enabled && available, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
@@ -180,4 +184,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("Effects availability and processing depend on the Android device and audio route.", color = Color(0xFF8E9687), fontSize = 10.sp, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
     }
+}
+
+private fun formatBandFrequency(milliHz: Int): String {
+    val hz = milliHz / 1000f
+    return if (hz >= 1000f) String.format(java.util.Locale.US, "%.1f kHz", hz / 1000f)
+    else "${hz.toInt()} Hz"
 }
