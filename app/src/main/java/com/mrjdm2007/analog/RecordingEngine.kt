@@ -329,6 +329,9 @@ object RecordingEngine {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
                     .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
             }
+            // Publish SAVED only after the capture lock is released, so an immediate
+            // next-take tap cannot be ignored by start() while running is still true.
+            running = false
             mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes, markersMs = markerSnapshot)
         } catch (error: Throwable) {
             runCatching {
@@ -339,6 +342,7 @@ object RecordingEngine {
                 if (totalBytes > 0L && output.exists()) WaveHeaderWriter.write(output, totalBytes, rate, channels, bitDepth, recordingStartedWallClock, synchronized(this) { markers.toList() })
                 else output.delete()
             }
+            running = false
             mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
         } finally {
             running = false
