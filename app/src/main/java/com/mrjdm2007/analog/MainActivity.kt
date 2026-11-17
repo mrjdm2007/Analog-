@@ -131,7 +131,6 @@ class MainActivity : ComponentActivity() {
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
-            var playbackSpeed by remember { mutableFloatStateOf(prefs().getFloat("playback_speed", 1f)) }
             var sleepFadeSeconds by remember { mutableIntStateOf(prefs().getInt("sleep_fade_seconds", 15).coerceIn(0, 30)) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
@@ -265,7 +264,6 @@ class MainActivity : ComponentActivity() {
                         headphoneDetectionEnabled = headphoneDetectionEnabled, onHeadphoneDetectionChanged = { enabled -> headphoneDetectionEnabled = enabled; prefs().edit().putBoolean("headphone_detection_enabled", enabled).apply(); outputRoute = currentAudioRoute() },
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
                         crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
-                        playbackSpeed = playbackSpeed, onPlaybackSpeedChanged = { speed -> playbackSpeed = speed; startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_PLAYBACK_SPEED).putExtra(PlaybackService.EXTRA_PLAYBACK_SPEED, speed)) },
                         onHeadsetSetting = { key, value -> prefs().edit().putString(key, value).apply(); when(key) { "headset_single" -> headsetSingle = value; "headset_double" -> headsetDouble = value; "headset_triple" -> headsetTriple = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
@@ -621,7 +619,6 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
-    var playbackSpeed by remember { mutableFloatStateOf(playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
@@ -833,15 +830,6 @@ class MainActivity : ComponentActivity() {
                 Text("30 SEC ", color = themedMuted, fontSize = 9.sp)
                 Icon(Icons.Default.Forward30, null, tint = themedAccent)
             }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = {
-                val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
-                val next = speeds[(speeds.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }.takeIf { it >= 0 }?.plus(1) ?: 2) % speeds.size]
-                playbackSpeed = next
-                player?.setPlaybackParameters(androidx.media3.common.PlaybackParameters(next, 1f))
-                playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat("playback_speed", next).apply()
-            }) { Text("PLAYBACK SPEED  •  " + String.format(java.util.Locale.US, "%.2f×", playbackSpeed), color = themedAccent, fontSize = 10.sp) }
         }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
