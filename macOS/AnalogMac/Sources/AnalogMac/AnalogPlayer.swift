@@ -564,6 +564,8 @@ final class AnalogRecorder: ObservableObject {
     @Published var elapsed: TimeInterval = 0
     @Published var lastRecording = ""
     @Published var errorMessage = ""
+    @Published var inputPeak: Float = 0
+    @Published var inputRMS: Float = 0
     private let engine = AVAudioEngine()
     private var outputFile: AVAudioFile?
     private var startedAt: Date?
@@ -582,7 +584,32 @@ final class AnalogRecorder: ObservableObject {
             let file = try AVAudioFile(forWriting: url, settings: format.settings)
             outputFile = file
             input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-                try? self?.outputFile?.write(from: buffer)
+                guard let self else { return }
+                do {
+                    try self.outputFile?.write(from: buffer)
+                } catch {
+                    let message = error.localizedDescription
+                    Task { @MainActor [weak self] in
+                        self?.errorMessage = "Recording write failed: \(message)"
+                        self?.stop()
+                    }
+                }
+                guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+                let frames = Int(buffer.frameLength)
+                var peak: Float = 0
+                var squares = 0.0
+                for frame in 0..<frames {
+                    for channel in 0..<Int(buffer.format.channelCount) {
+                        let sample = channels[channel][frame]
+                        peak = max(peak, abs(sample))
+                        squares += Double(sample) * Double(sample)
+                    }
+                }
+                let rms = Float(sqrt(squares / Double(frames * Int(buffer.format.channelCount))))
+                Task { @MainActor [weak self] in
+                    self?.inputPeak = peak
+                    self?.inputRMS = rms
+                }
             }
             try engine.start()
             startedAt = Date()
@@ -610,6 +637,8 @@ final class AnalogRecorder: ObservableObject {
         timer?.invalidate()
         isRecording = false
         startedAt = nil
+        inputPeak = 0
+        inputRMS = 0
     }
 }
 
