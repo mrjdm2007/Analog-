@@ -98,6 +98,7 @@ object RecordingEngine {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
+        var finalSnapshot: RecordingSnapshot? = null
         try {
             if (bitDepth !in listOf(16, 24, 32)) throw IllegalStateException("Choose 16-bit PCM, 24-bit packed PCM or 32-bit float WAV.")
             if (bitDepth == 24 && Build.VERSION.SDK_INT < 31) throw IllegalStateException("24-bit packed PCM requires Android 12 or newer.")
@@ -329,10 +330,8 @@ object RecordingEngine {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
                     .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
             }
-            // Publish SAVED only after the capture lock is released, so an immediate
-            // next-take tap cannot be ignored by start() while running is still true.
-            running = false
-            mutableState.value = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes, markersMs = markerSnapshot)
+            // Publish terminal state only after the microphone is released in finally.
+            finalSnapshot = mutableState.value.copy(status = "SAVED", file = output, elapsedMs = elapsed(), bytesWritten = totalBytes, markersMs = markerSnapshot)
         } catch (error: Throwable) {
             runCatching {
                 stream?.flush()
@@ -342,8 +341,7 @@ object RecordingEngine {
                 if (totalBytes > 0L && output.exists()) WaveHeaderWriter.write(output, totalBytes, rate, channels, bitDepth, recordingStartedWallClock, synchronized(this) { markers.toList() })
                 else output.delete()
             }
-            running = false
-            mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
+            finalSnapshot = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
         } finally {
             running = false
             paused = false
@@ -351,6 +349,10 @@ object RecordingEngine {
             runCatching { audio?.stop() }
             runCatching { audio?.release() }
             recorder = null
+            // Keep START/STOP serialization truthful: a new take is enabled only after
+            // the old AudioRecord has actually released the microphone route.
+            running = false
+            finalSnapshot?.let { mutableState.value = it }
         }
     }
 
