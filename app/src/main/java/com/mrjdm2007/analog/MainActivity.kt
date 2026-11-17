@@ -553,6 +553,8 @@ class MainActivity : ComponentActivity() {
     val themedText = Cream
     val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
+    var queueRevision by remember { mutableIntStateOf(0) }
+    val queueItems = remember(queueRevision, player) { (0 until (player?.mediaItemCount ?: 0)).mapNotNull { index -> runCatching { player?.getMediaItemAt(index) }.getOrNull() } }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
@@ -595,6 +597,7 @@ class MainActivity : ComponentActivity() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { syncPlayerState(); queueRevision++ }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffleEnabled = shuffleModeEnabled }
             override fun onRepeatModeChanged(repeatModeValue: Int) { repeatMode = repeatModeValue }
         }
@@ -795,14 +798,20 @@ class MainActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { showQueue = false },
             containerColor = themedBackground,
-            title = { Text("PLAYBACK QUEUE", color = themedAccent, fontSize = 14.sp, letterSpacing = 1.5.sp) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("PLAYBACK QUEUE", color = themedAccent, fontSize = 14.sp, letterSpacing = 1.5.sp, modifier = Modifier.weight(1f))
+                    Text("${queueItems.size} TRACKS", color = themedMuted, fontSize = 9.sp)
+                    if (queueItems.isNotEmpty()) TextButton(onClick = { player?.clearMediaItems(); queueRevision++ }) { Text("CLEAR", color = themedAccent, fontSize = 9.sp) }
+                }
+            },
             text = {
-                if (player == null || player.mediaItemCount == 0) {
+                if (player == null || queueItems.isEmpty()) {
                     Text("The queue is empty.", color = themedText)
                 } else {
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(player.mediaItemCount) { index ->
-                            val item = player.getMediaItemAt(index)
+                        items(queueItems.size) { index ->
+                            val item = queueItems[index]
                             Row(Modifier.fillMaxWidth().clickable { player.seekToDefaultPosition(index); showQueue = false }.padding(vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (index == player.currentMediaItemIndex) "▶" else "${index + 1}", color = themedAccent, modifier = Modifier.width(30.dp))
@@ -810,7 +819,9 @@ class MainActivity : ComponentActivity() {
                                     Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = themedText, maxLines = 1)
                                     Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = themedMuted, fontSize = 10.sp)
                                 }
-                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
+                                IconButton(onClick = { if (index > 0) { player.moveMediaItem(index, index - 1); queueRevision++ } }, enabled = index > 0) { Icon(Icons.Default.KeyboardArrowUp, "Move earlier", tint = if (index > 0) themedMuted else themedMuted.copy(alpha = .25f)) }
+                                IconButton(onClick = { if (index < queueItems.lastIndex) { player.moveMediaItem(index, index + 1); queueRevision++ } }, enabled = index < queueItems.lastIndex) { Icon(Icons.Default.KeyboardArrowDown, "Move later", tint = if (index < queueItems.lastIndex) themedMuted else themedMuted.copy(alpha = .25f)) }
+                                IconButton(onClick = { player.removeMediaItem(index); queueRevision++ }) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
                             }
                         }
                     }
