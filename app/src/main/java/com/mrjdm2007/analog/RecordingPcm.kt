@@ -1,5 +1,8 @@
 package com.mrjdm2007.analog
 
+import kotlin.math.PI
+import kotlin.math.pow
+
 /** Pure PCM boundary helpers shared by capture and JVM regression tests. */
 internal object RecordingPcm {
     fun completeSampleCount(readBytes: Int, bytesPerSample: Int, channels: Int): Int {
