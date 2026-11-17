@@ -19,8 +19,11 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Audio effects screen with system equalizer, bass boost, and virtualizer controls (device/output support varies)
 - Native Analog Studio with AudioRecord PCM capture and a microphone foreground service
 - WAV 16-bit PCM recording, configurable 44.1/48/96 kHz capture, mono/stereo selection
-- Live sample-derived waveform, 48-band FFT spectrum, peak/RMS dBFS meters
+- Live sample-derived waveform, 48-band FFT spectrum, rolling 64-frame spectrogram, peak/RMS dBFS meters
 - Pause/resume, markers with sidecar notes, input gain, 80 Hz high-pass and peak limiter
+- Android input-device routing requests for available built-in, wired, USB and Bluetooth capture devices (routing remains device-policy dependent)
+- Three-band low/mid/high tone shaping and a basic 3:1 dynamics compressor with adjustable threshold
+- Recording take playback, rename, delete and secure share actions
 - Recent take browser with in-app playback; recordings stored in app-specific Music/Analog/Recordings
 - Offline-first operation; the app does not stream or download music
 
@@ -36,17 +39,15 @@ GitHub Actions is configured to build a debug APK on pushes to `main` and upload
 
 ## Recording limitations
 
-- The recorder writes uncompressed 16-bit PCM WAV. 24-bit, FLAC, AAC, multitrack, timecode, LUFS, true-peak, advanced EQ/compression and noise reduction are not implemented in this first Studio pass.
+- The recorder writes uncompressed 16-bit PCM WAV. 24-bit capture, FLAC/AAC, multitrack, timecode, standards-compliant LUFS/true-peak metering, advanced parametric EQ, look-ahead limiting and spectral noise reduction are not implemented.
+- The built-in tone stage is a lightweight three-band filter and the compressor is a basic single-band dynamics processor; neither should be treated as a mastering-grade signal chain.
 - Supported sample rates and stereo capture depend on the phone and connected input hardware. A requested unsupported combination reports an error.
 - The live FFT and meters analyze the actual captured PCM samples. Device routing and processing behavior remain hardware/Android dependent.
 
-## Next development milestones
+## Verification still required
 
-1. Verify build and playback on a physical Android device
-2. Add album artwork extraction and a polished now-playing layout
-3. Add a full queue editor, playlist rename/delete, and richer queue actions
-4. Add sleep timer, gapless playback validation, and audio focus edge-case handling
-5. Expand the visualizer with waveform/oscilloscope, CRT scanlines, adjustable sensitivity, and user-selectable palettes
-6. Add lyrics (embedded and local LRC), metadata editing, and playback settings
+- CI compilation and release packaging on the latest commit
+- Physical-device tests for each advertised sample rate, mono/stereo, wired/USB input routing, pause/resume, service interruption, long recordings and exported/shared WAV playback
+- Audio quality evaluation with calibrated test signals; the visual meters are useful monitoring tools but are not certified loudness or true-peak meters
 
 Analog is designed for audio files already stored on the device. No account or network connection is required.
