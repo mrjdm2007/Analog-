@@ -269,6 +269,9 @@ struct TrackRow: View {
                     Divider()
                     Button("Add to queue") { player.addToQueue(track) }
                     Button("Play next") { player.addNext(track) }
+                    ForEach(player.customPlaylists.keys.sorted(), id: \\.self) { name in
+                        Button("Add to \\(name)") { player.add(track, toPlaylist: name) }
+                    }
                     Button("Open journal") { player.selectedTab = "Journal" }
                 } label: {
                     Image(systemName: "ellipsis").foregroundStyle(AnalogPalette.cream.opacity(0.7)).frame(width: 26, height: 26)
