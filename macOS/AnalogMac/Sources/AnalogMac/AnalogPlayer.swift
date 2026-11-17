@@ -40,6 +40,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
     @Published var outputVolume: Float = 0.85
+    @Published var playHistory: [String] = []
+    @Published var playCounts: [String: Int] = [:]
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -103,6 +105,8 @@ final class AnalogPlayer: ObservableObject {
         preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
         stereoPan = defaults.object(forKey: "stereoPan") as? Float ?? 0
         outputVolume = defaults.object(forKey: "outputVolume") as? Float ?? 0.85
+        playHistory = defaults.stringArray(forKey: "playHistory") ?? []
+        playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
     }
@@ -117,6 +121,8 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(preampDB, forKey: "preampDB")
         defaults.set(stereoPan, forKey: "stereoPan")
         defaults.set(outputVolume, forKey: "outputVolume")
+        defaults.set(playHistory, forKey: "playHistory")
+        defaults.set(playCounts, forKey: "playCounts")
         defaults.set(eqGains, forKey: "eqGains")
     }
 
@@ -177,6 +183,35 @@ final class AnalogPlayer: ObservableObject {
         queue.append(track)
     }
 
+    func removeFromQueue(at index: Int) {
+        guard queue.indices.contains(index) else { return }
+        queue.remove(at: index)
+        if index < queueIndex { queueIndex -= 1 }
+        else if index == queueIndex { queueIndex = min(queueIndex, max(0, queue.count - 1)) }
+    }
+
+    func moveQueueItem(from source: Int, to destination: Int) {
+        guard queue.indices.contains(source), queue.indices.contains(destination), source != destination else { return }
+        let item = queue.remove(at: source)
+        queue.insert(item, at: destination)
+        if queueIndex == source { queueIndex = destination }
+        else if source < queueIndex && destination >= queueIndex { queueIndex -= 1 }
+        else if source > queueIndex && destination <= queueIndex { queueIndex += 1 }
+    }
+
+    func clearUpcomingQueue() {
+        guard queueIndex < queue.count else { queue = []; queueIndex = 0; return }
+        queue = Array(queue.prefix(queueIndex + 1))
+    }
+
+    var historyTracks: [MusicTrack] {
+        playHistory.compactMap { id in tracks.first { $0.id == id } }
+    }
+
+    var mostPlayedTracks: [MusicTrack] {
+        tracks.sorted { (playCounts[$0.id] ?? 0) > (playCounts[$1.id] ?? 0) }.filter { (playCounts[$0.id] ?? 0) > 0 }
+    }
+
     private func startTrack(_ track: MusicTrack, at seconds: Double) {
         playbackToken = UUID()
         let token = playbackToken
@@ -184,6 +219,13 @@ final class AnalogPlayer: ObservableObject {
         do {
             let file = try AVAudioFile(forReading: track.url)
             audioFile = file
+            if currentTrack?.id != track.id {
+                playHistory.removeAll { $0 == track.id }
+                playHistory.insert(track.id, at: 0)
+                if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
+                playCounts[track.id, default: 0] += 1
+                persistState()
+            }
             currentTrack = track
             currentTime = min(max(0, seconds), max(0, track.duration))
             segmentStart = currentTime
@@ -299,6 +341,8 @@ final class AnalogPlayer: ObservableObject {
         customPlaylists[name] = ids
         persistState()
     }
+
+    func clearHistory() { playHistory = []; playCounts = [:]; persistState() }
 
     func setOutputVolume(_ value: Float) {
         outputVolume = min(1, max(0, value))
