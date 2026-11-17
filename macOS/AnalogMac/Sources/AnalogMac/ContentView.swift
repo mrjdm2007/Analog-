@@ -203,15 +203,23 @@ struct LibraryView: View {
 
     private var sortedTracks: [MusicTrack] {
         player.filteredTracks.sorted { left, right in
-            let result: Bool
             switch sortMode {
-            case "Artist": result = left.artist.localizedCaseInsensitiveCompare(right.artist) == .orderedAscending
-            case "Album": result = left.album.localizedCaseInsensitiveCompare(right.album) == .orderedAscending
-            case "Duration": result = left.duration < right.duration
-            case "Play Count": result = (player.playCounts[left.id] ?? 0) < (player.playCounts[right.id] ?? 0)
-            default: result = left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+            case "Artist":
+                let order = left.artist.localizedCaseInsensitiveCompare(right.artist)
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
+            case "Album":
+                let order = left.album.localizedCaseInsensitiveCompare(right.album)
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
+            case "Duration":
+                return sortAscending ? left.duration < right.duration : left.duration > right.duration
+            case "Play Count":
+                let leftCount = player.playCounts[left.id] ?? 0
+                let rightCount = player.playCounts[right.id] ?? 0
+                return sortAscending ? leftCount < rightCount : leftCount > rightCount
+            default:
+                let order = left.title.localizedCaseInsensitiveCompare(right.title)
+                return sortAscending ? order == .orderedAscending : order == .orderedDescending
             }
-            return sortAscending ? result : !result
         }
     }
 
