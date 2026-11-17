@@ -123,6 +123,9 @@ object RecordingEngine {
             val highLinear = 10.0.pow(highGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
             val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()
             val compressorRatio = 3f
+            val compressorAttack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
+            val compressorRelease = 1f - kotlin.math.exp(-1f / (0.120f * rate))
+            var leftSample = 0f
             val spectrogramHistory = ArrayDeque<List<Float>>()
             var lastUi = 0L
             while (running) {
@@ -159,9 +162,7 @@ object RecordingEngine {
                     val midBand = value - lowBand - highBand
                     value = lowBand * lowLinear + midBand * midLinear + highBand * highLinear
                     if (compressorEnabled) {
-                        val attack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
-                        val release = 1f - kotlin.math.exp(-1f / (0.120f * rate))
-                        val coefficient = if (kotlin.math.abs(value) > compressorEnvelope[channel]) attack else release
+                        val coefficient = if (kotlin.math.abs(value) > compressorEnvelope[channel]) compressorAttack else compressorRelease
                         compressorEnvelope[channel] += coefficient * (kotlin.math.abs(value) - compressorEnvelope[channel])
                         if (compressorEnvelope[channel] > compressorThreshold) {
                             val compressed = compressorThreshold + (compressorEnvelope[channel] - compressorThreshold) / compressorRatio
@@ -175,7 +176,13 @@ object RecordingEngine {
                     val shortValue = (value * 32767f).toInt().coerceIn(-32768, 32767)
                     pcm[i * 2] = (shortValue and 255).toByte()
                     pcm[i * 2 + 1] = ((shortValue shr 8) and 255).toByte()
-                    if (channel == 0 && fftCount < fft.size) fft[fftCount++] = value
+                    if (channels == 1) {
+                        if (fftCount < fft.size) fft[fftCount++] = value
+                    } else if (channel == 0) {
+                        leftSample = value
+                    } else if (fftCount < fft.size) {
+                        fft[fftCount++] = (leftSample + value) * 0.5f
+                    }
                 }
                 stream.write(pcm, 0, count * 2)
                 totalBytes += count * 2L
