@@ -21,7 +21,6 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
 
     @Volatile private var gainsDb = FloatArray(10)
     @Volatile private var enabled = true
-    @Volatile private var preampDb = 0f
     @Volatile private var preampLinear = 1f
 
     private var sampleRate = 44_100f
@@ -41,8 +40,8 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     }
 
     fun setPreamp(gainDb: Float) {
-        preampDb = gainDb.coerceIn(-12f, 6f)
-        preampLinear = 10.0.pow(preampDb.toDouble() / 20.0).toFloat()
+        val boundedGain = gainDb.coerceIn(-12f, 6f)
+        preampLinear = 10.0.pow(boundedGain.toDouble() / 20.0).toFloat()
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -105,6 +104,7 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
         if (current.contentEquals(previousGains)) return
         for (index in 0 until 10) {
             val gain = current[index]
+            if (gain == previousGains[index]) continue
             if (kotlin.math.abs(gain) < 0.001f) {
                 coefficients[index] = Biquad()
             } else {
@@ -122,6 +122,9 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
                     a2 = ((1.0 - alpha / a) / a0).toFloat()
                 )
             }
+            // Reset only the changed band's delay state; untouched bands keep their tails intact.
+            z1[index].fill(0f)
+            z2[index].fill(0f)
         }
         previousGains = current.copyOf()
     }
