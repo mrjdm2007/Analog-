@@ -49,6 +49,7 @@ object RecordingEngine {
     private val mutableState = MutableStateFlow(RecordingSnapshot())
     val state: StateFlow<RecordingSnapshot> = mutableState
     @Volatile private var running = false
+    @Volatile private var captureActive = false
     @Volatile private var paused = false
     @Volatile private var pauseGeneration = 0L
     @Volatile private var recorder: AudioRecord? = null
@@ -62,7 +63,7 @@ object RecordingEngine {
 
     @Synchronized
     fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false, highPassHz: Float = 80f, limiterCeilingDb: Float = -1f, compressorRatio: Float = 3f, compressorAttackMs: Float = 10f, compressorReleaseMs: Float = 120f) {
-        if (running) return
+        if (captureActive) return
         markers = mutableListOf()
         peakHoldDbfs = -96f
         clippedSamples = 0L
@@ -89,6 +90,7 @@ object RecordingEngine {
             mutableState.value = RecordingSnapshot(status = "ERROR", error = "Could not create a unique recording file.")
             return
         }
+        captureActive = true
         running = true
         Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic, highPassHz, limiterCeilingDb, compressorRatio, compressorAttackMs, compressorReleaseMs) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
@@ -351,6 +353,7 @@ object RecordingEngine {
             // Keep START/STOP serialization truthful: a new take is enabled only after
             // the old AudioRecord has actually released the microphone route.
             running = false
+            captureActive = false
             finalSnapshot?.let { mutableState.value = it }
         }
     }
@@ -371,12 +374,13 @@ object RecordingEngine {
     }
 
     @Synchronized fun stop() {
-        if (!running) return
+        if (!captureActive || !running) return
         running = false
+        mutableState.value = mutableState.value.copy(status = "FINALIZING")
     }
 
     @Synchronized fun addMarker() {
-        if (running && markers.size < 128) {
+        if (captureActive && mutableState.value.status in listOf("RECORDING", "PAUSED") && markers.size < 128) {
             markers.add(elapsed())
             mutableState.value = mutableState.value.copy(markersMs = markers.toList())
         }
