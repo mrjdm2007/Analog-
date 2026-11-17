@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,6 +108,41 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Text("Negative preamp creates headroom when boosted bands would otherwise clip.", color = text.copy(alpha = .5f), fontSize = 9.sp)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(panel).padding(16.dp)) {
+                Text("ESTIMATED FREQUENCY RESPONSE", color = green, fontSize = 9.sp, letterSpacing = 1.4.sp)
+                Canvas(Modifier.fillMaxWidth().height(112.dp).padding(top = 8.dp, bottom = 6.dp)) {
+                    val left = 4.dp.toPx()
+                    val right = size.width - 4.dp.toPx()
+                    val top = 6.dp.toPx()
+                    val bottom = size.height - 6.dp.toPx()
+                    val centerY = (top + bottom) / 2f
+                    val amplitude = (bottom - top) / 2f
+                    for (step in 0..4) {
+                        val y = top + (bottom - top) * step / 4f
+                        drawLine(Color.White.copy(alpha = if (step == 2) .3f else .09f), androidx.compose.ui.geometry.Offset(left, y), androidx.compose.ui.geometry.Offset(right, y), strokeWidth = 1.dp.toPx())
+                    }
+                    val response = Path()
+                    val minLog = kotlin.math.ln(20.0)
+                    val maxLog = kotlin.math.ln(20000.0)
+                    val points = 160
+                    for (point in 0..points) {
+                        val xFraction = point.toFloat() / points
+                        val hz = kotlin.math.exp(minLog + (maxLog - minLog) * xFraction)
+                        var db = 0.0
+                        centers.forEachIndexed { index, centerMilliHz ->
+                            val centerHz = (centerMilliHz / 1000.0).coerceAtLeast(20.0)
+                            val distance = kotlin.math.ln(hz / centerHz) / kotlin.math.ln(2.0)
+                            db += bands.getOrNull(index)?.times(12f)?.toDouble()?.times(kotlin.math.exp(-0.5 * distance * distance / 0.72)) ?: 0.0
+                        }
+                        val y = (centerY - (db.coerceIn(-12.0, 12.0) / 12.0 * amplitude)).toFloat()
+                        val x = left + (right - left) * xFraction
+                        if (point == 0) response.moveTo(x, y) else response.lineTo(x, y)
+                    }
+                    drawPath(response, accent, style = Stroke(width = 2.dp.toPx()))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    listOf("20 Hz", "100 Hz", "1 kHz", "10 kHz", "20 kHz").forEach { Text(it, color = text.copy(alpha = .5f), fontSize = 8.sp) }
+                }
+                Spacer(Modifier.height(10.dp))
                 bands.forEachIndexed { index, value ->
                     val hz = centers.getOrNull(index)?.div(1000f) ?: 0f
                     val label = if (hz >= 1000f) "%.1f kHz".format(java.util.Locale.US, hz / 1000f) else hz.toInt().toString() + " Hz"
