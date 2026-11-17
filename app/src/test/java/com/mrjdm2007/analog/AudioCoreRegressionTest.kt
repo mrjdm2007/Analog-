@@ -127,6 +127,16 @@ class AudioCoreRegressionTest {
         }
     }
 
+    @Test fun abLoopRequiresIncreasingRangeAndWrapsAtEnd() {
+        assertEquals(false, PlaybackLoop.isValidRange(1000L, 1000L))
+        assertEquals(false, PlaybackLoop.isValidRange(2000L, 1000L))
+        assertEquals(false, PlaybackLoop.isValidRange(1000L, 1200L))
+        assertEquals(true, PlaybackLoop.isValidRange(1000L, 1500L))
+        assertEquals(true, PlaybackLoop.shouldWrap(1500L, 1000L, 1500L))
+        assertEquals(false, PlaybackLoop.shouldWrap(1499L, 1000L, 1500L))
+        assertEquals(false, PlaybackLoop.shouldWrap(2000L, 1000L, 1000L))
+    }
+
     private fun leInt(bytes: ByteArray, offset: Int): Int =
         ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN).int
 
