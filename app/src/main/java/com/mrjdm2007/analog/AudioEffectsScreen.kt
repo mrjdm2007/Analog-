@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -60,8 +61,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 bass = runCatching { BassBoost(0, activeSessionId).apply { enabled = effectsEnabled } }.getOrNull()
                 virtualizer = runCatching { Virtualizer(0, activeSessionId).apply { enabled = effectsEnabled } }.getOrNull()
                 available = eq != null
-                bassAvailable = bass != null
-                virtualizerAvailable = virtualizer != null
+                bassAvailable = runCatching { bass?.strengthSupported == true }.getOrDefault(false)
+                virtualizerAvailable = runCatching { virtualizer?.strengthSupported == true }.getOrDefault(false)
             } else {
                 available = false
                 bassAvailable = false
@@ -164,8 +165,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 Spacer(Modifier.height(16.dp))
                 Text("PRESETS", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Normal", "Rock", "Jazz", "Classical").forEach { label ->
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    presets.forEach { label ->
                         val index = presets.indexOfFirst { it.equals(label, true) }
                         if (index >= 0) OutlinedButton(onClick = {
                             runCatching { eq?.usePreset(index.toShort()) }
@@ -184,9 +185,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             }
             Spacer(Modifier.height(24.dp))
             Text("BASS BOOST", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
+            if (!bassAvailable) Text("Not supported by this output effect.", color = Color(0xFF8E9687), fontSize = 9.sp)
             Slider(value = bassLevel, onValueChange = { bassLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_bass", it).apply(); runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
                 valueRange = 0f..100f, enabled = enabled && bassAvailable, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("VIRTUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
+            if (!virtualizerAvailable) Text("Not supported by this output effect.", color = Color(0xFF8E9687), fontSize = 9.sp)
             Slider(value = spaceLevel, onValueChange = { spaceLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_space", it).apply(); runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
                 valueRange = 0f..100f, enabled = enabled && virtualizerAvailable, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("Effects availability and processing depend on the Android device and audio route.", color = Color(0xFF8E9687), fontSize = 10.sp, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
