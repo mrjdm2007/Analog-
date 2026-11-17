@@ -30,6 +30,7 @@ class RecordingService : Service() {
         const val EXTRA_HIGH_GAIN_DB = "high_gain_db"
         const val EXTRA_COMPRESSOR = "compressor"
         const val EXTRA_COMPRESSOR_THRESHOLD = "compressor_threshold"
+        const val EXTRA_BIT_DEPTH = "bit_depth"
         private const val CHANNEL_ID = "analog_recording"
         private const val NOTIFICATION_ID = 4102
     }
@@ -58,7 +59,8 @@ class RecordingService : Service() {
                     intent.getFloatExtra(EXTRA_MID_GAIN_DB, 0f),
                     intent.getFloatExtra(EXTRA_HIGH_GAIN_DB, 0f),
                     intent.getBooleanExtra(EXTRA_COMPRESSOR, false),
-                    intent.getFloatExtra(EXTRA_COMPRESSOR_THRESHOLD, -18f)
+                    intent.getFloatExtra(EXTRA_COMPRESSOR_THRESHOLD, -18f),
+                    intent.getIntExtra(EXTRA_BIT_DEPTH, 16)
                 )
                 if (monitorThread?.isAlive != true) {
                     monitorThread = Thread({
