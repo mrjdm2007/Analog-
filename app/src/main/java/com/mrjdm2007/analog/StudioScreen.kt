@@ -298,8 +298,12 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                         ) { Icon(Icons.Default.Stop, null) }
                         FilledTonalButton(
                             onClick = { RecordingEngine.addMarker() },
-                            enabled = snapshot.status == "RECORDING" || snapshot.status == "PAUSED"
-                        ) { Icon(Icons.Default.BookmarkAdd, null) }
+                            enabled = (snapshot.status == "RECORDING" || snapshot.status == "PAUSED") && snapshot.markersMs.size < 128
+                        ) {
+                            Icon(Icons.Default.BookmarkAdd, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (snapshot.markersMs.size >= 128) "FULL" else "MARK", fontSize = 9.sp)
+                        }
                     }
                     if (snapshot.error != null) Text(snapshot.error ?: "", color = StudioAmber, fontSize = 11.sp)
                     if (snapshot.file != null && snapshot.status == "SAVED") Text("SAVED: " + snapshot.file!!.name, color = StudioGreen, fontSize = 9.sp)
