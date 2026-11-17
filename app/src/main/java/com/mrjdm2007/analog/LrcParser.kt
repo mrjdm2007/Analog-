@@ -27,7 +27,7 @@ object LrcParser {
                 }
                 LyricLine(((minutes * 60L + seconds) * 1000L + fractionMs + offset).coerceAtLeast(0L), lyric)
             }
-        }.sortedBy { it.timeMs }
+        }.sortedBy { it.timeMs }.toList()
     }
 
     fun activeIndex(lines: List<LyricLine>, positionMs: Long): Int {
