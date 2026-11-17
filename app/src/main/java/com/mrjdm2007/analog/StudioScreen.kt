@@ -130,6 +130,10 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                         }
                     }
                     Text("REQUESTED INPUT: " + selectedInputLabel, color = StudioMuted, fontSize = 9.sp, maxLines = 1)
+                    Text(
+                        "ACTIVE ROUTE: " + (snapshot.activeInput ?: if (snapshot.status in listOf("RECORDING", "PAUSED")) "Resolving Android route…" else "Not recording"),
+                        color = StudioGreen, fontSize = 9.sp, maxLines = 1
+                    )
                 }
                 item {
                     Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
