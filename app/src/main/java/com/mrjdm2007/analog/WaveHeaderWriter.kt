@@ -10,9 +10,9 @@ import java.util.TimeZone
 
 /** Writes a fixed-layout Broadcast Wave header, including optional standard RIFF cue points. */
 internal object WaveHeaderWriter {
-    private const val CUE_RESERVE_BYTES = 3084
-    private const val PCM_HEADER_SIZE_BYTES = 3738
-    private const val FLOAT_HEADER_SIZE_BYTES = 3750
+    private const val CUE_RESERVE_BYTES = 3092
+    private const val PCM_HEADER_SIZE_BYTES = 3746
+    private const val FLOAT_HEADER_SIZE_BYTES = 3758
 
     fun headerSizeBytes(bitDepth: Int): Int = if (bitDepth == 32) FLOAT_HEADER_SIZE_BYTES else PCM_HEADER_SIZE_BYTES
 
