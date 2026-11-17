@@ -358,6 +358,21 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func exportPlaylist(_ name: String, tracks: [MusicTrack]) {
+        guard !tracks.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export playlist"
+        panel.nameFieldStringValue = "\(name).m3u8"
+        panel.allowedContentTypes = [.plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let lines = tracks.flatMap { track in
+            ["#EXTINF:\(Int(track.duration)),\(track.artist) - \(track.title)", track.path]
+        }
+        let contents = (["#EXTM3U"] + lines).joined(separator: "\n") + "\n"
+        do { try contents.write(to: url, atomically: true, encoding: .utf8) }
+        catch { print("Analog playlist export error: \(error.localizedDescription)") }
+    }
+
     func renamePlaylist(_ oldName: String, to newName: String) {
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, oldName != clean, let items = customPlaylists.removeValue(forKey: oldName) else { return }
