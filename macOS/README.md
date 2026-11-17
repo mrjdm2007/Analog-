@@ -1,0 +1,25 @@
+# Analog for macOS
+
+A native SwiftUI desktop companion for the Android Analog player/studio. It is built as a real macOS app, not an Android emulator or a web wrapper.
+
+## Build
+
+Requires macOS 13 or newer and Xcode Command Line Tools.
+
+```bash
+bash macOS/package-macos-app.sh
+```
+
+The script builds `macOS/AnalogMac` with Swift Package Manager and creates `build/Analog.app` plus `build/Analog-macOS.zip`.
+
+## Current desktop features
+
+- Local music-folder import and library search
+- Native AVAudioEngine playback
+- Ten-band AVAudioUnitEQ in the actual playback signal chain, with Flat, Bass, Treble, Vocal, Rock and Classical presets
+- Playback queue, play-next, shuffle, repeat, seeking and sleep timer
+- Favorites, Calm / Energy / Focus / Nostalgia mood collections, custom playlists and per-track journal notes/ratings
+- Microphone recording to a local Core Audio file
+- Dark, maximalist Analog visual system with a library, now-playing inspector and persistent transport bar
+
+The macOS implementation is native SwiftUI and AVFoundation. It shares the product design and core workflows with Android, while using the Mac's own audio APIs. It is not a byte-for-byte port of Android Compose, and Android-only system integrations (Android notification, quick-settings tile and MediaStore) are replaced by macOS-native equivalents or omitted.
