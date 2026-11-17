@@ -755,15 +755,15 @@ struct TransportBar: View {
                 Text(player.currentTrack?.artist ?? "Select a track to begin").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
             }.frame(width: 180, alignment: .leading)
             HStack(spacing: 18) {
-                Button { player.previous() } label: { Image(systemName: "backward.end.fill") }
+                Button { player.previous() } label: { Image(systemName: "backward.end.fill") }.keyboardShortcut(.leftArrow, modifiers: [.command]).help("Previous track (⌘←)")
                 Button { player.togglePlayback() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 14, weight: .black))
                         .foregroundStyle(AnalogPalette.ink)
                         .frame(width: 36, height: 36)
                         .background(AnalogPalette.amber, in: Circle())
-                }
-                Button { player.next() } label: { Image(systemName: "forward.end.fill") }
+                }.keyboardShortcut(.space, modifiers: []).help("Play / pause (Space)")
+                Button { player.next() } label: { Image(systemName: "forward.end.fill") }.keyboardShortcut(.rightArrow, modifiers: [.command]).help("Next track (⌘→)")
             }.buttonStyle(.plain).foregroundStyle(AnalogPalette.cream)
             Text(formatTime(player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
             Slider(value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }), in: 0...max(1, player.currentTrack?.duration ?? 1))
