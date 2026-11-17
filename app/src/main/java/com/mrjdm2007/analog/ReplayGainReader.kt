@@ -23,6 +23,11 @@ object ReplayGainReader {
             }
             output.toByteArray()
         } ?: return@runCatching null
+        parseBytes(bytes)
+    }.getOrNull()
+
+    /** Pure parser entry point so tag formats and clipping protection can be regression-tested. */
+    internal fun parseBytes(bytes: ByteArray): Int? {
         // FLAC Vorbis-comment blocks and Ogg Vorbis comments store ReplayGain as UTF-8 key/value text.
         val comments = String(bytes, Charsets.UTF_8)
         val commentTrack = commentGain(comments, "TRACK")
@@ -33,18 +38,21 @@ object ReplayGainReader {
             val useTrack = commentTrack != null
             val gain = commentTrack ?: commentAlbum
             val peak = if (useTrack) commentTrackPeak else commentAlbumPeak
-            return@runCatching gain?.let { safeGainMilliBel(it, peak) }
+            return gain?.let { safeGainMilliBel(it, peak) }
         }
         val version = bytes[3].toInt() and 0xff
-        if (version !in 3..4) return@runCatching null
+        if (version !in 3..4) return null
         val tagSize = synchsafe(bytes, 6).coerceAtMost(bytes.size - 10)
         var offset = 10
         val flags = bytes[5].toInt() and 0xff
-        if (flags and 0x40 != 0 && offset + 4 <= bytes.size) {
-            val extSize = if (version == 4) synchsafe(bytes, offset) else int32(bytes, offset)
-            offset += 4 + extSize.coerceAtLeast(0)
-        }
         val limit = (10 + tagSize).coerceAtMost(bytes.size)
+        if (flags and 0x40 != 0 && offset + 4 <= limit) {
+            val extSize = if (version == 4) synchsafe(bytes, offset) else int32(bytes, offset)
+            // ID3v2.4 includes the four-byte size field; v2.3 does not.
+            val totalExtendedSize = if (version == 4) extSize else 4 + extSize
+            if (totalExtendedSize < 4 || offset + totalExtendedSize > limit) return null
+            offset += totalExtendedSize
+        }
         var trackDb: Float? = null
         var albumDb: Float? = null
         var trackPeak: Float? = null
@@ -72,7 +80,7 @@ object ReplayGainReader {
         val gain = trackDb ?: commentTrack ?: albumDb ?: commentAlbum
         val peak = if (useTrack) trackPeak ?: commentTrackPeak else albumPeak ?: commentAlbumPeak
         gain?.let { safeGainMilliBel(it, peak) }
-    }.getOrNull()
+    }
 
     private fun commentPeak(text: String, kind: String): Float? =
         Regex("(?i)REPLAYGAIN_${kind}_PEAK\\s*=\\s*([-+]?\\d+(?:\\.\\d+)?)")
