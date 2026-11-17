@@ -72,6 +72,9 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     var highGainDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_high_gain", 0f)) }
     var compressorEnabled by remember { mutableStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getBoolean("studio_compressor", false)) }
     var compressorThresholdDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_threshold", -18f)) }
+    var highPassHz by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_high_pass_hz", 80f)) }
+    var limiterCeilingDb by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_limiter_ceiling_db", -1f)) }
+    var compressorRatio by remember { mutableFloatStateOf(context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getFloat("studio_compressor_ratio", 3f)) }
     val inputDevices = remember(inputRefresh) { context.getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_INPUTS).toList() }
     val selectedInputLabel = inputDevices.firstOrNull { it.id == selectedInputDeviceId }?.productName?.toString() ?: "System default input"
     var showSettings by remember { mutableStateOf(true) }
@@ -97,6 +100,9 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
             .putFloat("studio_high_gain", highGainDb)
             .putBoolean("studio_compressor", compressorEnabled)
             .putFloat("studio_compressor_threshold", compressorThresholdDb)
+            .putFloat("studio_high_pass_hz", highPassHz)
+            .putFloat("studio_limiter_ceiling_db", limiterCeilingDb)
+            .putFloat("studio_compressor_ratio", compressorRatio)
             .apply()
     }
 
@@ -249,6 +255,9 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     putExtra(RecordingService.EXTRA_COMPRESSOR_THRESHOLD, compressorThresholdDb)
                                     putExtra(RecordingService.EXTRA_BIT_DEPTH, bitDepth)
                                     putExtra(RecordingService.EXTRA_RAW_MIC, rawMicMode)
+                                    putExtra(RecordingService.EXTRA_HIGH_PASS_HZ, highPassHz)
+                                    putExtra(RecordingService.EXTRA_LIMITER_CEILING_DB, limiterCeilingDb)
+                                    putExtra(RecordingService.EXTRA_COMPRESSOR_RATIO, compressorRatio)
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
@@ -359,11 +368,13 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             Slider(value = gain, onValueChange = { gain = it }, valueRange = .25f..2f, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("80 Hz high-pass", color = StudioText, fontSize = 12.sp)
-                                    Text("Reduces low-frequency rumble", color = StudioMuted, fontSize = 9.sp)
+                                    Text(String.format(Locale.US, "High-pass filter • %.0f Hz", highPassHz), color = StudioText, fontSize = 12.sp)
+                                    Text("Variable cutoff • 12 dB/octave rumble reduction", color = StudioMuted, fontSize = 9.sp)
                                 }
                                 Switch(checked = highPass, onCheckedChange = { highPass = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
+                            Text(String.format(Locale.US, "HIGH-PASS CUTOFF • %.0f Hz", highPassHz), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = highPassHz, onValueChange = { highPassHz = it }, valueRange = 40f..200f, steps = 15, enabled = highPass && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Peak limiter", color = StudioText, fontSize = 12.sp)
@@ -371,6 +382,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 }
                                 Switch(checked = limiter, onCheckedChange = { limiter = it }, enabled = !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             }
+                            Text(String.format(Locale.US, "LIMITER CEILING • %.1f dBFS", limiterCeilingDb), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = limiterCeilingDb, onValueChange = { limiterCeilingDb = it }, valueRange = -12f..-0.1f, enabled = limiter && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Spacer(Modifier.height(12.dp))
                             Text("THREE-BAND TONE CONTROL", color = StudioGreen, fontSize = 9.sp)
                             Text("LOW 250 Hz • " + String.format(Locale.US, "%+.0f dB", lowGainDb), color = StudioMuted, fontSize = 9.sp)
@@ -388,6 +401,8 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             }
                             Text("COMPRESSOR THRESHOLD • " + String.format(Locale.US, "%.0f dBFS", compressorThresholdDb), color = StudioMuted, fontSize = 9.sp)
                             Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            Text(String.format(Locale.US, "COMPRESSOR RATIO • %.1f:1", compressorRatio), color = StudioMuted, fontSize = 9.sp)
+                            Slider(value = compressorRatio, onValueChange = { compressorRatio = it }, valueRange = 1f..8f, enabled = compressorEnabled && !rawMicMode && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
                             Text("FORMAT: WAV • " + (if (bitDepth == 32) "32-BIT IEEE FLOAT" else "$bitDepth-BIT PCM") + " • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
                             Text("Input routing is requested from Android and may be overridden by device policy. Sample rates and stereo depend on connected hardware.", color = StudioMuted, fontSize = 9.sp)
                         }
