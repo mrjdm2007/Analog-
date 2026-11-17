@@ -46,6 +46,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
     @Published var outputVolume: Float = 0.85
+    @Published var peakGuardEnabled = false
+    @Published var peakGuardThresholdDB: Float = -1
     @Published var playHistory: [String] = []
     @Published var playCounts: [String: Int] = [:]
 
@@ -53,9 +55,11 @@ final class AnalogPlayer: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let equalizer = AVAudioUnitEQ(numberOfBands: 10)
+    private let peakGuard = AVAudioUnitDynamicsProcessor()
     private var audioFile: AVAudioFile?
     private var timer: Timer?
     private var sleepTimer: Timer?
+    private var sleepFadeTimer: Timer?
     private var segmentStart: Double = 0
     private var playbackToken = UUID()
     private let defaults = UserDefaults.standard
@@ -63,8 +67,18 @@ final class AnalogPlayer: ObservableObject {
     init() {
         audioEngine.attach(playerNode)
         audioEngine.attach(equalizer)
+        audioEngine.attach(peakGuard)
         audioEngine.connect(playerNode, to: equalizer, format: nil)
-        audioEngine.connect(equalizer, to: audioEngine.mainMixerNode, format: nil)
+        audioEngine.connect(equalizer, to: peakGuard, format: nil)
+        audioEngine.connect(peakGuard, to: audioEngine.mainMixerNode, format: nil)
+        peakGuard.threshold = -1
+        peakGuard.headRoom = 0
+        peakGuard.expansionRatio = 1
+        peakGuard.expansionThreshold = -60
+        peakGuard.attackTime = 0.001
+        peakGuard.releaseTime = 0.08
+        peakGuard.masterGain = 0
+        peakGuard.bypass = true
         equalizer.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             let count = Int(buffer.frameLength)
@@ -124,6 +138,8 @@ final class AnalogPlayer: ObservableObject {
         preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
         stereoPan = defaults.object(forKey: "stereoPan") as? Float ?? 0
         outputVolume = defaults.object(forKey: "outputVolume") as? Float ?? 0.85
+        peakGuardEnabled = defaults.object(forKey: "peakGuardEnabled") as? Bool ?? false
+        peakGuardThresholdDB = defaults.object(forKey: "peakGuardThresholdDB") as? Float ?? -1
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         audioEngine.mainMixerNode.outputVolume = outputVolume
@@ -144,6 +160,8 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(preampDB, forKey: "preampDB")
         defaults.set(stereoPan, forKey: "stereoPan")
         defaults.set(outputVolume, forKey: "outputVolume")
+        defaults.set(peakGuardEnabled, forKey: "peakGuardEnabled")
+        defaults.set(peakGuardThresholdDB, forKey: "peakGuardThresholdDB")
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
         defaults.set(eqGains, forKey: "eqGains")
@@ -510,6 +528,8 @@ final class AnalogPlayer: ObservableObject {
 
     private func applyEqualizer() {
         equalizer.globalGain = preampDB
+        peakGuard.threshold = min(-0.1, max(-12, peakGuardThresholdDB))
+        peakGuard.bypass = !peakGuardEnabled
         playerNode.pan = stereoPan
         for index in equalizer.bands.indices {
             equalizer.bands[index].gain = eqGains[index]
@@ -543,16 +563,48 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func setPeakGuard(enabled: Bool) {
+        peakGuardEnabled = enabled
+        applyEqualizer()
+        persistState()
+    }
+
+    func setPeakGuardThreshold(_ value: Float) {
+        peakGuardThresholdDB = min(-0.1, max(-12, value))
+        applyEqualizer()
+        persistState()
+    }
+
     func setSleepTimer(minutes: Int) {
         sleepTimer?.invalidate()
-        sleepMinutes = minutes
-        guard minutes > 0 else { return }
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: Double(minutes * 60), repeats: false) { [weak self] _ in
+        sleepFadeTimer?.invalidate()
+        playerNode.volume = 1
+        sleepMinutes = max(0, minutes)
+        guard sleepMinutes > 0 else { return }
+        let total = Double(sleepMinutes * 60)
+        let fadeDuration = min(15.0, total)
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: max(0, total - fadeDuration), repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.beginSleepFade(duration: fadeDuration) }
+        }
+    }
+
+    private func beginSleepFade(duration: Double) {
+        let started = Date()
+        sleepFadeTimer?.invalidate()
+        sleepFadeTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
             Task { @MainActor in
-                self?.playerNode.pause()
-                self?.isPlaying = false
-                self?.sleepMinutes = 0
-                self?.timer?.invalidate()
+                guard let self else { timer.invalidate(); return }
+                let progress = min(1, Date().timeIntervalSince(started) / max(0.1, duration))
+                self.playerNode.volume = Float(1 - progress)
+                if progress >= 1 {
+                    timer.invalidate()
+                    self.playerNode.pause()
+                    self.playerNode.volume = 1
+                    self.isPlaying = false
+                    self.sleepMinutes = 0
+                    self.timer?.invalidate()
+                    self.sleepFadeTimer = nil
+                }
             }
         }
     }
