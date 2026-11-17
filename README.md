@@ -23,7 +23,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Native Analog Studio with AudioRecord PCM capture and a microphone foreground service
 - WAV 16-bit PCM, Android 12+ 24-bit packed PCM, and 32-bit IEEE-float capture when the Android input route supports the requested encoding; configurable 44.1/48/96 kHz capture and mono/stereo selection
 - Live sample-derived waveform, 48-band FFT spectrum, rolling 64-frame spectrogram, peak/RMS dBFS meters
-- Broadcast Wave (BWF) metadata with origination date/time and sample time reference; up to 128 embedded WAV cue markers plus readable marker sidecar log; pause/resume, input gain, 80 Hz high-pass and peak limiter
+- Broadcast Wave (BWF) metadata with UTC origination date/time and sample time reference; up to 128 embedded WAV cue markers plus readable marker sidecar log; IEEE-float WAV fact chunk and RIFF word padding; pause/resume, input gain, 80 Hz high-pass and peak limiter
 - Android input-device routing requests for available built-in, wired, USB and Bluetooth capture devices (routing remains device-policy dependent)
 - Three-band low/mid/high tone shaping and a basic 3:1 dynamics compressor with adjustable threshold
 - Recent take browser with in-app playback, rename, delete, secure share and export to public Music/Analog/Recordings on Android 10+; originals remain in app-specific storage
@@ -45,6 +45,10 @@ GitHub Actions builds debug and release APKs for pull requests targeting `main` 
 - The built-in tone stage is a lightweight three-band filter and the compressor is a basic single-band dynamics processor; neither should be treated as a mastering-grade signal chain.
 - Supported sample rates and stereo capture depend on the phone and connected input hardware. A requested unsupported combination reports an error.
 - The live FFT and meters analyze the actual captured PCM samples. Device routing and processing behavior remain hardware/Android dependent.
+
+## Automated regression tests
+
+The CI workflow runs JVM tests for PCM frame alignment, 16/24-bit quantization, non-finite float samples, ReplayGain peak protection and ID3/Vorbis tag parsing, plus BWF header layout, float-format fact chunk, embedded cue offsets, odd-length RIFF padding and 4 GB size-limit handling.
 
 ## Verification still required
 
