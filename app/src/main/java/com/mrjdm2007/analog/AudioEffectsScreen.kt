@@ -30,6 +30,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bassLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_bass", 0f)) }
     var spaceLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_space", 0f)) }
     var preampDb by remember { mutableFloatStateOf(prefs.getFloat("eq_preamp_db", 0f)) }
+    var snapshotA by remember { mutableStateOf(prefs.getString("eq_curve_a", null)?.split(",")?.mapNotNull { it.toFloatOrNull() } ?: List(10) { 0f }) }
+    var snapshotB by remember { mutableStateOf(prefs.getString("eq_curve_b", null)?.split(",")?.mapNotNull { it.toFloatOrNull() } ?: List(10) { 0f }) }
     var enabled by remember { mutableStateOf(prefs.getBoolean("eq_enabled", true)) }
     var available by remember { mutableStateOf(prefs.getBoolean("eq_available", false)) }
     var error by remember { mutableStateOf(prefs.getString("eq_error", "").orEmpty()) }
@@ -154,6 +156,39 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                     }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("CUSTOM CURVE SNAPSHOTS", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Spacer(Modifier.height(7.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                OutlinedButton(onClick = {
+                    snapshotA = bands.toList()
+                    prefs.edit().putString("eq_curve_a", snapshotA.joinToString(",")).apply()
+                }, enabled = available, modifier = Modifier.weight(1f)) { Text("STORE A", fontSize = 9.sp) }
+                OutlinedButton(onClick = {
+                    val values = List(bandCount) { i -> snapshotA.getOrElse(i) { 0f }.coerceIn(-1f, 1f) }
+                    bands = values
+                    send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, values.joinToString(",")) }
+                }, enabled = enabled && available, modifier = Modifier.weight(1f)) { Text("LOAD A", fontSize = 9.sp) }
+                OutlinedButton(onClick = {
+                    snapshotB = bands.toList()
+                    prefs.edit().putString("eq_curve_b", snapshotB.joinToString(",")).apply()
+                }, enabled = available, modifier = Modifier.weight(1f)) { Text("STORE B", fontSize = 9.sp) }
+                OutlinedButton(onClick = {
+                    val values = List(bandCount) { i -> snapshotB.getOrElse(i) { 0f }.coerceIn(-1f, 1f) }
+                    bands = values
+                    send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, values.joinToString(",")) }
+                }, enabled = enabled && available, modifier = Modifier.weight(1f)) { Text("LOAD B", fontSize = 9.sp) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    val flat = List(bandCount) { 0f }
+                    bands = flat
+                    preampDb = 0f
+                    send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, flat.joinToString(",")) }
+                    send(PlaybackService.ACTION_EQ_PREAMP) { putExtra(PlaybackService.EXTRA_STRENGTH, 0f) }
+                }, enabled = enabled && available, modifier = Modifier.weight(1f)) { Text("RESET FLAT", fontSize = 9.sp) }
+                Text("A/B snapshots are saved locally on this device.", color = text.copy(alpha = .5f), fontSize = 9.sp, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
             }
             Spacer(Modifier.height(18.dp))
             Text("BASS BOOST", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
