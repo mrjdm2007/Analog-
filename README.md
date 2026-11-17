@@ -12,6 +12,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Pitch-preserving playback speed control from 0.5× to 2×
 - A/B repeat for looping a section of a track, with a minimum 300 ms loop span
 - Per-track playback bookmarks to save and resume a precise listening position
+- Configurable sleep timer with a smooth 5/10/15/30-second fade-out before pausing, or immediate pause when disabled
 - ReplayGain tag reading from ID3, FLAC Vorbis comments, and Ogg Vorbis comments
 - Songs, albums, artists, and folder library views
 - Favorites persisted locally
@@ -50,7 +51,7 @@ GitHub Actions builds debug and release APKs for pull requests targeting `main` 
 
 ## Automated regression tests
 
-The CI workflow runs JVM tests for PCM frame alignment, 16/24-bit quantization, non-finite float samples, ReplayGain peak protection and ID3/Vorbis tag parsing, BWF header layout, float-format fact chunk, embedded cue offsets, odd-length RIFF padding and 4 GB size-limit handling, plus A/B loop range validation and wrap behavior.
+The CI workflow runs JVM tests for PCM frame alignment, 16/24-bit quantization, non-finite float samples, ReplayGain peak protection and ID3/Vorbis tag parsing, BWF header layout, float-format fact chunk, embedded cue offsets, odd-length RIFF padding and 4 GB size-limit handling, plus A/B loop range validation and wrap behavior, and sleep fade envelope clamping.
 
 ## Verification still required
 
