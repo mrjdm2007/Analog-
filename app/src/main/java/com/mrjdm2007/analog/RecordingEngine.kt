@@ -79,11 +79,12 @@ object RecordingEngine {
                 runCatching { unprocessed?.release() }
                 AudioRecord(MediaRecorder.AudioSource.MIC, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
             }
-            if (audio.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("Android could not initialize this microphone format.")
-            recorder = audio
+            val activeAudio = audio
+            if (activeAudio == null || activeAudio.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("Android could not initialize this microphone format.")
+            recorder = activeAudio
             stream = FileOutputStream(output)
             stream.write(ByteArray(44))
-            audio.startRecording()
+            activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             mutableState.value = RecordingSnapshot(status = "RECORDING", file = output)
 
@@ -97,7 +98,7 @@ object RecordingEngine {
             var lastUi = 0L
             while (running) {
                 if (paused) { Thread.sleep(30); continue }
-                val count = audio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
+                val count = activeAudio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                 if (count < 0) throw IllegalStateException("Microphone read failed: " + count)
                 if (count == 0 || paused) continue
                 var peak = 0f
