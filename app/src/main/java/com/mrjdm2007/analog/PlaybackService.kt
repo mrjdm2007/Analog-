@@ -42,6 +42,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_EQ_PROFILE = "com.mrjdm2007.analog.EQ_PROFILE"
         const val ACTION_EQ_BASS = "com.mrjdm2007.analog.EQ_BASS"
         const val ACTION_EQ_SPACE = "com.mrjdm2007.analog.EQ_SPACE"
+        const val ACTION_EQ_RETRY = "com.mrjdm2007.analog.EQ_RETRY"
         const val EXTRA_ENABLED = "enabled"
         const val EXTRA_BAND_INDEX = "band_index"
         const val EXTRA_BAND_LEVEL = "band_level"
@@ -260,6 +261,10 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
+            ACTION_EQ_RETRY -> {
+                val activeSessionId = (mediaSession?.player as? ExoPlayer)?.audioSessionId ?: 0
+                if (activeSessionId > 0 && (equalizer == null || getSharedPreferences("analog_library", MODE_PRIVATE).getInt("eq_session_id", 0) != activeSessionId)) initializeAudioEffects(activeSessionId)
+            }
             ACTION_EQ_ENABLED -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
@@ -448,7 +453,7 @@ class PlaybackService : MediaSessionService() {
         virtualizer = null
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         try {
-            val effect = Equalizer(0, sessionId)
+            val effect = Equalizer(1000, sessionId)
             equalizer = effect
             val count = effect.numberOfBands.toInt()
             val range = effect.bandLevelRange
@@ -465,9 +470,9 @@ class PlaybackService : MediaSessionService() {
             runCatching { bassBoost?.setStrength((prefs.getFloat("eq_bass", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
             runCatching { virtualizer?.setStrength((prefs.getFloat("eq_space", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
             applyEqualizerBands()
-            prefs.edit().putBoolean("eq_available", true).putString("eq_error", "").apply()
+            prefs.edit().putBoolean("eq_available", true).putInt("eq_session_id", sessionId).putString("eq_error", "").apply()
         } catch (error: Throwable) {
-            prefs.edit().putBoolean("eq_available", false).putString("eq_error", error.message ?: error.javaClass.simpleName).apply()
+            prefs.edit().putBoolean("eq_available", false).putInt("eq_session_id", 0).putString("eq_error", error.message ?: error.javaClass.simpleName).apply()
             runCatching { equalizer?.release() }
             equalizer = null
             runCatching { bassBoost?.release() }
