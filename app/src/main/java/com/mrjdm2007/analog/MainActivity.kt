@@ -143,6 +143,8 @@ class MainActivity : ComponentActivity() {
             var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
             var exportTracks by remember { mutableStateOf(emptyList<Track>()) }
             var exportName by remember { mutableStateOf("Analog Playlist") }
+            var lyricsTargetTrackId by remember { mutableStateOf<Long?>(null) }
+            var lyricsVersion by remember { mutableIntStateOf(0) }
             val exportPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
                 if (uri != null) {
                     val text = buildString {
@@ -193,6 +195,24 @@ class MainActivity : ComponentActivity() {
                         }
                     } else Toast.makeText(this@MainActivity, "Could not read this playlist file", Toast.LENGTH_LONG).show()
                 }
+            }
+
+            val importLyricsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                val targetId = lyricsTargetTrackId
+                if (uri != null && targetId != null) {
+                    val raw = runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText().take(256 * 1024) }
+                    }.getOrNull()
+                    val parsed = raw?.let { LrcParser.parse(it) }.orEmpty()
+                    if (!raw.isNullOrBlank() && parsed.isNotEmpty()) {
+                        prefs().edit().putString("lyrics:$targetId", raw).apply()
+                        lyricsVersion++
+                        Toast.makeText(this@MainActivity, "Imported ${parsed.size} synchronized lyric lines", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "No valid LRC timestamps were found", Toast.LENGTH_LONG).show()
+                    }
+                }
+                lyricsTargetTrackId = null
             }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
@@ -272,7 +292,10 @@ class MainActivity : ComponentActivity() {
                         sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, lyricsRefreshKey = lyricsVersion, onImportLyrics = { id ->
+                        lyricsTargetTrackId = id
+                        importLyricsLauncher.launch(arrayOf("text/plain", "application/octet-stream", "*/*"))
+                    }, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
@@ -295,6 +318,10 @@ class MainActivity : ComponentActivity() {
                             "Album" -> currentTracks.sortedBy { it.album.lowercase() }
                             "Least played" -> currentTracks.sortedWith(compareBy<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
                             "Most played" -> currentTracks.sortedWith(compareByDescending<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+                            "Recently played" -> currentTracks.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+                            "Highest rated" -> currentTracks.sortedWith(compareByDescending<Track> { prefs().getInt("rating:${it.id}", 0) }.thenBy { it.title.lowercase() })
+                            "Longest first" -> currentTracks.sortedByDescending { it.duration }
+                            "Shortest first" -> currentTracks.sortedBy { it.duration }
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
                         val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
@@ -341,7 +368,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                     LazyColumn {
                                         item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
-                                        items(listOf("Most played this month", "Favourites", "Quick Listen", "Long Listening", "Surprise Me")) { name ->
+                                        items(listOf("Most played this month", "Most played all time", "Recently played", "Never played", "Top rated", "Hidden gems", "Favourites", "Quick Listen", "Long Listening", "Short tracks", "Surprise Me")) { name ->
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
                                             GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
                                         }
@@ -482,14 +509,23 @@ class MainActivity : ComponentActivity() {
     }
     private fun smartPlaylistTracks(name: String, source: List<Track>, favorites: Set<Long>): List<Track> {
         val counts = currentMonthPlayCounts()
+        val allTime = source.associate { track -> track.id to prefs().getInt("plays:${track.id}", 0) }
+        val lastPlayed: (Track) -> Long = { prefs().getLong("last_played:${it.id}", 0L) }
+        val rating: (Track) -> Int = { prefs().getInt("rating:${it.id}", 0) }
         val recentCutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
         return when (name) {
             "Most played this month" -> source.filter { (counts[it.id] ?: 0) > 0 }.sortedByDescending { counts[it.id] ?: 0 }
-            "Favourites" -> source.filter { it.id in favorites }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
-            "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
-            "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            "Most played all time" -> source.filter { (allTime[it.id] ?: 0) > 0 }.sortedWith(compareByDescending<Track> { allTime[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+            "Recently played" -> source.filter { lastPlayed(it) >= recentCutoff }.sortedByDescending(lastPlayed)
+            "Never played" -> source.filter { (allTime[it.id] ?: 0) == 0 }.sortedBy { it.title.lowercase() }
+            "Top rated" -> source.filter { rating(it) >= 4 }.sortedWith(compareByDescending<Track> { rating(it) }.thenByDescending(lastPlayed))
+            "Hidden gems" -> source.filter { rating(it) >= 4 && (allTime[it.id] ?: 0) in 1..5 }.sortedWith(compareBy<Track> { allTime[it.id] ?: 0 }.thenByDescending(rating))
+            "Favourites" -> source.filter { it.id in favorites }.sortedByDescending(lastPlayed)
+            "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending(lastPlayed)
+            "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending(lastPlayed)
+            "Short tracks" -> source.filter { it.duration in 1L..180_000L }.sortedBy { it.duration }
             "Surprise Me" -> source.shuffled()
-            else -> source.filter { prefs().getLong("last_played:${it.id}", 0L) >= recentCutoff }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            else -> source.filter { lastPlayed(it) >= recentCutoff }.sortedByDescending(lastPlayed)
         }
     }
 
@@ -549,7 +585,7 @@ class MainActivity : ComponentActivity() {
     Box {
         TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null, tint = Amber); Spacer(Modifier.width(4.dp)); Text(selected, color = Amber, fontSize = 11.sp) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Least played", "Most played").forEach { mode ->
+            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Least played", "Most played", "Recently played", "Highest rated", "Longest first", "Shortest first").forEach { mode ->
                 DropdownMenuItem(text = { Text(mode) }, onClick = { onSelected(mode); expanded = false })
             }
         }
@@ -612,7 +648,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, lyricsRefreshKey: Int, onImportLyrics: (Long) -> Unit, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -642,6 +678,11 @@ class MainActivity : ComponentActivity() {
     var loopStartMs by remember(trackId) { mutableStateOf<Long?>(null) }
     var loopEndMs by remember(trackId) { mutableStateOf<Long?>(null) }
     var bookmarkMs by remember(trackId) { mutableLongStateOf(trackId?.let { playerContextBookmark(playerContext, it) } ?: -1L) }
+    val savedLyrics = remember(trackId, lyricsRefreshKey) {
+        trackId?.let { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("lyrics:$it", "") }.orEmpty()
+    }
+    val parsedLyrics = remember(savedLyrics) { LrcParser.parse(savedLyrics) }
+    val activeLyricIndex = remember(parsedLyrics, position) { LrcParser.activeIndex(parsedLyrics, position.toLong()) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
@@ -881,6 +922,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         PlayerJournalPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted)
+        SyncedLyricsPanel(lines = parsedLyrics, activeIndex = activeLyricIndex, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted, onImport = { trackId?.let(onImportLyrics) }, enabled = trackId != null)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
