@@ -554,6 +554,15 @@ struct EqualizerView: View {
                 Spacer()
                 Button("RESET") { player.applyPreset("Flat") }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
             }
+            HStack(spacing: 8) {
+                Button("STORE A") { player.storeEQSnapshot("A") }.buttonStyle(AnalogOutlineButton())
+                Button("LOAD A") { player.recallEQSnapshot("A") }.buttonStyle(AnalogOutlineButton())
+                Rectangle().fill(AnalogPalette.cream.opacity(0.12)).frame(width: 1, height: 22)
+                Button("STORE B") { player.storeEQSnapshot("B") }.buttonStyle(AnalogOutlineButton())
+                Button("LOAD B") { player.recallEQSnapshot("B") }.buttonStyle(AnalogOutlineButton())
+                Spacer()
+                Text("A/B CUSTOM CURVES").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+            }
             HStack(alignment: .bottom, spacing: 0) {
                 ForEach(player.frequencies.indices, id: \.self) { index in
                     VStack(spacing: 10) {
