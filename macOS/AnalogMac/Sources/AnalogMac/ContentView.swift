@@ -176,10 +176,27 @@ struct SidebarView: View {
     }
 }
 
+struct TrackGroup: Identifiable {
+    let title: String
+    let tracks: [MusicTrack]
+    var id: String { title }
+}
+
 struct LibraryView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @State private var showCreate = false
     @State private var playlistName = ""
+    @State private var libraryMode = "Songs"
+
+    private var albumGroups: [TrackGroup] {
+        Dictionary(grouping: player.filteredTracks, by: { $0.album }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+    private var artistGroups: [TrackGroup] {
+        Dictionary(grouping: player.filteredTracks, by: { $0.artist }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+    private var folderGroups: [TrackGroup] {
+        Dictionary(grouping: player.filteredTracks, by: { $0.url.deletingLastPathComponent().lastPathComponent }).map { TrackGroup(title: $0.key, tracks: $0.value) }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -206,8 +223,14 @@ struct LibraryView: View {
                 MetricTile(label: "MOOD TAGGED", value: "\(player.moods.count)", symbol: "tag.fill")
                 MetricTile(label: "PLAYLISTS", value: "\(player.customPlaylists.count + 4)", symbol: "list.bullet")
             }
+            HStack(spacing: 6) {
+                ForEach(["Songs", "Albums", "Artists", "Folders", "Favourites"], id: \.self) { mode in
+                    Button(mode.uppercased()) { libraryMode = mode }.buttonStyle(AnalogOutlineButton())
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(libraryMode == mode ? AnalogPalette.amber.opacity(0.7) : .clear, lineWidth: 1))
+                }
+            }
             HStack {
-                Text("TRACK").frame(maxWidth: .infinity, alignment: .leading)
+                Text(libraryMode == "Albums" ? "ALBUM" : libraryMode == "Artists" ? "ARTIST" : libraryMode == "Folders" ? "FOLDER" : "TRACK").frame(maxWidth: .infinity, alignment: .leading)
                 Text("ALBUM").frame(width: 135, alignment: .leading)
                 Text("LENGTH").frame(width: 60, alignment: .trailing)
                 Text("ACTIONS").frame(width: 95, alignment: .trailing)
@@ -215,9 +238,32 @@ struct LibraryView: View {
             .font(.system(size: 8, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.muted)
             .padding(.horizontal, 12).padding(.vertical, 8)
             ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(player.filteredTracks) { track in
-                        TrackRow(track: track)
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    if libraryMode == "Albums" {
+                        ForEach(albumGroups) { group in
+                            Group {
+                                Text(group.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(1.3).foregroundStyle(AnalogPalette.green).padding(.top, 8)
+                                ForEach(group.tracks) { TrackRow(track: $0) }
+                            }
+                        }
+                    } else if libraryMode == "Artists" {
+                        ForEach(artistGroups) { group in
+                            Group {
+                                Text(group.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(1.3).foregroundStyle(AnalogPalette.green).padding(.top, 8)
+                                ForEach(group.tracks) { TrackRow(track: $0) }
+                            }
+                        }
+                    } else if libraryMode == "Folders" {
+                        ForEach(folderGroups) { group in
+                            Group {
+                                Text(group.title.uppercased()).font(.system(size: 9, weight: .black)).tracking(1.3).foregroundStyle(AnalogPalette.green).padding(.top, 8)
+                                ForEach(group.tracks) { TrackRow(track: $0) }
+                            }
+                        }
+                    } else {
+                        ForEach(libraryMode == "Favourites" ? player.filteredTracks.filter { player.favorites.contains($0.id) } : player.filteredTracks) { track in
+                            TrackRow(track: track)
+                        }
                     }
                 }
             }
