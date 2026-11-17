@@ -68,7 +68,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = text) }
             Column(Modifier.weight(1f)) {
                 Text("ANALOG / SOUND", color = accent, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("SYSTEM-LINKED EQUALIZER", color = green, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                Text("IN-PIPELINE SOFTWARE EQ", color = green, fontSize = 9.sp, letterSpacing = 1.5.sp)
             }
             Switch(checked = enabled, onCheckedChange = { value ->
                 enabled = value
@@ -147,6 +147,6 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             }, valueRange = 0f..100f, enabled = enabled && available,
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
         }
-        Text("The equaliser stays attached to playback when you leave this screen. Output hardware may limit available effects.", color = text.copy(alpha = .55f), fontSize = 10.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
+        Text("The 10-band EQ is processed inside the player's PCM audio pipeline and stays active when you leave this screen. Bass boost and stereo width are optional device effects.", color = text.copy(alpha = .55f), fontSize = 10.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
     }
 }
