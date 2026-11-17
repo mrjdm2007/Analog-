@@ -985,7 +985,7 @@ class MainActivity : ComponentActivity() {
                     textStyle = androidx.compose.ui.text.TextStyle(color = themedText, fontSize = 12.sp)
                 )
                 Button(onClick = { customSleepMinutes.toIntOrNull()?.takeIf { it in 1..720 }?.let(onSleepTimer) },
-                    enabled = customSleepMinutes.toIntOrNull() in 1..720) { Text("SET", fontSize = 10.sp) }
+                    enabled = customSleepMinutes.toIntOrNull()?.let { it in 1..720 } == true) { Text("SET", fontSize = 10.sp) }
             }
             OutlinedButton(onClick = onSleepTimerEndTrack, modifier = Modifier.fillMaxWidth()) {
                 Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
