@@ -17,7 +17,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -35,8 +34,6 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
         const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
         const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
-        const val ACTION_SET_PLAYBACK_SPEED = "com.mrjdm2007.analog.SET_PLAYBACK_SPEED"
-        const val EXTRA_PLAYBACK_SPEED = "playback_speed"
     }
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -107,8 +104,6 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
-            val savedSpeed = getSharedPreferences("analog_library", MODE_PRIVATE).getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
-            setPlaybackParameters(PlaybackParameters(savedSpeed, 1f))
         }
         crossfadePlayer = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
