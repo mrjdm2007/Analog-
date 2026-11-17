@@ -79,6 +79,8 @@ struct ContentView: View {
     private var pageSubtitle: String {
         switch player.selectedTab {
         case "Library": return "\(player.tracks.count) LOCAL TRACKS • LOSSLESS-READY PLAYBACK"
+        case "Queue": return "\(player.queue.count) QUEUED TRACKS • PLAYBACK ORDER"
+        case "History": return "RECENTLY PLAYED • LISTENING STATISTICS"
         case "Equalizer": return "10-BAND PARAMETRIC TONE CONTROL"
         case "Visualiser": return "LIVE SPECTRUM ANALYSIS • MAC ONLY"
         case "Recorder": return "LOCAL RECORDING • PCM CAPTURE"
@@ -90,6 +92,8 @@ struct ContentView: View {
     @ViewBuilder private var mainContent: some View {
         switch player.selectedTab {
         case "Library": LibraryView()
+        case "Queue": QueueView()
+        case "History": HistoryView()
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
         case "Journal": JournalView()
@@ -106,6 +110,8 @@ struct SidebarView: View {
     @EnvironmentObject private var player: AnalogPlayer
     private let sections: [(String, String)] = [
         ("Library", "square.grid.2x2.fill"),
+        ("Queue", "text.line.first.and.arrowtriangle.forward"),
+        ("History", "clock.arrow.circlepath"),
         ("Moods", "circle.lefthalf.filled"),
         ("Playlists", "music.note.list"),
         ("Journal", "book.closed.fill"),
@@ -840,6 +846,92 @@ struct VisualiserView: View {
             }
             Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
             Spacer()
+        }.padding(22)
+    }
+}
+
+struct QueueView: View {
+    @EnvironmentObject private var player: AnalogPlayer
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("PLAYBACK QUEUE").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                    Text("Reorder tracks, remove items or jump directly to any queued song").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Button("CLEAR UPCOMING") { player.clearUpcomingQueue() }.buttonStyle(AnalogOutlineButton())
+            }
+            HStack(spacing: 9) {
+                MetricTile(label: "TOTAL", value: "\(player.queue.count)", symbol: "list.number")
+                MetricTile(label: "PLAYED POSITION", value: player.queue.isEmpty ? "—" : "\(player.queueIndex + 1)", symbol: "play.circle")
+                MetricTile(label: "UP NEXT", value: "\(max(0, player.queue.count - player.queueIndex - 1))", symbol: "forward")
+            }
+            ScrollView {
+                LazyVStack(spacing: 7) {
+                    ForEach(player.queue.indices, id: \\.self) { index in
+                        let track = player.queue[index]
+                        HStack(spacing: 10) {
+                            Text(String(format: "%02d", index + 1)).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(index == player.queueIndex ? AnalogPalette.amber : AnalogPalette.muted).frame(width: 28)
+                            Button { player.playQueue(player.queue, startAt: index) } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(track.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(index == player.queueIndex ? AnalogPalette.amber : AnalogPalette.cream).lineLimit(1)
+                                    Text(track.artist + "  •  " + track.album).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.buttonStyle(.plain)
+                            if index == player.queueIndex { Image(systemName: "speaker.wave.2.fill").foregroundStyle(AnalogPalette.green).font(.system(size: 11)) }
+                            Button { if index > 0 { player.moveQueueItem(from: index, to: index - 1) } } label: { Image(systemName: "arrow.up").foregroundStyle(index > 0 ? AnalogPalette.cream : AnalogPalette.muted.opacity(0.25)) }.buttonStyle(.plain).disabled(index == 0)
+                            Button { if index + 1 < player.queue.count { player.moveQueueItem(from: index, to: index + 1) } } label: { Image(systemName: "arrow.down").foregroundStyle(index + 1 < player.queue.count ? AnalogPalette.cream : AnalogPalette.muted.opacity(0.25)) }.buttonStyle(.plain).disabled(index + 1 >= player.queue.count)
+                            Button { player.removeFromQueue(at: index) } label: { Image(systemName: "xmark").foregroundStyle(AnalogPalette.amber) }.buttonStyle(.plain)
+                        }.padding(11).background(index == player.queueIndex ? AnalogPalette.amber.opacity(0.09) : AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+                    }
+                }
+            }
+            if player.queue.isEmpty {
+                ContentUnavailableView("Queue is empty", systemImage: "text.line.first.and.arrowtriangle.forward", description: Text("Add tracks from your library using the track actions menu."))
+            }
+            Spacer(minLength: 0)
+        }.padding(22)
+    }
+}
+
+struct HistoryView: View {
+    @EnvironmentObject private var player: AnalogPlayer
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LISTENING HISTORY").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                    Text("Recent listening and your most-played local tracks").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Button("CLEAR HISTORY") { player.clearHistory() }.buttonStyle(AnalogOutlineButton())
+            }
+            HStack(spacing: 9) {
+                MetricTile(label: "RECENT TRACKS", value: "\(player.playHistory.count)", symbol: "clock")
+                MetricTile(label: "PLAYED TRACKS", value: "\(player.playCounts.count)", symbol: "music.note.list")
+                MetricTile(label: "TOTAL PLAYS", value: "\(player.playCounts.values.reduce(0, +))", symbol: "chart.bar.fill")
+            }
+            Text("MOST PLAYED").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green)
+            ScrollView {
+                LazyVStack(spacing: 7) {
+                    ForEach(player.mostPlayedTracks) { track in
+                        HStack {
+                            Button { player.play(track, from: player.mostPlayedTracks) } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(track.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+                                    Text(track.artist).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.buttonStyle(.plain)
+                            Text("\(player.playCounts[track.id] ?? 0) PLAYS").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                        }.padding(11).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+                    }
+                    Divider().overlay(AnalogPalette.cream.opacity(0.15))
+                    Text("RECENTLY PLAYED").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green).frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(player.historyTracks) { track in TrackRow(track: track) }
+                }
+            }
+            Spacer(minLength: 0)
         }.padding(22)
     }
 }
