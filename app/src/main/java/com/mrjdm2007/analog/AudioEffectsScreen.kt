@@ -26,7 +26,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bass by remember { mutableStateOf<BassBoost?>(null) }
     var virtualizer by remember { mutableStateOf<Virtualizer?>(null) }
     var available by remember { mutableStateOf(false) }
-    var bands by remember { mutableStateOf(listOf(0f, 0f, 0f, 0f, 0f)) }
+    var bands by remember { mutableStateOf(List(5) { 0f }) }
     var bassLevel by remember { mutableFloatStateOf(0f) }
     var spaceLevel by remember { mutableFloatStateOf(0f) }
     var enabled by remember { mutableStateOf(true) }
@@ -50,15 +50,16 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             val e = eq
             if (e != null) {
                 val range = e.bandLevelRange
+                val count = e.numberOfBands.toInt().coerceAtLeast(1)
                 val saved = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet(deviceProfileKey, null)?.mapNotNull { it.toFloatOrNull() }
-                bands = if (saved != null && saved.size >= 5) saved.take(5) else (0 until minOf(5, e.numberOfBands.toInt())).map { i ->
+                bands = if (saved != null && saved.size == count) saved else (0 until count).map { i ->
                     val level = e.getBandLevel(i.toShort()).toFloat()
                     if (range[1] == range[0]) 0f else (level - range[0]) / (range[1] - range[0]) * 2f - 1f
-                }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
-                bands.forEachIndexed { i, value -> if (i < e.numberOfBands.toInt()) {
+                }
+                bands.forEachIndexed { i, value ->
                     val level = (range[0] + ((value + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
                     runCatching { e.setBandLevel(i.toShort(), level) }
-                } }
+                }
                 presets = (0 until e.numberOfPresets.toInt()).map { e.getPresetName(it.toShort()) }
             }
             val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
@@ -96,9 +97,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(16.dp)) {
                 bands.forEachIndexed { index, value ->
-                    val label = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")[index]
+                    val centerHz = runCatching { (eq?.getCenterFreq(index.toShort()) ?: 0) / 1000 }.getOrDefault(0)
+                    val label = if (centerHz >= 1000) String.format(java.util.Locale.US, "%.1f kHz", centerHz / 1000f) else "$centerHz Hz"
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(54.dp))
+                        Text(label, color = Color(0xFFE8E1CF), fontSize = 10.sp, modifier = Modifier.width(62.dp))
                         Slider(value = value, onValueChange = { v ->
                             bands = bands.toMutableList().also { it[index] = v }
                             context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
@@ -125,10 +127,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                             val e = eq
                             if (e != null) {
                                 val range = e.bandLevelRange
-                                bands = (0 until minOf(5, e.numberOfBands.toInt())).map { index ->
+                                bands = (0 until e.numberOfBands.toInt()).map { index ->
                                     val level = e.getBandLevel(index.toShort()).toFloat()
                                     if (range[1] == range[0]) 0f else ((level - range[0]) / (range[1] - range[0])) * 2f - 1f
-                                }.let { if (it.size < 5) it + List(5 - it.size) { 0f } else it }
+                                }
                                 context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putStringSet(deviceProfileKey, bands.map { it.toString() }.toSet()).apply()
                             }
                         }, enabled = enabled && available, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(label, fontSize = 10.sp) }
