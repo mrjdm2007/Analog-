@@ -28,6 +28,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bass by remember { mutableStateOf<BassBoost?>(null) }
     var virtualizer by remember { mutableStateOf<Virtualizer?>(null) }
     var available by remember { mutableStateOf(false) }
+    var bassAvailable by remember { mutableStateOf(false) }
+    var virtualizerAvailable by remember { mutableStateOf(false) }
     var bands by remember { mutableStateOf(listOf(0f, 0f, 0f, 0f, 0f)) }
     var bassLevel by remember { mutableFloatStateOf(0f) }
     var spaceLevel by remember { mutableFloatStateOf(0f) }
@@ -48,17 +50,22 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         }
     }
 
+    val effectsEnabled = enabled
     DisposableEffect(deviceProfileKey, activeSessionId) {
         runCatching {
             if (activeSessionId > 0) {
                 // OEMs may expose Equalizer, BassBoost and Virtualizer independently.
                 // One unsupported effect must not disable the effects that did attach.
-                eq = runCatching { Equalizer(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
-                bass = runCatching { BassBoost(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
-                virtualizer = runCatching { Virtualizer(0, activeSessionId).apply { enabled = this@AudioEffectsScreen.enabled } }.getOrNull()
+                eq = runCatching { Equalizer(0, activeSessionId).apply { enabled = effectsEnabled } }.getOrNull()
+                bass = runCatching { BassBoost(0, activeSessionId).apply { enabled = effectsEnabled } }.getOrNull()
+                virtualizer = runCatching { Virtualizer(0, activeSessionId).apply { enabled = effectsEnabled } }.getOrNull()
                 available = eq != null
+                bassAvailable = bass != null
+                virtualizerAvailable = virtualizer != null
             } else {
                 available = false
+                bassAvailable = false
+                virtualizerAvailable = false
             }
             val e = eq
             if (e != null) {
@@ -178,10 +185,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Spacer(Modifier.height(24.dp))
             Text("BASS BOOST", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Slider(value = bassLevel, onValueChange = { bassLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_bass", it).apply(); runCatching { bass?.setStrength((it * 10).toInt().toShort()) } },
-                valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
+                valueRange = 0f..100f, enabled = enabled && bassAvailable, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("VIRTUALIZER", color = Color(0xFFB5D69B), fontSize = 10.sp, letterSpacing = 2.sp)
             Slider(value = spaceLevel, onValueChange = { spaceLevel = it; context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit().putFloat(deviceProfileKey + "_space", it).apply(); runCatching { virtualizer?.setStrength((it * 10).toInt().toShort()) } },
-                valueRange = 0f..100f, enabled = enabled && available, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
+                valueRange = 0f..100f, enabled = enabled && virtualizerAvailable, colors = SliderDefaults.colors(thumbColor = Color(0xFFFFB45B), activeTrackColor = Color(0xFFFFB45B)))
             Text("Effects availability and processing depend on the Android device and audio route.", color = Color(0xFF8E9687), fontSize = 10.sp, modifier = Modifier.padding(top = 12.dp, bottom = 28.dp))
     }
 }
