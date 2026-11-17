@@ -153,6 +153,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                         "ACTIVE ROUTE: " + (snapshot.activeInput ?: if (snapshot.status in listOf("RECORDING", "PAUSED")) "Resolving Android route…" else "Not recording"),
                         color = StudioGreen, fontSize = 9.sp, maxLines = 1
                     )
+                    Text("CAPTURE MODE: " + snapshot.captureMode, color = if (snapshot.captureMode.startsWith("RAW")) StudioAmber else StudioMuted, fontSize = 8.sp, maxLines = 2)
                 }
                 item {
                     Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(14.dp)).padding(14.dp)) {
