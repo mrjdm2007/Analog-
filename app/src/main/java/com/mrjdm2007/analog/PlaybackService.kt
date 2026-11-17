@@ -1,6 +1,7 @@
 package com.mrjdm2007.analog
 
 import android.content.Intent
+import android.content.Context
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
@@ -10,7 +11,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.media.audiofx.LoudnessEnhancer
-import android.media.audiofx.Equalizer
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Virtualizer
 import android.net.Uri
@@ -21,9 +21,13 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     companion object {
         const val ACTION_SLEEP_TIMER = "com.mrjdm2007.analog.SLEEP_TIMER"
@@ -56,7 +60,9 @@ class PlaybackService : MediaSessionService() {
     private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
     private var loudnessEnhancer: LoudnessEnhancer? = null
-    private var equalizer: Equalizer? = null
+    private val softwareEqualizer = TenBandEqualizerProcessor()
+    private val crossfadeEqualizer = TenBandEqualizerProcessor()
+    private var optionalFxSessionId = 0
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var crossfadePlayer: ExoPlayer? = null
@@ -118,11 +124,22 @@ class PlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
+        val eqPrefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        eqPrefs.edit()
+            .putInt("eq_band_count", 10)
+            .putInt("eq_band_min", -1200)
+            .putInt("eq_band_max", 1200)
+            .putString("eq_band_centers", listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000).joinToString(",") { (it * 1000).toString() })
+            .putBoolean("eq_available", true)
+            .putInt("eq_session_id", eqPrefs.getInt("audio_session_id", 0))
+            .putString("eq_error", "")
+            .apply()
+        applySoftwareEqualizer()
+        val player = ExoPlayer.Builder(this, createEqualizedRenderersFactory(softwareEqualizer)).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
         }
-        crossfadePlayer = ExoPlayer.Builder(this).build().apply {
+        crossfadePlayer = ExoPlayer.Builder(this, createEqualizedRenderersFactory(crossfadeEqualizer)).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
             volume = 0f
         }
@@ -165,7 +182,7 @@ class PlaybackService : MediaSessionService() {
                 updateWidget()
                 if (isPlaying) {
                     val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
-                    if (activeSessionId > 0 && equalizer == null) initializeAudioEffects(activeSessionId)
+                    if (activeSessionId > 0 && optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
@@ -183,7 +200,7 @@ class PlaybackService : MediaSessionService() {
                 if (audioSessionId > 0) {
                     getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", audioSessionId).apply()
                     runCatching { loudnessEnhancer?.release(); loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true } }
-                    initializeAudioEffects(audioSessionId)
+                    initializeOptionalEffects(audioSessionId)
                     applyReplayGain()
                 }
             }
@@ -262,32 +279,36 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
             ACTION_EQ_RETRY -> {
-                val activeSessionId = (mediaSession?.player as? ExoPlayer)?.audioSessionId ?: 0
-                if (activeSessionId > 0 && (equalizer == null || getSharedPreferences("analog_library", MODE_PRIVATE).getInt("eq_session_id", 0) != activeSessionId)) initializeAudioEffects(activeSessionId)
+                applySoftwareEqualizer()
+                val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                prefs.edit().putBoolean("eq_available", true)
+                    .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
+                    .putString("eq_error", "").apply()
             }
             ACTION_EQ_ENABLED -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
-                runCatching { equalizer?.enabled = enabled; bassBoost?.enabled = enabled; virtualizer?.enabled = enabled }
+                softwareEqualizer.setEnabled(enabled)
+                crossfadeEqualizer.setEnabled(enabled)
+                runCatching { bassBoost?.enabled = enabled; virtualizer?.enabled = enabled }
             }
             ACTION_EQ_BAND -> {
                 val index = intent.getIntExtra(EXTRA_BAND_INDEX, -1)
                 val level = intent.getFloatExtra(EXTRA_BAND_LEVEL, 0f).coerceIn(-1f, 1f)
-                val effect = equalizer
-                if (effect != null && index in 0 until effect.numberOfBands.toInt()) {
+                if (index in 0 until 10) {
                     val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
                     val values = prefs.getString("eq_band_levels", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }?.toMutableList()
-                        ?: MutableList(effect.numberOfBands.toInt()) { 0f }
-                    while (values.size < effect.numberOfBands.toInt()) values.add(0f)
+                        ?: MutableList(10) { 0f }
+                    while (values.size < 10) values.add(0f)
                     values[index] = level
                     prefs.edit().putString("eq_band_levels", values.joinToString(",")).apply()
-                    applyEqualizerBands()
+                    applySoftwareEqualizer()
                 }
             }
             ACTION_EQ_PROFILE -> {
                 val values = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putString("eq_band_levels", values).apply()
-                applyEqualizerBands()
+                applySoftwareEqualizer()
             }
             ACTION_EQ_BASS -> {
                 val strength = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(0f, 100f)
@@ -446,53 +467,45 @@ class PlaybackService : MediaSessionService() {
     }
 
 
-    private fun initializeAudioEffects(sessionId: Int) {
-        runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
-        equalizer = null
+    private fun createEqualizedRenderersFactory(processor: TenBandEqualizerProcessor): DefaultRenderersFactory =
+        object : DefaultRenderersFactory(this) {
+            @OptIn(UnstableApi::class)
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioOutputPlaybackParams: Boolean
+            ): AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(false)
+                    .setAudioProcessors(arrayOf(processor))
+                    .build()
+            }
+        }
+
+    private fun applySoftwareEqualizer() {
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        val normalized = prefs.getString("eq_band_levels", null)
+            ?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        val gainsDb = FloatArray(10) { index -> (normalized.getOrNull(index) ?: 0f).coerceIn(-1f, 1f) * 12f }
+        val enabled = prefs.getBoolean("eq_enabled", true)
+        softwareEqualizer.setBands(gainsDb)
+        crossfadeEqualizer.setBands(gainsDb)
+        softwareEqualizer.setEnabled(enabled)
+        crossfadeEqualizer.setEnabled(enabled)
+    }
+
+    private fun initializeOptionalEffects(sessionId: Int) {
+        runCatching { bassBoost?.release(); virtualizer?.release() }
         bassBoost = null
         virtualizer = null
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-        try {
-            val effect = Equalizer(1000, sessionId)
-            equalizer = effect
-            val count = effect.numberOfBands.toInt()
-            val range = effect.bandLevelRange
-            prefs.edit()
-                .putInt("eq_band_count", count)
-                .putInt("eq_band_min", range[0].toInt())
-                .putInt("eq_band_max", range[1].toInt())
-                .putString("eq_band_centers", (0 until count).joinToString(",") { effect.getCenterFreq(it.toShort()).toString() })
-                .apply()
-            effect.enabled = prefs.getBoolean("eq_enabled", true)
-            // Bass and stereo-width effects are optional; their absence must never disable the core EQ.
-            bassBoost = runCatching { BassBoost(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) } }.getOrNull()
-            virtualizer = runCatching { Virtualizer(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) } }.getOrNull()
-            runCatching { bassBoost?.setStrength((prefs.getFloat("eq_bass", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
-            runCatching { virtualizer?.setStrength((prefs.getFloat("eq_space", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
-            applyEqualizerBands()
-            prefs.edit().putBoolean("eq_available", true).putInt("eq_session_id", sessionId).putString("eq_error", "").apply()
-        } catch (error: Throwable) {
-            prefs.edit().putBoolean("eq_available", false).putInt("eq_session_id", 0).putString("eq_error", error.message ?: error.javaClass.simpleName).apply()
-            runCatching { equalizer?.release() }
-            equalizer = null
-            runCatching { bassBoost?.release() }
-            bassBoost = null
-            runCatching { virtualizer?.release() }
-            virtualizer = null
-        }
-    }
-
-    private fun applyEqualizerBands() {
-        val effect = equalizer ?: return
-        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-        val range = effect.bandLevelRange
-        val values = prefs.getString("eq_band_levels", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
-        for (i in 0 until effect.numberOfBands.toInt()) {
-            val normalized = values.getOrNull(i)?.coerceIn(-1f, 1f) ?: 0f
-            val level = (range[0] + ((normalized + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
-            runCatching { effect.setBandLevel(i.toShort(), level) }
-        }
-        runCatching { effect.enabled = prefs.getBoolean("eq_enabled", true) }
+        val enabled = prefs.getBoolean("eq_enabled", true)
+        bassBoost = runCatching { BassBoost(0, sessionId).apply { this.enabled = enabled } }.getOrNull()
+        virtualizer = runCatching { Virtualizer(0, sessionId).apply { this.enabled = enabled } }.getOrNull()
+        runCatching { bassBoost?.setStrength((prefs.getFloat("eq_bass", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
+        runCatching { virtualizer?.setStrength((prefs.getFloat("eq_space", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
+        optionalFxSessionId = sessionId
+        prefs.edit().putInt("eq_session_id", sessionId).putBoolean("eq_available", true).putString("eq_error", "").apply()
     }
 
     private fun applyReplayGain() {
@@ -539,10 +552,10 @@ class PlaybackService : MediaSessionService() {
         crossfadePlayer = null
         runCatching { loudnessEnhancer?.release() }
         loudnessEnhancer = null
-        runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
-        equalizer = null
+        runCatching { bassBoost?.release(); virtualizer?.release() }
         bassBoost = null
         virtualizer = null
+        optionalFxSessionId = 0
         mediaSession?.run {
             player.release()
             release()
