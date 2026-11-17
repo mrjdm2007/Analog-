@@ -38,6 +38,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var visualizerEnabled = true
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
+    @Published var outputVolume: Float = 0.85
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -98,6 +99,8 @@ final class AnalogPlayer: ObservableObject {
         eqEnabled = defaults.object(forKey: "eqEnabled") as? Bool ?? true
         preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
         stereoPan = defaults.object(forKey: "stereoPan") as? Float ?? 0
+        outputVolume = defaults.object(forKey: "outputVolume") as? Float ?? 0.85
+        audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
     }
 
@@ -110,6 +113,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(eqEnabled, forKey: "eqEnabled")
         defaults.set(preampDB, forKey: "preampDB")
         defaults.set(stereoPan, forKey: "stereoPan")
+        defaults.set(outputVolume, forKey: "outputVolume")
         defaults.set(eqGains, forKey: "eqGains")
     }
 
@@ -293,6 +297,12 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func setOutputVolume(_ value: Float) {
+        outputVolume = min(1, max(0, value))
+        audioEngine.mainMixerNode.outputVolume = outputVolume
+        persistState()
+    }
+
     func setEQ(_ index: Int, _ gain: Float) {
         guard eqGains.indices.contains(index) else { return }
         eqGains[index] = min(12, max(-12, gain))
@@ -328,6 +338,11 @@ final class AnalogPlayer: ObservableObject {
         case "Acoustic": values = [2, 2, 1, 0, 2, 3, 3, 2, 1, 1]
         case "Podcast": values = [-3, -2, 0, 3, 5, 4, 2, 0, -1, -2]
         case "Night": values = [-4, -3, -1, 2, 3, 2, 0, -1, -2, -3]
+        case "R&B": values = [4, 3, 1, 0, -1, 1, 2, 3, 3, 4]
+        case "Hip-Hop": values = [6, 5, 2, 1, -1, 0, 2, 1, 2, 3]
+        case "Metal": values = [4, 3, 1, -1, -2, 2, 4, 3, 1, 0]
+        case "Small Speakers": values = [7, 5, 1, -1, 0, 2, 3, 2, 1, 0]
+        case "Headphones": values = [2, 1, 0, -1, 0, 1, 2, 1, 0, 1]
         default: values = Array(repeating: 0, count: 10)
         }
         eqGains = values
