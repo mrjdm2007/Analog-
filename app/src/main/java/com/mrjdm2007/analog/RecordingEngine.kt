@@ -198,9 +198,17 @@ object RecordingEngine {
                     } else {
                         inputBuffer.getShort(i * 2).toFloat() / 32768f
                     }
+                    // Meter the actual microphone input before gain, EQ, compression or limiting.
+                    // This keeps clip warnings meaningful even when the limiter is enabled.
+                    val inputSample = RecordingPcm.finiteOrZero(sample)
+                    val inputAbsolute = kotlin.math.abs(inputSample)
+                    peak = max(peak, inputAbsolute)
+                    if (inputAbsolute >= 0.999f) clippedSamples++
+                    peakHoldDbfs = max(peakHoldDbfs, toDb(inputAbsolute))
+                    sum += inputSample.toDouble() * inputSample
                     // Raw mode bypasses every Analog DSP stage. Only finite-value protection
                     // and the selected WAV sample-format conversion remain.
-                    var value = RecordingPcm.finiteOrZero(sample) * if (rawMic) 1f else gain
+                    var value = inputSample * if (rawMic) 1f else gain
                     if (!rawMic && highPass) {
                         val filtered = highPassAlpha * (previousOut[channel] + value - previousIn[channel])
                         previousIn[channel] = value
@@ -227,11 +235,6 @@ object RecordingEngine {
                     // Integer PCM must be quantized into its representable range. Float WAV
                     // retains finite samples outside +/-1 when raw mode is selected.
                     if (bitDepth != 32) value = value.coerceIn(-1f, 0.99997f)
-                    val absoluteSample = kotlin.math.abs(value)
-                    peak = max(peak, absoluteSample)
-                    if (absoluteSample > peakHoldLinearThreshold()) clippedSamples++
-                    peakHoldDbfs = max(peakHoldDbfs, toDb(absoluteSample))
-                    sum += value.toDouble() * value
                     if (bitDepth == 32) {
                         val raw = java.lang.Float.floatToIntBits(value)
                         val offset = i * 4
