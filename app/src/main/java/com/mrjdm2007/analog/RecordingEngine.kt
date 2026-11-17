@@ -59,7 +59,7 @@ object RecordingEngine {
     @Volatile private var clippedSamples = 0L
 
     @Synchronized
-    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false) {
+    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16, rawMic: Boolean = false, highPassHz: Float = 80f, limiterCeilingDb: Float = -1f, compressorRatio: Float = 3f) {
         if (running) return
         markers = mutableListOf()
         peakHoldDbfs = -96f
@@ -88,11 +88,11 @@ object RecordingEngine {
             return
         }
         running = true
-        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic) }, "AnalogAudioCapture")
+        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth, rawMic, highPassHz, limiterCeilingDb, compressorRatio) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
     }
 
-    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int, rawMic: Boolean) {
+    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int, rawMic: Boolean, highPassHz: Float, limiterCeilingDb: Float, compressorRatioSetting: Float) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
@@ -153,13 +153,13 @@ object RecordingEngine {
             val lowLinear = 10.0.pow(lowGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
             val midLinear = 10.0.pow(midGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
             val highLinear = 10.0.pow(highGainDb.coerceIn(-12f, 12f) / 20.0).toFloat()
-            val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()
-            val compressorRatio = 3f
+            val compressorThreshold = 10.0.pow(compressorThresholdDb.coerceIn(-36f, -3f) / 20.0).toFloat()\n            val limiterCeiling = 10.0.pow(limiterCeilingDb.coerceIn(-12f, -0.1f) / 20.0).toFloat()
+            val compressorRatio = compressorRatioSetting.coerceIn(1f, 10f)
             val compressorAttack = 1f - kotlin.math.exp(-1f / (0.010f * rate))
             val compressorRelease = 1f - kotlin.math.exp(-1f / (0.120f * rate))
             var leftSample = 0f
             val spectrogramHistory = ArrayDeque<List<Float>>()
-            val highPassAlpha = (1.0 / (1.0 + 1.0 / (2.0 * PI * 80.0 * rate))).toFloat()
+            val highPassAlpha = (1.0 / (1.0 + 1.0 / (2.0 * PI * highPassHz.coerceIn(20f, 300f) * rate))).toFloat()
             val lowAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 250.0 / rate)).toFloat()
             val highAlpha = (1.0 - kotlin.math.exp(-2.0 * PI * 4000.0 / rate)).toFloat()
             var lastUi = 0L
@@ -222,7 +222,7 @@ object RecordingEngine {
                             value *= (compressed / compressorEnvelope[channel].coerceAtLeast(1.0e-6f))
                         }
                     }
-                    if (!rawMic && limiter) value = value.coerceIn(-0.98f, 0.98f)
+                    if (!rawMic && limiter) value = value.coerceIn(-limiterCeiling, limiterCeiling)
                     // Integer PCM must be quantized into its representable range. Float WAV
                     // retains finite samples outside +/-1 when raw mode is selected.
                     if (bitDepth != 32) value = value.coerceIn(-1f, 0.99997f)
