@@ -2,6 +2,7 @@ package com.mrjdm2007.analog
 
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +12,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+@OptIn(UnstableApi::class)
 class TenBandEqualizerProcessorTest {
     @Test
     fun oneKilohertzBandBoostChangesActualPcmOutput() {
