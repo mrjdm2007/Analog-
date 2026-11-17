@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [.executable(name: "AnalogMac", targets: ["AnalogMac"])],
     targets: [
-        .executableTarget(name: "AnalogMac", path: "Sources/AnalogMac")
+        .executableTarget(name: "AnalogMac", path: "Sources/AnalogMac"),
+        .testTarget(name: "AnalogAudioTests", path: "Tests/AnalogAudioTests")
     ]
 )
