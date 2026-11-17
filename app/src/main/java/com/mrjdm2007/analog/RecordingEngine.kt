@@ -87,9 +87,10 @@ object RecordingEngine {
         var audio: AudioRecord? = null
         var totalBytes = 0L
         try {
+            if (bitDepth !in listOf(16, 24, 32)) throw IllegalStateException("Choose 16-bit PCM, 24-bit packed PCM or 32-bit float WAV.")
             if (bitDepth == 24 && Build.VERSION.SDK_INT < 31) throw IllegalStateException("24-bit packed PCM requires Android 12 or newer.")
-            val bytesPerSample = if (bitDepth == 24) 3 else 2
-            val encoding = if (bitDepth == 24) AudioFormat.ENCODING_PCM_24BIT_PACKED else AudioFormat.ENCODING_PCM_16BIT
+            val bytesPerSample = when (bitDepth) { 24 -> 3; 32 -> 4; else -> 2 }
+            val encoding = when (bitDepth) { 24 -> AudioFormat.ENCODING_PCM_24BIT_PACKED; 32 -> AudioFormat.ENCODING_PCM_FLOAT; else -> AudioFormat.ENCODING_PCM_16BIT }
             val mask = if (channels == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
             val minimum = AudioRecord.getMinBufferSize(rate, mask, encoding)
             if (minimum <= 0) throw IllegalStateException("Unsupported " + bitDepth + "-bit input format at " + rate + " Hz.")
@@ -162,7 +163,9 @@ object RecordingEngine {
                 var sum = 0.0
                 for (i in 0 until count) {
                     val channel = i % channels
-                    val sample = if (bitDepth == 24) {
+                    val sample = if (bitDepth == 32) {
+                        inputBuffer.getFloat(i * 4)
+                    } else if (bitDepth == 24) {
                         val offset = i * 3
                         var raw = (inputBuffer.get(offset).toInt() and 0xff) or
                             ((inputBuffer.get(offset + 1).toInt() and 0xff) shl 8) or
@@ -194,10 +197,18 @@ object RecordingEngine {
                         }
                     }
                     if (limiter) value = value.coerceIn(-0.98f, 0.98f)
-                    value = value.coerceIn(-1f, 0.99997f)
+                    // IEEE float WAV preserves internal headroom when the limiter is bypassed.
+                    if (bitDepth != 32) value = value.coerceIn(-1f, 0.99997f)
                     peak = max(peak, kotlin.math.abs(value))
                     sum += value.toDouble() * value
-                    if (bitDepth == 24) {
+                    if (bitDepth == 32) {
+                        val raw = java.lang.Float.floatToIntBits(value)
+                        val offset = i * 4
+                        pcm[offset] = (raw and 255).toByte()
+                        pcm[offset + 1] = ((raw shr 8) and 255).toByte()
+                        pcm[offset + 2] = ((raw shr 16) and 255).toByte()
+                        pcm[offset + 3] = ((raw shr 24) and 255).toByte()
+                    } else if (bitDepth == 24) {
                         val packed = (value * 8388607f).toInt().coerceIn(-8388608, 8388607)
                         val offset = i * 3
                         pcm[offset] = (packed and 255).toByte()
@@ -363,7 +374,7 @@ object RecordingEngine {
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
             raf.writeBytes("RIFF"); writeInt(raf, (36L + dataSize).toInt())
-            raf.writeBytes("WAVEfmt "); writeInt(raf, 16); writeShort(raf, 1)
+            raf.writeBytes("WAVEfmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
             writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * (bitDepth / 8))
             writeShort(raf, channels * (bitDepth / 8)); writeShort(raf, bitDepth)
             raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
