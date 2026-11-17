@@ -618,6 +618,14 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $player.shuffleQueue).labelsHidden().tint(AnalogPalette.green)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Repeat current track").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+                    Text("Loop the currently playing song instead of advancing").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Toggle("", isOn: $player.repeatCurrentTrack).labelsHidden().tint(AnalogPalette.green)
+            }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 9) {
                 HStack { Text("MASTER OUTPUT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green); Spacer(); Text("\(Int(player.outputVolume * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
                 Slider(value: Binding(get: { Double(player.outputVolume) }, set: { player.setOutputVolume(Float($0)) }), in: 0...1).tint(AnalogPalette.amber)
@@ -711,7 +719,8 @@ struct TransportBar: View {
                 .tint(AnalogPalette.amber)
             Text(formatTime(player.currentTrack?.duration ?? 0)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
             Button { player.shuffleQueue.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffleQueue ? AnalogPalette.amber : AnalogPalette.muted) }.buttonStyle(.plain)
-            Button { player.repeatQueue.toggle() } label: { Image(systemName: "repeat").foregroundStyle(player.repeatQueue ? AnalogPalette.amber : AnalogPalette.muted) }.buttonStyle(.plain)
+            Button { player.repeatCurrentTrack.toggle() } label: { Image(systemName: "repeat.1").foregroundStyle(player.repeatCurrentTrack ? AnalogPalette.amber : AnalogPalette.muted) }.buttonStyle(.plain).help("Repeat current track")
+            Button { player.repeatQueue.toggle() } label: { Image(systemName: "repeat").foregroundStyle(player.repeatQueue ? AnalogPalette.amber : AnalogPalette.muted) }.buttonStyle(.plain).help("Repeat queue")
             Button { player.selectedTab = "Equalizer" } label: { Image(systemName: "slider.horizontal.3").foregroundStyle(AnalogPalette.green) }.buttonStyle(.plain)
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
