@@ -47,11 +47,16 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         bassLevel = prefs.getFloat("eq_bass", 0f)
         spaceLevel = prefs.getFloat("eq_space", 0f)
         enabled = prefs.getBoolean("eq_enabled", true)
-        available = prefs.getBoolean("eq_available", false)
+        available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
     }
     LaunchedEffect(Unit) {
-        while (true) { refresh(); delay(450L) }
+        send(PlaybackService.ACTION_EQ_RETRY)
+        while (true) {
+            refresh()
+            if (!available) send(PlaybackService.ACTION_EQ_RETRY)
+            delay(900L)
+        }
     }
 
     val text = Color(0xFFE8E1CF)
