@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
+            var playbackSpeed by remember { mutableFloatStateOf(prefs().getFloat("playback_speed", 1f)) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
@@ -207,6 +208,7 @@ class MainActivity : ComponentActivity() {
                         headphoneDetectionEnabled = headphoneDetectionEnabled, onHeadphoneDetectionChanged = { enabled -> headphoneDetectionEnabled = enabled; prefs().edit().putBoolean("headphone_detection_enabled", enabled).apply(); outputRoute = currentAudioRoute() },
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
                         crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
+                        playbackSpeed = playbackSpeed, onPlaybackSpeedChanged = { speed -> playbackSpeed = speed; startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_PLAYBACK_SPEED).putExtra(PlaybackService.EXTRA_PLAYBACK_SPEED, speed)) },
                         onHeadsetSetting = { key, value -> prefs().edit().putString(key, value).apply(); when(key) { "headset_single" -> headsetSingle = value; "headset_double" -> headsetDouble = value; "headset_triple" -> headsetTriple = value } },
                         onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
