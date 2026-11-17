@@ -189,9 +189,9 @@ class PlaybackService : MediaSessionService() {
                 sleepEndListener = null
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
                 val totalMs = minutes * 60_000L
-                val fadeEnabled = getSharedPreferences("analog_library", MODE_PRIVATE)
-                    .getBoolean("sleep_fade_out", true)
-                val fadeMs = if (fadeEnabled) 15_000L else 0L
+                val fadeSeconds = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    .getInt("sleep_fade_seconds", 15).coerceIn(0, 30)
+                val fadeMs = fadeSeconds * 1000L
                 sleepTimer = Runnable {
                     mediaSession?.player?.let { it.pause(); it.volume = 1f }
                     sleepTimer = null
@@ -217,8 +217,7 @@ class PlaybackService : MediaSessionService() {
                 sleepEndListener = null
             }
             ACTION_SLEEP_TIMER_END_TRACK -> {
-                sleepTimer?.let(timerHandler::removeCallbacks)
-                sleepTimer = null
+                clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 val activePlayer = mediaSession?.player
                 if (activePlayer != null) {
