@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 
 class RecordingService : Service() {
@@ -49,8 +51,10 @@ class RecordingService : Service() {
                     while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
                         try { Thread.sleep(100) } catch (_: InterruptedException) { break }
                     }
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    Handler(Looper.getMainLooper()).post {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
                 }.start()
             }
             ACTION_PAUSE -> RecordingEngine.pause()
