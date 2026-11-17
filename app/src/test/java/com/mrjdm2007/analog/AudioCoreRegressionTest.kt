@@ -29,7 +29,7 @@ class AudioCoreRegressionTest {
         assertEquals(0.2512f, RecordingPcm.linearFromDb(-12f), 0.001f)
     }
 
-    @Test fun highPassCoefficientStaysFiniteAndRisesWithCutoff() {
+    @Test fun highPassCoefficientStaysFiniteAndFallsWithCutoff() {
         val low = RecordingPcm.highPassAlpha(40f, 48000)
         val high = RecordingPcm.highPassAlpha(160f, 48000)
         assertEquals(true, low.isFinite())
