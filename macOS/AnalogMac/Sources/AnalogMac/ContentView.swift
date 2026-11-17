@@ -905,10 +905,10 @@ struct VisualiserView: View {
             Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
             Spacer()
         }
-        .onChange(of: player.visualizerBins) { _, values in
+        .onChange(of: player.visualizerBins) { values in
             guard peakHold else { return }
             if heldPeaks.count != values.count { heldPeaks = values; return }
-            heldPeaks = zip(heldPeaks, values).map { max($0 * 0.965, $1) }
+            heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
         }
         .padding(22)
     }
@@ -1013,7 +1013,7 @@ struct SmartMixesView: View {
                 Text("Automatically assembled collections from your listening activity and library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
             }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(player.smartMixes, id: \.name) { mix in
+                ForEach(player.smartMixes) { mix in
                     HStack(spacing: 12) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [AnalogPalette.raised, AnalogPalette.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
