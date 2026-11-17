@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,7 +42,6 @@ fun SettingsPage(
     onCrossfadeChanged: (Int) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
-    onVisualizer: () -> Unit,
     onSleepTimer: (Int) -> Unit,
     onSleepTimerEndTrack: () -> Unit,
     onCancelSleepTimer: () -> Unit,
@@ -148,7 +146,6 @@ fun SettingsPage(
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column {
                         TextButton(onClick = onEffects, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Icon(Icons.Default.GraphicEq, null); Spacer(Modifier.width(8.dp)); Text("Audio effects & equalizer") }
-                        TextButton(onClick = onVisualizer, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Icon(Icons.Default.Visibility, null); Spacer(Modifier.width(8.dp)); Text("Visualizer") }
                     }
                 }
             }
