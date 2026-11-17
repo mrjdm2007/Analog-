@@ -41,6 +41,7 @@ data class RecordingSnapshot(
 
 /** Real AudioRecord capture with live waveform/FFT and standards-compliant PCM WAV output. */
 object RecordingEngine {
+    private const val CUE_RESERVE_BYTES = 3084 // 128 standard WAV cue points plus a JUNK filler chunk.
     private val mutableState = MutableStateFlow(RecordingSnapshot())
     val state: StateFlow<RecordingSnapshot> = mutableState
     @Volatile private var running = false
@@ -119,7 +120,7 @@ object RecordingEngine {
             }
             recorder = activeAudio
             stream = FileOutputStream(output)
-            stream.write(ByteArray(654))
+            stream.write(ByteArray(654 + CUE_RESERVE_BYTES))
             activeAudio.startRecording()
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
@@ -266,8 +267,8 @@ object RecordingEngine {
             stream.fd.sync()
             stream.close()
             stream = null
-            writeHeader(output, totalBytes, rate, channels, bitDepth)
             val markerSnapshot = synchronized(this) { markers.toList() }
+            writeHeader(output, totalBytes, rate, channels, bitDepth, markerSnapshot)
             if (markerSnapshot.isNotEmpty()) {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
                     .writeText(markerSnapshot.mapIndexed { index, time -> "Marker " + (index + 1) + ": " + (time / 1000.0) + "s" }.joinToString("\n"))
@@ -279,7 +280,7 @@ object RecordingEngine {
                 stream?.fd?.sync()
                 stream?.close()
                 stream = null
-                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels, bitDepth)
+                if (totalBytes > 0L && output.exists()) writeHeader(output, totalBytes, rate, channels, bitDepth, synchronized(this) { markers.toList() })
                 else output.delete()
             }
             mutableState.value = mutableState.value.copy(status = "ERROR", file = output.takeIf { it.exists() && totalBytes > 0L }, bytesWritten = totalBytes, error = error.message ?: "Recording failed.")
@@ -313,7 +314,7 @@ object RecordingEngine {
         running = false
     }
 
-    @Synchronized fun addMarker() { if (running) markers.add(elapsed()) }
+    @Synchronized fun addMarker() { if (running && markers.size < 128) markers.add(elapsed()) }
 
     private fun elapsed(): Long {
         if (startedAt == 0L) return 0L
@@ -374,11 +375,11 @@ object RecordingEngine {
         }
     }
 
-    private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int) {
+    private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int, markerTimes: List<Long>) {
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
             // Broadcast Wave (BWF) bext metadata chunk: fixed 602-byte payload.
-            raf.writeBytes("RIFF"); writeInt(raf, (646L + dataSize).toInt())
+            raf.writeBytes("RIFF"); writeInt(raf, (3730L + dataSize).toInt())
             raf.writeBytes("WAVE")
             raf.writeBytes("bext"); writeInt(raf, 602)
             writeFixedAscii(raf, "Analog Studio field recording", 256)
@@ -398,6 +399,26 @@ object RecordingEngine {
             raf.writeBytes("fmt "); writeInt(raf, 16); writeShort(raf, if (bitDepth == 32) 3 else 1)
             writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * (bitDepth / 8))
             writeShort(raf, channels * (bitDepth / 8)); writeShort(raf, bitDepth)
+            // Standard RIFF cue points are embedded in the WAV; a JUNK chunk keeps the data offset fixed.
+            val cues = markerTimes.take(128)
+            val cuePayloadSize = 4 + cues.size * 24
+            raf.writeBytes("cue "); writeInt(raf, cuePayloadSize); writeInt(raf, cues.size)
+            cues.forEachIndexed { index, markerMs ->
+                val sampleOffset = ((markerMs * rate.toLong()) / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                writeInt(raf, index + 1)
+                writeInt(raf, sampleOffset)
+                raf.writeBytes("data")
+                writeInt(raf, 0)
+                writeInt(raf, 0)
+                writeInt(raf, sampleOffset)
+            }
+            val cueChunkBytes = 8 + cuePayloadSize
+            val junkBytes = CUE_RESERVE_BYTES - cueChunkBytes
+            if (junkBytes >= 8) {
+                raf.writeBytes("JUNK")
+                writeInt(raf, junkBytes - 8)
+                raf.write(ByteArray(junkBytes - 8))
+            }
             raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
         }
     }
