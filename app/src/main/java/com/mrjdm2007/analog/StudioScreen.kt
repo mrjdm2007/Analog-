@@ -276,6 +276,17 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                     }
                     if (snapshot.error != null) Text(snapshot.error ?: "", color = StudioAmber, fontSize = 11.sp)
                     if (snapshot.file != null && snapshot.status == "SAVED") Text("SAVED: " + snapshot.file!!.name, color = StudioGreen, fontSize = 9.sp)
+                    if (snapshot.markersMs.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().background(StudioPanel, RoundedCornerShape(10.dp)).padding(10.dp)) {
+                            Text("TAKE MARKERS • " + snapshot.markersMs.size, color = StudioGreen, fontSize = 9.sp, letterSpacing = 1.sp)
+                            snapshot.markersMs.forEachIndexed { index, marker ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("CUE %02d".format(index + 1), color = StudioMuted, fontSize = 9.sp, modifier = Modifier.weight(1f))
+                                    Text("%02d:%02d.%03d".format(marker / 60000, (marker / 1000) % 60, marker % 1000), color = StudioText, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
