@@ -680,7 +680,7 @@ class MainActivity : ComponentActivity() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffleEnabled = shuffleModeEnabled }
-            override fun onRepeatModeChanged(repeatMode: Int) { this@PlayerPage.run { /* keep the UI in sync with media-session repeat changes */ }; syncPlayerState() }
+            override fun onRepeatModeChanged(repeatMode: Int) { syncPlayerState() }
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         }
         player?.addListener(listener)
