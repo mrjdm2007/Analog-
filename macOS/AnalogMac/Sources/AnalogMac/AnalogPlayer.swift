@@ -32,6 +32,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var eqEnabled = true
     @Published var eqGains: [Float] = Array(repeating: 0, count: 10)
     @Published var repeatQueue = false
+    @Published var repeatCurrentTrack = false
     @Published var shuffleQueue = false
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
@@ -310,6 +311,7 @@ final class AnalogPlayer: ObservableObject {
     func next() { advance() }
 
     private func advance() {
+        if repeatCurrentTrack, let track = currentTrack { startTrack(track, at: 0); return }
         guard !queue.isEmpty else { isPlaying = false; timer?.invalidate(); return }
         var nextIndex = queueIndex + 1
         if shuffleQueue && queue.count > 1 {
