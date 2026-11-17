@@ -29,6 +29,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Broadcast Wave (BWF) metadata with UTC origination date/time and sample time reference; up to 128 embedded WAV cue markers plus readable marker sidecar log; IEEE-float WAV fact chunk and RIFF word padding; pause/resume, input gain, 80 Hz high-pass and peak limiter
 - Android input-device routing requests for available built-in, wired, USB and Bluetooth capture devices (routing remains device-policy dependent)
 - Three-band low/mid/high tone shaping and a basic 3:1 dynamics compressor with adjustable threshold
+- Quick recording presets for dialogue, interview, stereo music and ambience, with editable settings and device-version-aware bit-depth defaults
 - Recent take browser with in-app playback, rename, delete, secure share and export to public Music/Analog/Recordings on Android 10+; originals remain in app-specific storage
 - Offline-first operation; the app does not stream or download music
 
