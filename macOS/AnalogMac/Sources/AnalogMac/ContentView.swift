@@ -389,7 +389,13 @@ struct PlaylistsView: View {
                 }
             }
             Spacer()
-        }.padding(22)
+        }
+        .onChange(of: player.visualizerBins) { _, values in
+            guard peakHold else { return }
+            if heldPeaks.count != values.count { heldPeaks = values; return }
+            heldPeaks = zip(heldPeaks, values).map { max($0 * 0.965, $1) }
+        }
+        .padding(22)
     }
 }
 
@@ -486,7 +492,7 @@ struct EqualizerView: View {
                     .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 10, weight: .bold))
             }
             HStack(spacing: 8) {
-                ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night"], id: \.self) { preset in
+                ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones"], id: \.self) { preset in
                     Button(preset.uppercased()) { player.applyPreset(preset) }.buttonStyle(AnalogOutlineButton())
                 }
                 Spacer()
@@ -608,6 +614,10 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Toggle("", isOn: $player.shuffleQueue).labelsHidden().tint(AnalogPalette.green)
+            }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 9) {
+                HStack { Text("MASTER OUTPUT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green); Spacer(); Text("\(Int(player.outputVolume * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
+                Slider(value: Binding(get: { Double(player.outputVolume) }, set: { player.setOutputVolume(Float($0)) }), in: 0...1).tint(AnalogPalette.amber)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 8) {
                 Text("SLEEP TIMER").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green)
@@ -785,6 +795,11 @@ struct VisualiserView: View {
                             let rect = CGRect(x: CGFloat(index) * (barWidth + gap), y: size.height - height - 10, width: barWidth, height: height)
                             let color = index < 10 ? AnalogPalette.green : (index < 24 ? AnalogPalette.amber : Color(red: 0.9, green: 0.42, blue: 0.25))
                             context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [color.opacity(0.55), color]), startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+                            if peakHold, heldPeaks.indices.contains(index) {
+                                let peakY = size.height - CGFloat(heldPeaks[index]) * (size.height - 20) - 10
+                                let marker = CGRect(x: rect.minX, y: max(4, peakY - 2), width: barWidth, height: 2)
+                                context.fill(Path(roundedRect: marker, cornerRadius: 1), with: .color(AnalogPalette.cream.opacity(0.9)))
+                            }
                         }
                     } else {
                         var path = Path()
