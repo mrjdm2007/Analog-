@@ -108,7 +108,7 @@ class AudioCoreRegressionTest {
             assertEquals(44100, leInt(bytes, 634))
             assertEquals(3, leShort(bytes, 642))
             assertEquals(24, leShort(bytes, 644))
-            assertEquals(0, leInt(bytes, 3734))
+            assertEquals(0, leInt(bytes, 3742))
         } finally {
             file.delete()
         }
@@ -137,7 +137,7 @@ class AudioCoreRegressionTest {
             assertEquals(128, leInt(bytes, 654))
             assertEquals("JUNK", String(bytes, 3730, 4, Charsets.US_ASCII))
             assertEquals(0, leInt(bytes, 3734))
-            assertEquals("data", String(bytes, 3742, 4, Charsets.US_ASCII))
+            assertEquals("data", String(bytes, 3738, 4, Charsets.US_ASCII))
             assertEquals(WaveHeaderWriter.headerSizeBytes(16), bytes.size)
         } finally {
             file.delete()
