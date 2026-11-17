@@ -99,11 +99,14 @@ object RecordingEngine {
             if (minimum <= 0) throw IllegalStateException("Unsupported " + bitDepth + "-bit input format at " + rate + " Hz.")
             val bufferSize = max(minimum * 2, rate * channels * bytesPerSample / 5)
             val audioFormat = AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(encoding).build()
-            val unprocessed = runCatching {
+            val audioManager = context.getSystemService(AudioManager::class.java)
+            val deviceReportsUnprocessedSupport = audioManager.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED)
+                ?.equals("true", ignoreCase = true) == true
+            val unprocessed = if (deviceReportsUnprocessedSupport) runCatching {
                 AudioRecord.Builder().setAudioSource(MediaRecorder.AudioSource.UNPROCESSED)
                     .setAudioFormat(audioFormat).setBufferSizeInBytes(bufferSize).build()
-            }.getOrNull()
-            val unprocessedSelected = unprocessed?.state == AudioRecord.STATE_INITIALIZED
+            }.getOrNull() else null
+            val unprocessedSelected = deviceReportsUnprocessedSupport && unprocessed?.state == AudioRecord.STATE_INITIALIZED
             audio = if (unprocessedSelected) {
                 unprocessed
             } else {
@@ -125,7 +128,7 @@ object RecordingEngine {
             startedAt = SystemClock.elapsedRealtime()
             recordingStartedWallClock = System.currentTimeMillis()
             val captureModeLabel = if (rawMic) {
-                if (unprocessedSelected) "RAW REQUEST • UNPROCESSED SOURCE" else "RAW REQUEST • MIC FALLBACK (DSP MAY APPLY)"
+                if (unprocessedSelected) "RAW REQUEST • UNPROCESSED (DEVICE REPORTS SUPPORT)" else "RAW REQUEST • MIC FALLBACK (DSP MAY APPLY)"
             } else {
                 if (unprocessedSelected) "STUDIO DSP • UNPROCESSED SOURCE" else "STUDIO DSP • MIC SOURCE"
             }
