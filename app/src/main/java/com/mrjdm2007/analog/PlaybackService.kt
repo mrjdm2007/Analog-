@@ -314,7 +314,9 @@ class PlaybackService : MediaSessionService() {
         if (!crossfadeInProgress) {
             val nextIndex = primary.nextMediaItemIndex
             val currentDuration = primary.duration
-            if (nextIndex != C.INDEX_UNSET && currentDuration > 0L && currentDuration - primary.currentPosition <= durationMs && crossfadeForIndex != primary.currentMediaItemIndex) {
+            if (nextIndex != C.INDEX_UNSET && nextIndex != primary.currentMediaItemIndex &&
+                currentDuration > 0L && currentDuration - primary.currentPosition <= durationMs &&
+                crossfadeForIndex != primary.currentMediaItemIndex) {
                 runCatching {
                     secondary.stop()
                     secondary.clearMediaItems()
@@ -324,11 +326,26 @@ class PlaybackService : MediaSessionService() {
                     secondary.play()
                     crossfadeTargetIndex = nextIndex
                     crossfadeForIndex = primary.currentMediaItemIndex
-                    crossfadeStartMs = SystemClock.elapsedRealtime()
+                    crossfadeStartMs = 0L // Start the fade only once the next decoder is actually playing.
                     crossfadeInProgress = true
+                }.onFailure {
+                    cancelCrossfade()
+                    primary.volume = 1f
                 }
             }
         } else {
+            if (secondary.playerError != null) {
+                cancelCrossfade()
+                primary.volume = 1f
+                return
+            }
+            if (!secondary.isPlaying) {
+                // Preparing the next item can take time (especially from slow storage).
+                // Never fade the current song down before the next deck has audio ready.
+                timerHandler.postDelayed(crossfadeTick, 50L)
+                return
+            }
+            if (crossfadeStartMs == 0L) crossfadeStartMs = SystemClock.elapsedRealtime()
             val progress = ((SystemClock.elapsedRealtime() - crossfadeStartMs).toFloat() / durationMs).coerceIn(0f, 1f)
             primary.volume = 1f - progress
             secondary.volume = progress
