@@ -98,6 +98,7 @@ final class AnalogPlayer: ObservableObject {
 
     func restoreState() {
         favorites = Set(defaults.stringArray(forKey: "favorites") ?? [])
+        if let data = defaults.data(forKey: "libraryTracks"), let saved = try? JSONDecoder().decode([MusicTrack].self, from: data) { tracks = saved }
         moods = defaults.dictionary(forKey: "moods") as? [String: String] ?? [:]
         journal = defaults.dictionary(forKey: "journal") as? [String: String] ?? [:]
         ratings = defaults.dictionary(forKey: "ratings") as? [String: Int] ?? [:]
@@ -114,6 +115,7 @@ final class AnalogPlayer: ObservableObject {
 
     func persistState() {
         defaults.set(Array(favorites), forKey: "favorites")
+        if let data = try? JSONEncoder().encode(tracks) { defaults.set(data, forKey: "libraryTracks") }
         defaults.set(moods, forKey: "moods")
         defaults.set(journal, forKey: "journal")
         defaults.set(ratings, forKey: "ratings")
@@ -150,6 +152,7 @@ final class AnalogPlayer: ObservableObject {
         let existing = Set(tracks.map(\.id))
         tracks.append(contentsOf: additions.filter { !existing.contains($0.id) })
         tracks.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        persistState()
     }
 
     func importMusicFolder() {
@@ -177,8 +180,11 @@ final class AnalogPlayer: ObservableObject {
             let duration = (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.processingFormat.sampleRate } ?? 0
             found.append(MusicTrack(path: url.path, title: title, artist: artist, album: "Local Files", duration: duration))
         }
-        tracks = found.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        var merged = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        for track in found { merged[track.id] = track }
+        tracks = merged.values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         defaults.set(folder.path, forKey: "musicFolder")
+        persistState()
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
@@ -352,6 +358,20 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func renamePlaylist(_ oldName: String, to newName: String) {
+        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, oldName != clean, let items = customPlaylists.removeValue(forKey: oldName) else { return }
+        customPlaylists[clean] = items
+        persistState()
+    }
+
+    func deletePlaylist(_ name: String) { customPlaylists.removeValue(forKey: name); persistState() }
+
+    func remove(_ track: MusicTrack, fromPlaylist name: String) {
+        customPlaylists[name]?.removeAll { $0 == track.id }
+        persistState()
+    }
+
     func createPlaylist(_ name: String, tracks: [MusicTrack]) {
         customPlaylists[name] = tracks.map(\.id)
         persistState()
@@ -370,6 +390,40 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func clearHistory() { playHistory = []; playCounts = [:]; persistState() }
+
+    func removeTrackFromLibrary(_ track: MusicTrack) {
+        tracks.removeAll { $0.id == track.id }
+        favorites.remove(track.id)
+        moods.removeValue(forKey: track.id)
+        journal.removeValue(forKey: track.id)
+        ratings.removeValue(forKey: track.id)
+        playHistory.removeAll { $0 == track.id }
+        playCounts.removeValue(forKey: track.id)
+        for name in customPlaylists.keys { customPlaylists[name]?.removeAll { $0 == track.id } }
+        queue.removeAll { $0.id == track.id }
+        if let currentTrack, currentTrack.id == track.id {
+            playerNode.stop(); isPlaying = false; self.currentTrack = nil; currentTime = 0; timer?.invalidate()
+        }
+        queueIndex = min(queueIndex, max(0, queue.count - 1))
+        persistState()
+    }
+
+    var smartMixes: [(name: String, subtitle: String, tracks: [MusicTrack])] {
+        let recent = historyTracks
+        let rated = tracks.filter { (ratings[$0.id] ?? 0) >= 4 }
+        let unrated = tracks.filter { ratings[$0.id] == nil }
+        let longTracks = tracks.filter { $0.duration >= 300 }
+        let shortTracks = tracks.filter { $0.duration > 0 && $0.duration <= 180 }
+        return [
+            ("Recently Played", "Your latest listening rotation", recent),
+            ("Most Played", "Tracks you return to most", mostPlayedTracks),
+            ("Top Rated", "Songs rated four stars or higher", rated),
+            ("Never Rated", "Discover tracks you have not rated", unrated),
+            ("Long Sessions", "Tracks longer than five minutes", longTracks),
+            ("Quick Listen", "Tracks under three minutes", shortTracks),
+            ("Favourites", "Your saved favourite tracks", tracks.filter { favorites.contains($0.id) })
+        ]
+    }
 
     func setOutputVolume(_ value: Float) {
         outputVolume = min(1, max(0, value))
