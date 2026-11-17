@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
                             val baseName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Imported playlist"
                             var name = baseName
                             var suffix = 2
-                            while (name in playlists) name = "$baseName ($suffix++)".replace("++", (suffix++).toString())
+                            while (name in playlists) { name = "$baseName ($suffix)"; suffix++ }
                             playlists = playlists.toMutableMap().apply { put(name, resolved.map { it.id }.toSet()) }
                             storePlaylists(playlists)
                             Toast.makeText(this@MainActivity, "Imported $name • ${resolved.size} tracks", Toast.LENGTH_SHORT).show()
