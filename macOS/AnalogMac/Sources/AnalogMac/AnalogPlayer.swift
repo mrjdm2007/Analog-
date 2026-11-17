@@ -126,6 +126,31 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(eqGains, forKey: "eqGains")
     }
 
+    func importAudioFiles() {
+        let panel = NSOpenPanel()
+        panel.title = "Add audio files to Analog"
+        panel.prompt = "Add Files"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK else { return }
+        let supported = Set(["mp3", "m4a", "aac", "wav", "aif", "aiff", "caf", "flac", "alac"])
+        let additions = panel.urls.compactMap { url -> MusicTrack? in
+            guard supported.contains(url.pathExtension.lowercased()),
+                  let file = try? AVAudioFile(forReading: url) else { return nil }
+            let name = url.deletingPathExtension().lastPathComponent
+            let parts = name.components(separatedBy: " - ")
+            let artist = parts.count > 1 ? parts[0] : "Unknown Artist"
+            let title = parts.count > 1 ? parts.dropFirst().joined(separator: " - ") : name
+            let duration = Double(file.length) / file.processingFormat.sampleRate
+            return MusicTrack(path: url.path, title: title, artist: artist, album: "Local Files", duration: duration)
+        }
+        let existing = Set(tracks.map(\.id))
+        tracks.append(contentsOf: additions.filter { !existing.contains($0.id) })
+        tracks.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
     func importMusicFolder() {
         let panel = NSOpenPanel()
         panel.title = "Choose your music folder"
