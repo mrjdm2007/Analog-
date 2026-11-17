@@ -423,20 +423,20 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
-    var smartMixes: [(name: String, subtitle: String, tracks: [MusicTrack])] {
+    var smartMixes: [AnalogSmartMix] {
         let recent = historyTracks
         let rated = tracks.filter { (ratings[$0.id] ?? 0) >= 4 }
         let unrated = tracks.filter { ratings[$0.id] == nil }
         let longTracks = tracks.filter { $0.duration >= 300 }
         let shortTracks = tracks.filter { $0.duration > 0 && $0.duration <= 180 }
         return [
-            ("Recently Played", "Your latest listening rotation", recent),
-            ("Most Played", "Tracks you return to most", mostPlayedTracks),
-            ("Top Rated", "Songs rated four stars or higher", rated),
-            ("Never Rated", "Discover tracks you have not rated", unrated),
-            ("Long Sessions", "Tracks longer than five minutes", longTracks),
-            ("Quick Listen", "Tracks under three minutes", shortTracks),
-            ("Favourites", "Your saved favourite tracks", tracks.filter { favorites.contains($0.id) })
+            AnalogSmartMix(name: "Recently Played", subtitle: "Your latest listening rotation", tracks: recent),
+            AnalogSmartMix(name: "Most Played", subtitle: "Tracks you return to most", tracks: mostPlayedTracks),
+            AnalogSmartMix(name: "Top Rated", subtitle: "Songs rated four stars or higher", tracks: rated),
+            AnalogSmartMix(name: "Never Rated", subtitle: "Discover tracks you have not rated", tracks: unrated),
+            AnalogSmartMix(name: "Long Sessions", subtitle: "Tracks longer than five minutes", tracks: longTracks),
+            AnalogSmartMix(name: "Quick Listen", subtitle: "Tracks under three minutes", tracks: shortTracks),
+            AnalogSmartMix(name: "Favourites", subtitle: "Your saved favourite tracks", tracks: tracks.filter { favorites.contains($0.id) })
         ]
     }
 
@@ -592,4 +592,11 @@ private func analogWaveform(samples: [Float], pointCount: Int) -> [Double] {
         let sampleIndex = min(samples.count - 1, index * samples.count / pointCount)
         return min(1, max(-1, Double(samples[sampleIndex])))
     }
+}
+
+struct AnalogSmartMix: Identifiable {
+    let name: String
+    let subtitle: String
+    let tracks: [MusicTrack]
+    var id: String { name }
 }
