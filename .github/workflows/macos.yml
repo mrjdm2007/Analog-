@@ -17,6 +17,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test native audio processing
+        run: swift test --package-path macOS/AnalogMac
       - name: Build native macOS app
         run: |
           swift --version
