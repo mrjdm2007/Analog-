@@ -190,8 +190,11 @@ class MainActivity : ComponentActivity() {
             }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
-                    !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
                     studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
+                    !libraryAllowed -> PermissionPage(
+                        onAllow = { askLibrary.launch(readPermission) },
+                        onOpenStudio = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }
+                    )
                     visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
@@ -452,12 +455,13 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() { future?.let { MediaController.releaseFuture(it) }; controller = null; super.onDestroy() }
 }
 
-@Composable private fun PermissionPage(onAllow: () -> Unit) {
+@Composable private fun PermissionPage(onAllow: () -> Unit, onOpenStudio: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(28.dp)) {
             Text("ANALOG", color = Amber, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
             Spacer(Modifier.height(12.dp)); Text("Your music. Your device. No signal required.", color = Cream)
             Spacer(Modifier.height(22.dp)); Button(onClick = onAllow) { Text("ALLOW MUSIC LIBRARY") }
+            Spacer(Modifier.height(10.dp)); TextButton(onClick = onOpenStudio) { Text("OPEN RECORDING STUDIO", color = Amber) }
         }
     }
 }
