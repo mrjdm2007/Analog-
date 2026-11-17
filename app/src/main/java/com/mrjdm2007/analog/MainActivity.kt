@@ -274,7 +274,10 @@ class MainActivity : ComponentActivity() {
 
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
                         onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
-                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
+                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
+                        onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
+                        onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
+                        onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) })
                     else -> {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
@@ -609,7 +612,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -850,6 +853,26 @@ class MainActivity : ComponentActivity() {
             }
             TextButton(onClick = { loopStartMs = null; loopEndMs = null }) { Text("CLEAR", color = themedMuted, fontSize = 9.sp) }
         }
+        Column(Modifier.fillMaxWidth().background(themedPanel, RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Bedtime, null, tint = themedAccent)
+                Spacer(Modifier.width(8.dp))
+                Text("SLEEP TIMER", color = themedAccent, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onCancelSleepTimer) { Text("CANCEL", color = themedMuted, fontSize = 9.sp) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 30, 45, 60).forEach { minutes ->
+                    OutlinedButton(onClick = { onSleepTimer(minutes) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)) {
+                        Text("$minutes MIN", color = themedText, fontSize = 9.sp, maxLines = 1)
+                    }
+                }
+            }
+            OutlinedButton(onClick = onSleepTimerEndTrack, modifier = Modifier.fillMaxWidth()) {
+                Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = {
                 val id = trackId ?: return@TextButton
