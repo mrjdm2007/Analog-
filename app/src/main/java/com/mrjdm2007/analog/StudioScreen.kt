@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.media.AudioManager
 import android.media.AudioDeviceInfo
 import android.os.Environment
+import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.Canvas
@@ -53,6 +54,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
     val context = LocalContext.current
     val snapshot by RecordingEngine.state.collectAsState()
     var sampleRate by remember { mutableIntStateOf(48000) }
+    var bitDepth by remember { mutableIntStateOf(16) }
     var channels by remember { mutableIntStateOf(1) }
     var highPass by remember { mutableStateOf(false) }
     var limiter by remember { mutableStateOf(true) }
@@ -213,6 +215,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                     putExtra(RecordingService.EXTRA_HIGH_GAIN_DB, highGainDb)
                                     putExtra(RecordingService.EXTRA_COMPRESSOR, compressorEnabled)
                                     putExtra(RecordingService.EXTRA_COMPRESSOR_THRESHOLD, compressorThresholdDb)
+                                    putExtra(RecordingService.EXTRA_BIT_DEPTH, bitDepth)
                                 }
                                 ContextCompat.startForegroundService(context, intent)
                             },
@@ -271,6 +274,13 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
+                            Text("PCM BIT DEPTH", color = StudioMuted, fontSize = 9.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = bitDepth == 16, onClick = { bitDepth = 16 }, label = { Text("16-BIT") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                                FilterChip(selected = bitDepth == 24, onClick = { bitDepth = 24 }, label = { Text("24-BIT") }, enabled = Build.VERSION.SDK_INT >= 31 && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
+                            }
+                            if (Build.VERSION.SDK_INT < 31) Text("24-bit packed capture requires Android 12 or newer.", color = StudioMuted, fontSize = 9.sp)
+                            Spacer(Modifier.height(8.dp))
                             Text("INPUT CHANNELS", color = StudioMuted, fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(selected = channels == 1, onClick = { channels = 1 }, label = { Text("MONO") }, enabled = snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
@@ -310,7 +320,7 @@ fun StudioScreen(audioPermissionGranted: Boolean, onRequestPermission: () -> Uni
                             }
                             Text("COMPRESSOR THRESHOLD • " + String.format(Locale.US, "%.0f dBFS", compressorThresholdDb), color = StudioMuted, fontSize = 9.sp)
                             Slider(value = compressorThresholdDb, onValueChange = { compressorThresholdDb = it }, valueRange = -36f..-3f, enabled = compressorEnabled && snapshot.status !in listOf("RECORDING", "PAUSED", "STARTING"))
-                            Text("FORMAT: WAV • 16-BIT PCM • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
+                            Text("FORMAT: WAV • " + bitDepth + "-BIT PCM • UNCOMPRESSED", color = StudioAmber, fontSize = 9.sp, letterSpacing = .8.sp)
                             Text("Input routing is requested from Android and may be overridden by device policy. Sample rates and stereo depend on connected hardware.", color = StudioMuted, fontSize = 9.sp)
                         }
                     }
