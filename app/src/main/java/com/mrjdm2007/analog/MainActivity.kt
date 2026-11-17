@@ -698,6 +698,10 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    var showQueueSets by remember { mutableStateOf(false) }
+    var queueSetName by remember { mutableStateOf("") }
+    var queueSetVersion by remember { mutableIntStateOf(0) }
+    val libraryPrefs = remember(playerContext) { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
@@ -788,6 +792,7 @@ class MainActivity : ComponentActivity() {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
+            TextButton(onClick = { showQueueSets = true; queueSetVersion++ }) { Text("SETLISTS", color = themedAccent, fontSize = 9.sp, letterSpacing = .8.sp) }
             IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = themedAccent) }
         }
         Spacer(Modifier.height(20.dp))
@@ -987,6 +992,78 @@ class MainActivity : ComponentActivity() {
             }
         }
         Spacer(Modifier.height(14.dp))
+    }
+    if (showQueueSets) {
+        val savedNames = remember(showQueueSetVersionKey = queueSetVersion) {
+            libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toList().sorted()
+        }
+        AlertDialog(
+            onDismissRequest = { showQueueSets = false },
+            containerColor = themedBackground,
+            title = { Text("SAVED SETLISTS", color = themedAccent, fontSize = 14.sp, letterSpacing = 1.4.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Save and recall complete playback queues from your local library.", color = themedMuted, fontSize = 11.sp)
+                    OutlinedTextField(value = queueSetName, onValueChange = { queueSetName = it.take(36) }, singleLine = true,
+                        label = { Text("Setlist name") }, placeholder = { Text("Late night listening") })
+                    Button(
+                        onClick = {
+                            val name = queueSetName.trim()
+                            val current = player
+                            if (name.isNotEmpty() && current != null && current.mediaItemCount > 0) {
+                                val ids = (0 until current.mediaItemCount).mapNotNull { current.getMediaItemAt(it).mediaId.toLongOrNull() }
+                                if (ids.isNotEmpty()) {
+                                    val names = libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toMutableSet()
+                                    names.add(name)
+                                    libraryPrefs.edit().putStringSet("saved_queue_set_names", names)
+                                        .putString("saved_queue_set:$name", ids.joinToString(",")).apply()
+                                    queueSetName = ""
+                                    queueSetVersion++
+                                }
+                            }
+                        },
+                        enabled = !queueSetName.isBlank() && (player?.mediaItemCount ?: 0) > 0,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("SAVE CURRENT QUEUE") }
+                    Divider(color = themedMuted.copy(alpha = .2f))
+                    if (savedNames.isEmpty()) Text("No saved setlists yet.", color = themedMuted, fontSize = 12.sp)
+                    else LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                        items(savedNames) { name ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(name, color = themedText, maxLines = 1)
+                                    val count = libraryPrefs.getString("saved_queue_set:$name", "").orEmpty().split(",").count { it.toLongOrNull() != null }
+                                    Text("$count tracks", color = themedMuted, fontSize = 9.sp)
+                                }
+                                TextButton(onClick = {
+                                    val ids = libraryPrefs.getString("saved_queue_set:$name", "").orEmpty()
+                                        .split(",").mapNotNull { it.toLongOrNull() }
+                                    val byId = tracks.associateBy { it.id }
+                                    val restored = ids.mapNotNull { byId[it] }
+                                    if (restored.isNotEmpty()) {
+                                        player?.setMediaItems(restored.map { track ->
+                                            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(
+                                                MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()
+                                            ).build()
+                                        }, 0, 0L)
+                                        player?.prepare()
+                                        player?.play()
+                                        showQueueSets = false
+                                    }
+                                }) { Text("LOAD", color = themedAccent, fontSize = 9.sp) }
+                                TextButton(onClick = {
+                                    val names = libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toMutableSet()
+                                    names.remove(name)
+                                    libraryPrefs.edit().putStringSet("saved_queue_set_names", names).remove("saved_queue_set:$name").apply()
+                                    queueSetVersion++
+                                }) { Text("DELETE", color = themedMuted, fontSize = 9.sp) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQueueSets = false }) { Text("DONE") } }
+        )
     }
     if (showQueue) {
         AlertDialog(
