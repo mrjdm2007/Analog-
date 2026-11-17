@@ -94,6 +94,7 @@ struct ContentView: View {
         case "Library": LibraryView()
         case "Queue": QueueView()
         case "History": HistoryView()
+        case "Smart Mixes": SmartMixesView()
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
         case "Journal": JournalView()
@@ -112,6 +113,7 @@ struct SidebarView: View {
         ("Library", "square.grid.2x2.fill"),
         ("Queue", "text.line.first.and.arrowtriangle.forward"),
         ("History", "clock.arrow.circlepath"),
+        ("Smart Mixes", "sparkles"),
         ("Moods", "circle.lefthalf.filled"),
         ("Playlists", "music.note.list"),
         ("Journal", "book.closed.fill"),
@@ -342,6 +344,8 @@ struct TrackRow: View {
             Button("Add to queue") { player.addToQueue(track) }
             Button("Play next") { player.addNext(track) }
             ForEach(player.moodNames, id: \.self) { mood in Button("Add to \(mood)") { player.assignMood(mood, to: track) } }
+            Divider()
+            Button("Remove from library", role: .destructive) { player.removeTrackFromLibrary(track) }
         }
     }
 }
@@ -404,6 +408,8 @@ struct PlaylistsView: View {
 
 struct PlaylistCard: View {
     @EnvironmentObject private var player: AnalogPlayer
+    @State private var showRename = false
+    @State private var newName = ""
     let name: String
     let tracks: [MusicTrack]
     let subtitle: String
@@ -421,6 +427,17 @@ struct PlaylistCard: View {
             Button { player.playQueue(tracks) } label: { Image(systemName: "play.fill").foregroundStyle(AnalogPalette.amber).padding(10).background(AnalogPalette.amber.opacity(0.1), in: Circle()) }.buttonStyle(.plain)
         }
         .padding(10).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 12))
+        .contextMenu {
+            if subtitle == "Personal playlist" {
+                Button("Rename playlist") { newName = name; showRename = true }
+                Button("Delete playlist", role: .destructive) { player.deletePlaylist(name) }
+            }
+        }
+        .alert("Rename playlist", isPresented: $showRename) {
+            TextField("Playlist name", text: $newName)
+            Button("Save") { player.renamePlaylist(name, to: newName) }
+            Button("Cancel", role: .cancel) { }
+        }
     }
 }
 
@@ -948,6 +965,37 @@ struct HistoryView: View {
                 }
             }
             Spacer(minLength: 0)
+        }.padding(22)
+    }
+}
+
+struct SmartMixesView: View {
+    @EnvironmentObject private var player: AnalogPlayer
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SMART MIXES").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                Text("Automatically assembled collections from your listening activity and library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(player.smartMixes, id: \.name) { mix in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [AnalogPalette.raised, AnalogPalette.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            Image(systemName: mix.name == "Recently Played" ? "clock" : mix.name == "Most Played" ? "chart.bar.fill" : mix.name == "Top Rated" ? "star.fill" : mix.name == "Favourites" ? "heart.fill" : "sparkles").font(.system(size: 20)).foregroundStyle(AnalogPalette.amber)
+                        }.frame(width: 48, height: 48)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(mix.name).font(.system(size: 12, weight: .bold)).foregroundStyle(AnalogPalette.cream)
+                            Text(mix.subtitle).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(2)
+                            Text("\(mix.tracks.count) TRACKS").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundStyle(AnalogPalette.green)
+                        }
+                        Spacer(minLength: 2)
+                        Button { player.playQueue(mix.tracks) } label: { Image(systemName: "play.fill").foregroundStyle(AnalogPalette.ink).frame(width: 30, height: 30).background(AnalogPalette.amber, in: Circle()) }.buttonStyle(.plain).disabled(mix.tracks.isEmpty).opacity(mix.tracks.isEmpty ? 0.35 : 1)
+                    }.padding(11).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            Text("Smart mixes update automatically as you play, rate and favourite tracks.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 9))
+            Spacer()
         }.padding(22)
     }
 }
