@@ -6,12 +6,15 @@ import android.media.AudioRecord
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Environment
+import android.os.Build
 import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,7 +52,7 @@ object RecordingEngine {
     private var markers = mutableListOf<Long>()
 
     @Synchronized
-    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f) {
+    fun start(context: Context, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, inputDeviceId: Int = -1, lowGainDb: Float = 0f, midGainDb: Float = 0f, highGainDb: Float = 0f, compressorEnabled: Boolean = false, compressorThresholdDb: Float = -18f, bitDepth: Int = 16) {
         if (running) return
         markers = mutableListOf()
         pausedTotal = 0L
@@ -75,25 +78,33 @@ object RecordingEngine {
             return
         }
         running = true
-        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb) }, "AnalogAudioCapture")
+        Thread({ capture(output, rate, channels.coerceIn(1, 2), highPass, limiter, gain.coerceIn(0.25f, 2f), context, inputDeviceId, lowGainDb, midGainDb, highGainDb, compressorEnabled, compressorThresholdDb, bitDepth) }, "AnalogAudioCapture")
             .apply { priority = Thread.MAX_PRIORITY; start() }
     }
 
-    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float) {
+    private fun capture(output: File, rate: Int, channels: Int, highPass: Boolean, limiter: Boolean, gain: Float, context: Context, inputDeviceId: Int, lowGainDb: Float, midGainDb: Float, highGainDb: Float, compressorEnabled: Boolean, compressorThresholdDb: Float, bitDepth: Int) {
         var stream: FileOutputStream? = null
         var audio: AudioRecord? = null
         var totalBytes = 0L
         try {
+            if (bitDepth == 24 && Build.VERSION.SDK_INT < 31) throw IllegalStateException("24-bit packed PCM requires Android 12 or newer.")
+            val bytesPerSample = if (bitDepth == 24) 3 else 2
+            val encoding = if (bitDepth == 24) AudioFormat.ENCODING_PCM_24BIT_PACKED else AudioFormat.ENCODING_PCM_16BIT
             val mask = if (channels == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
-            val minimum = AudioRecord.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT)
-            if (minimum <= 0) throw IllegalStateException("Unsupported input format: " + rate + " Hz.")
-            val bufferSize = max(minimum * 2, rate * channels * 2 / 5)
-            val unprocessed = runCatching { AudioRecord(MediaRecorder.AudioSource.UNPROCESSED, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize) }.getOrNull()
+            val minimum = AudioRecord.getMinBufferSize(rate, mask, encoding)
+            if (minimum <= 0) throw IllegalStateException("Unsupported " + bitDepth + "-bit input format at " + rate + " Hz.")
+            val bufferSize = max(minimum * 2, rate * channels * bytesPerSample / 5)
+            val audioFormat = AudioFormat.Builder().setSampleRate(rate).setChannelMask(mask).setEncoding(encoding).build()
+            val unprocessed = runCatching {
+                AudioRecord.Builder().setAudioSource(MediaRecorder.AudioSource.UNPROCESSED)
+                    .setAudioFormat(audioFormat).setBufferSizeInBytes(bufferSize).build()
+            }.getOrNull()
             audio = if (unprocessed?.state == AudioRecord.STATE_INITIALIZED) {
                 unprocessed
             } else {
                 runCatching { unprocessed?.release() }
-                AudioRecord(MediaRecorder.AudioSource.MIC, rate, mask, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+                AudioRecord.Builder().setAudioSource(MediaRecorder.AudioSource.MIC)
+                    .setAudioFormat(audioFormat).setBufferSizeInBytes(bufferSize).build()
             }
             val activeAudio = audio
             if (activeAudio == null || activeAudio.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("Android could not initialize this microphone format.")
@@ -109,8 +120,8 @@ object RecordingEngine {
             startedAt = SystemClock.elapsedRealtime()
             mutableState.value = RecordingSnapshot(status = "RECORDING", file = output)
 
-            val samples = ShortArray(1024 * channels)
-            val pcm = ByteArray(samples.size * 2)
+            val inputBuffer = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.LITTLE_ENDIAN)
+            val pcm = ByteArray(bufferSize)
             val fft = FloatArray(1024)
             var fftCount = 0
             var previousIn = FloatArray(channels)
@@ -131,19 +142,34 @@ object RecordingEngine {
             while (running) {
                 if (paused) {
                     // Drain input while paused so buffered audio cannot be written after resume.
-                    val discarded = activeAudio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
+                    inputBuffer.clear()
+                    val discarded = activeAudio.read(inputBuffer, inputBuffer.capacity(), AudioRecord.READ_BLOCKING)
                     if (discarded < 0) throw IllegalStateException("Microphone read failed: " + discarded)
                     continue
                 }
                 val readGeneration = pauseGeneration
-                val count = activeAudio.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
-                if (count < 0) throw IllegalStateException("Microphone read failed: " + count)
-                if (count == 0 || paused || readGeneration != pauseGeneration) continue
+                inputBuffer.clear()
+                val readBytes = activeAudio.read(inputBuffer, inputBuffer.capacity(), AudioRecord.READ_BLOCKING)
+                if (readBytes < 0) throw IllegalStateException("Microphone read failed: " + readBytes)
+                if (readBytes == 0 || paused || readGeneration != pauseGeneration) continue
+                val count = readBytes / bytesPerSample
+                if (count == 0) continue
+                inputBuffer.position(0)
                 var peak = 0f
                 var sum = 0.0
                 for (i in 0 until count) {
                     val channel = i % channels
-                    var value = samples[i].toFloat() / 32768f * gain
+                    val sample = if (bitDepth == 24) {
+                        val offset = i * 3
+                        var raw = (inputBuffer.get(offset).toInt() and 0xff) or
+                            ((inputBuffer.get(offset + 1).toInt() and 0xff) shl 8) or
+                            ((inputBuffer.get(offset + 2).toInt() and 0xff) shl 16)
+                        if ((raw and 0x800000) != 0) raw = raw or -0x1000000
+                        raw.toFloat() / 8388608f
+                    } else {
+                        inputBuffer.getShort(i * 2).toFloat() / 32768f
+                    }
+                    var value = sample * gain
                     if (highPass) {
                         val rc = 1.0 / (2.0 * PI * 80.0)
                         val dt = 1.0 / rate
@@ -173,9 +199,17 @@ object RecordingEngine {
                     value = value.coerceIn(-1f, 0.99997f)
                     peak = max(peak, kotlin.math.abs(value))
                     sum += value.toDouble() * value
-                    val shortValue = (value * 32767f).toInt().coerceIn(-32768, 32767)
-                    pcm[i * 2] = (shortValue and 255).toByte()
-                    pcm[i * 2 + 1] = ((shortValue shr 8) and 255).toByte()
+                    if (bitDepth == 24) {
+                        val packed = (value * 8388607f).toInt().coerceIn(-8388608, 8388607)
+                        val offset = i * 3
+                        pcm[offset] = (packed and 255).toByte()
+                        pcm[offset + 1] = ((packed shr 8) and 255).toByte()
+                        pcm[offset + 2] = ((packed shr 16) and 255).toByte()
+                    } else {
+                        val shortValue = (value * 32767f).toInt().coerceIn(-32768, 32767)
+                        pcm[i * 2] = (shortValue and 255).toByte()
+                        pcm[i * 2 + 1] = ((shortValue shr 8) and 255).toByte()
+                    }
                     if (channels == 1) {
                         if (fftCount < fft.size) fft[fftCount++] = value
                     } else if (channel == 0) {
@@ -184,8 +218,9 @@ object RecordingEngine {
                         fft[fftCount++] = (leftSample + value) * 0.5f
                     }
                 }
-                stream.write(pcm, 0, count * 2)
-                totalBytes += count * 2L
+                val outputBytes = count * bytesPerSample
+                stream.write(pcm, 0, outputBytes)
+                totalBytes += outputBytes.toLong()
                 if (fftCount == fft.size) {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastUi >= 33) {
@@ -218,7 +253,7 @@ object RecordingEngine {
             stream.fd.sync()
             stream.close()
             stream = null
-            writeHeader(output, totalBytes, rate, channels)
+            writeHeader(output, totalBytes, rate, channels, bitDepth)
             val markerSnapshot = synchronized(this) { markers.toList() }
             if (markerSnapshot.isNotEmpty()) {
                 File(output.parentFile, output.nameWithoutExtension + ".markers.txt")
@@ -326,13 +361,13 @@ object RecordingEngine {
         }
     }
 
-    private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int) {
+    private fun writeHeader(file: File, dataSize: Long, rate: Int, channels: Int, bitDepth: Int) {
         RandomAccessFile(file, "rw").use { raf ->
             raf.seek(0)
             raf.writeBytes("RIFF"); writeInt(raf, (36L + dataSize).toInt())
             raf.writeBytes("WAVEfmt "); writeInt(raf, 16); writeShort(raf, 1)
-            writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * 2)
-            writeShort(raf, channels * 2); writeShort(raf, 16)
+            writeShort(raf, channels); writeInt(raf, rate); writeInt(raf, rate * channels * (bitDepth / 8))
+            writeShort(raf, channels * (bitDepth / 8)); writeShort(raf, bitDepth)
             raf.writeBytes("data"); writeInt(raf, dataSize.toInt())
         }
     }
