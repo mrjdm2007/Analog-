@@ -740,6 +740,14 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $player.repeatCurrentTrack).labelsHidden().tint(AnalogPalette.green)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Dynamic peak guard").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+                    Text("Optional post-EQ peak control; adjust its ceiling in the Equalizer page").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(get: { player.peakGuardEnabled }, set: { player.setPeakGuard(enabled: $0) })).labelsHidden().tint(AnalogPalette.green)
+            }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 9) {
                 HStack { Text("MASTER OUTPUT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green); Spacer(); Text("\(Int(player.outputVolume * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
                 Slider(value: Binding(get: { Double(player.outputVolume) }, set: { player.setOutputVolume(Float($0)) }), in: 0...1).tint(AnalogPalette.amber)
@@ -752,7 +760,7 @@ struct SettingsView: View {
                     }
                     Button("CANCEL") { player.setSleepTimer(minutes: 0) }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
                 }
-                if player.sleepMinutes > 0 { Text("Sleep timer set for \(player.sleepMinutes) minutes").font(.system(size: 10)).foregroundStyle(AnalogPalette.amber) }
+                if player.sleepMinutes > 0 { Text("Sleep timer set for \(player.sleepMinutes) minutes • final 15 seconds fade smoothly").font(.system(size: 10)).foregroundStyle(AnalogPalette.amber) }
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             Spacer()
         }.padding(22)
