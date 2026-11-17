@@ -31,7 +31,7 @@ class RecordingService : Service() {
         const val EXTRA_COMPRESSOR = "compressor"
         const val EXTRA_COMPRESSOR_THRESHOLD = "compressor_threshold"
         const val EXTRA_BIT_DEPTH = "bit_depth"
-        const val EXTRA_RAW_MIC = "raw_mic"
+        const val EXTRA_RAW_MIC = "raw_mic"\n        const val EXTRA_HIGH_PASS_HZ = "high_pass_hz"\n        const val EXTRA_LIMITER_CEILING_DB = "limiter_ceiling_db"\n        const val EXTRA_COMPRESSOR_RATIO = "compressor_ratio"
         private const val CHANNEL_ID = "analog_recording"
         private const val NOTIFICATION_ID = 4102
     }
