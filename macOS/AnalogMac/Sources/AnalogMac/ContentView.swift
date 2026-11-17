@@ -882,13 +882,17 @@ struct QueueView: View {
                             if index == player.queueIndex { Image(systemName: "speaker.wave.2.fill").foregroundStyle(AnalogPalette.green).font(.system(size: 11)) }
                             Button { if index > 0 { player.moveQueueItem(from: index, to: index - 1) } } label: { Image(systemName: "arrow.up").foregroundStyle(index > 0 ? AnalogPalette.cream : AnalogPalette.muted.opacity(0.25)) }.buttonStyle(.plain).disabled(index == 0)
                             Button { if index + 1 < player.queue.count { player.moveQueueItem(from: index, to: index + 1) } } label: { Image(systemName: "arrow.down").foregroundStyle(index + 1 < player.queue.count ? AnalogPalette.cream : AnalogPalette.muted.opacity(0.25)) }.buttonStyle(.plain).disabled(index + 1 >= player.queue.count)
-                            Button { player.removeFromQueue(at: index) } label: { Image(systemName: "xmark").foregroundStyle(AnalogPalette.amber) }.buttonStyle(.plain)
+                            Button { player.removeFromQueue(at: index) } label: { Image(systemName: "xmark").foregroundStyle(AnalogPalette.amber) }.buttonStyle(.plain).disabled(index == player.queueIndex)
                         }.padding(11).background(index == player.queueIndex ? AnalogPalette.amber.opacity(0.09) : AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
                     }
                 }
             }
             if player.queue.isEmpty {
-                ContentUnavailableView("Queue is empty", systemImage: "text.line.first.and.arrowtriangle.forward", description: Text("Add tracks from your library using the track actions menu."))
+                VStack(spacing: 8) {
+                    Image(systemName: "text.line.first.and.arrowtriangle.forward").font(.system(size: 28)).foregroundStyle(AnalogPalette.amber)
+                    Text("Queue is empty").font(.system(size: 14, weight: .bold)).foregroundStyle(AnalogPalette.cream)
+                    Text("Add tracks from your library using the track actions menu.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Spacer(minLength: 0)
         }.padding(22)
