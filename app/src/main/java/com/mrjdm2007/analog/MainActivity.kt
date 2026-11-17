@@ -360,7 +360,13 @@ class MainActivity : ComponentActivity() {
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
                                             GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
                                         }
-                                        item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
+                                        item { Text("MOOD COLLECTIONS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
+                                         items(listOf("Calm", "Energy", "Focus", "Nostalgia")) { name ->
+                                             val ids = prefs().getStringSet("mood_playlist:$name", emptySet()) ?: emptySet()
+                                             val moodTracks = libraryTracks.filter { it.id.toString() in ids }
+                                             GroupRow(Group(name, moodTracks.size.toString() + " tracks • mood collection", moodTracks)) { activePlaylist = "mood:$name" }
+                                         }
+                                         item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(playlists.keys.sorted()) { name ->
                                             val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
                                             GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
@@ -373,7 +379,7 @@ class MainActivity : ComponentActivity() {
                                         TextButton(onClick = { activePlaylist = null }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.ArrowBack, null); Text("ALL PLAYLISTS") }
                                         TextButton(onClick = {
                                             exportTracks = currentTracks
-                                            exportName = (activePlaylist ?: "Analog Playlist").removePrefix("smart:")
+                                            exportName = (activePlaylist ?: "Analog Playlist").removePrefix("smart:").removePrefix("mood:")
                                             exportPlaylistLauncher.launch(exportName.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "Analog Playlist" } + ".m3u")
                                         }) { Text("EXPORT M3U", color = Amber) }
                                     }
@@ -419,7 +425,28 @@ class MainActivity : ComponentActivity() {
                                             }, enabled = selectedTrack != null, modifier = Modifier.weight(1f)) { Text("ADD TO QUEUE", color = Amber, fontSize = 10.sp) }
                                         }
                                         Divider(color = Cream.copy(alpha = .12f))
-                                        Text("ADD TO PLAYLIST", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
+                                        Text("MOOD COLLECTIONS", color = Green, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                             listOf("Calm", "Energy", "Focus", "Nostalgia").forEach { moodName ->
+                                                 FilterChip(
+                                                     selected = selectedTrack?.let { prefs().getString("mood:${it.id}", "") == moodName } == true,
+                                                     onClick = {
+                                                         selectedTrack?.let { track ->
+                                                             val edit = prefs().edit().putString("mood:${track.id}", moodName)
+                                                             listOf("Calm", "Energy", "Focus", "Nostalgia").forEach { name ->
+                                                                 val ids = prefs().getStringSet("mood_playlist:$name", emptySet()).orEmpty().toMutableSet()
+                                                                 if (name == moodName) ids.add(track.id.toString()) else ids.remove(track.id.toString())
+                                                                 edit.putStringSet("mood_playlist:$name", ids)
+                                                             }
+                                                             edit.apply()
+                                                         }
+                                                     },
+                                                     label = { Text(moodName, fontSize = 9.sp) }
+                                                 )
+                                             }
+                                         }
+                                         Divider(color = Cream.copy(alpha = .12f))
+                                         Text("ADD TO PLAYLIST", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
                                         playlists.keys.sorted().forEach { name ->
                                             TextButton(onClick = {
                                                 val id = pendingTrack
