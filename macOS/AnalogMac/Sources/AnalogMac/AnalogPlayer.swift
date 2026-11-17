@@ -33,6 +33,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var eqOutputPeak: Float = 0
     @Published var eqOutputRMS: Float = 0
     @Published var eqGains: [Float] = Array(repeating: 0, count: 10)
+    @Published var eqBandwidths: [Float] = Array(repeating: 1.0, count: 10)
     @Published var repeatQueue = false
     @Published var repeatCurrentTrack = false
     @Published var shuffleQueue = false
@@ -125,6 +126,7 @@ final class AnalogPlayer: ObservableObject {
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
+        if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
     }
 
     func persistState() {
@@ -141,6 +143,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
         defaults.set(eqGains, forKey: "eqGains")
+        defaults.set(eqBandwidths, forKey: "eqBandwidths")
     }
 
     func importAudioFiles() {
@@ -258,14 +261,14 @@ final class AnalogPlayer: ObservableObject {
         tracks.sorted { (playCounts[$0.id] ?? 0) > (playCounts[$1.id] ?? 0) }.filter { (playCounts[$0.id] ?? 0) > 0 }
     }
 
-    private func startTrack(_ track: MusicTrack, at seconds: Double) {
+    private func startTrack(_ track: MusicTrack, at seconds: Double, recordPlay: Bool = true) {
         playbackToken = UUID()
         let token = playbackToken
         playerNode.stop()
         do {
             let file = try AVAudioFile(forReading: track.url)
             audioFile = file
-            if currentTrack?.id != track.id {
+            if recordPlay {
                 playHistory.removeAll { $0 == track.id }
                 playHistory.insert(track.id, at: 0)
                 if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
@@ -303,7 +306,7 @@ final class AnalogPlayer: ObservableObject {
             isPlaying = false
             timer?.invalidate()
         } else if let track = currentTrack {
-            startTrack(track, at: currentTime)
+            startTrack(track, at: currentTime, recordPlay: false)
         } else if let first = tracks.first {
             play(first)
         }
@@ -312,7 +315,7 @@ final class AnalogPlayer: ObservableObject {
     func seek(to seconds: Double) {
         guard let track = currentTrack else { return }
         let wasPlaying = isPlaying
-        startTrack(track, at: min(max(0, seconds), track.duration))
+        startTrack(track, at: min(max(0, seconds), track.duration), recordPlay: false)
         if !wasPlaying {
             playerNode.pause()
             isPlaying = false
@@ -473,6 +476,13 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func setEQBandwidth(_ index: Int, _ bandwidth: Float) {
+        guard eqBandwidths.indices.contains(index), index > 0, index < frequencies.count - 1 else { return }
+        eqBandwidths[index] = min(4, max(0.1, bandwidth))
+        applyEqualizer()
+        persistState()
+    }
+
     func setEQEnabled(_ enabled: Bool) {
         eqEnabled = enabled
         applyEqualizer()
@@ -484,6 +494,7 @@ final class AnalogPlayer: ObservableObject {
         playerNode.pan = stereoPan
         for index in equalizer.bands.indices {
             equalizer.bands[index].gain = eqGains[index]
+            equalizer.bands[index].bandwidth = eqBandwidths[index]
             equalizer.bands[index].bypass = !eqEnabled
         }
     }
