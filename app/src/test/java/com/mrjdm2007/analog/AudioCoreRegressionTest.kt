@@ -89,8 +89,8 @@ class AudioCoreRegressionTest {
             assertEquals(2, leInt(bytes, 666))
             assertEquals(0, leInt(bytes, 674))
             assertEquals(48000, leInt(bytes, 698))
-            assertEquals("data", String(bytes, 3742, 4, Charsets.US_ASCII))
-            assertEquals(16, leInt(bytes, 3746))
+            assertEquals("data", String(bytes, 3750, 4, Charsets.US_ASCII))
+            assertEquals(16, leInt(bytes, 3754))
             assertEquals(WaveHeaderWriter.headerSizeBytes(32) + 16, bytes.size)
         } finally {
             file.delete()
@@ -120,9 +120,25 @@ class AudioCoreRegressionTest {
             file.writeBytes(ByteArray(WaveHeaderWriter.headerSizeBytes(24) + 3))
             WaveHeaderWriter.write(file, 3, 44100, 1, 24, 0L, emptyList())
             val bytes = file.readBytes()
-            assertEquals(3, leInt(bytes, 3734))
+            assertEquals(3, leInt(bytes, 3742))
             assertEquals(0, bytes.last().toInt())
             assertEquals(bytes.size - 8, leInt(bytes, 4))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun writesAll128ReservedCuePointsWithoutBreakingRiffChunks() {
+        val file = File.createTempFile("analog-max-cues", ".wav")
+        try {
+            file.writeBytes(ByteArray(WaveHeaderWriter.headerSizeBytes(16)))
+            WaveHeaderWriter.write(file, 0, 48000, 1, 16, 0L, (0L until 128L).map { it * 1000L })
+            val bytes = file.readBytes()
+            assertEquals(128, leInt(bytes, 654))
+            assertEquals("JUNK", String(bytes, 3730, 4, Charsets.US_ASCII))
+            assertEquals(0, leInt(bytes, 3734))
+            assertEquals("data", String(bytes, 3742, 4, Charsets.US_ASCII))
+            assertEquals(WaveHeaderWriter.headerSizeBytes(16), bytes.size)
         } finally {
             file.delete()
         }
