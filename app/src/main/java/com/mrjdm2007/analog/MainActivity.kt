@@ -147,15 +147,15 @@ class MainActivity : ComponentActivity() {
             val exportPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
                 if (uri != null) {
                     val text = buildString {
-                        append("#EXTM3U\\n")
+                        append("#EXTM3U\n")
                         exportTracks.forEach { track ->
                             append("#EXTINF:")
                             append((track.duration / 1000L).coerceAtLeast(-1L))
                             append(",")
-                            append((track.title + " - " + track.artist).replace("\\n", " ").replace("\\r", " "))
-                            append("\\n")
+                            append((track.title + " - " + track.artist).replace("\n", " ").replace("\r", " "))
+                            append("\n")
                             append(track.path.ifBlank { track.uri.toString() })
-                            append("\\n")
+                            append("\n")
                         }
                     }
                     val saved = runCatching {
@@ -822,6 +822,17 @@ class MainActivity : ComponentActivity() {
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = themedAccent, activeTrackColor = themedAccent, inactiveTrackColor = themedMuted.copy(alpha = .30f)))
         Row { Text(timeText(position.toLong()), color = themedMuted, fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = themedMuted, fontSize = 10.sp) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { player?.let { it.seekTo((it.currentPosition - 10_000L).coerceAtLeast(0L)) } }) {
+                Icon(Icons.Default.Replay10, null, tint = themedAccent)
+                Text(" 10 SEC", color = themedMuted, fontSize = 9.sp)
+            }
+            Spacer(Modifier.width(24.dp))
+            TextButton(onClick = { player?.let { p -> p.seekTo((p.currentPosition + 30_000L).coerceAtMost(p.duration.coerceAtLeast(0L))) } }) {
+                Text("30 SEC ", color = themedMuted, fontSize = 9.sp)
+                Icon(Icons.Default.Forward30, null, tint = themedAccent)
+            }
+        }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
