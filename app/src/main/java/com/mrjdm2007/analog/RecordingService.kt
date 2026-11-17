@@ -45,14 +45,17 @@ class RecordingService : Service() {
                     intent.getBooleanExtra(EXTRA_LIMITER, true),
                     intent.getFloatExtra(EXTRA_GAIN, 1f)
                 )
+                Thread {
+                    while (RecordingEngine.state.value.status in listOf("STARTING", "RECORDING", "PAUSED")) {
+                        try { Thread.sleep(100) } catch (_: InterruptedException) { break }
+                    }
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }.start()
             }
             ACTION_PAUSE -> RecordingEngine.pause()
             ACTION_RESUME -> RecordingEngine.resume()
-            ACTION_STOP -> {
-                RecordingEngine.stop()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
+            ACTION_STOP -> RecordingEngine.stop()
         }
         return START_NOT_STICKY
     }
