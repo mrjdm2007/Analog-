@@ -10,6 +10,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.Equalizer
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.provider.MediaStore
 import java.util.concurrent.Executors
@@ -34,6 +37,16 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
         const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
         const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
+        const val ACTION_EQ_ENABLED = "com.mrjdm2007.analog.EQ_ENABLED"
+        const val ACTION_EQ_BAND = "com.mrjdm2007.analog.EQ_BAND"
+        const val ACTION_EQ_PROFILE = "com.mrjdm2007.analog.EQ_PROFILE"
+        const val ACTION_EQ_BASS = "com.mrjdm2007.analog.EQ_BASS"
+        const val ACTION_EQ_SPACE = "com.mrjdm2007.analog.EQ_SPACE"
+        const val EXTRA_ENABLED = "enabled"
+        const val EXTRA_BAND_INDEX = "band_index"
+        const val EXTRA_BAND_LEVEL = "band_level"
+        const val EXTRA_PROFILE = "profile"
+        const val EXTRA_STRENGTH = "strength"
     }
     private var mediaSession: MediaSession? = null
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -42,6 +55,9 @@ class PlaybackService : MediaSessionService() {
     private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
     private var crossfadePlayer: ExoPlayer? = null
     private var crossfadeStartMs = 0L
     private var crossfadeTargetIndex = -1
@@ -164,6 +180,7 @@ class PlaybackService : MediaSessionService() {
                 if (audioSessionId > 0) {
                     getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("audio_session_id", audioSessionId).apply()
                     runCatching { loudnessEnhancer?.release(); loudnessEnhancer = LoudnessEnhancer(audioSessionId).apply { enabled = true } }
+                    initializeAudioEffects(audioSessionId)
                     applyReplayGain()
                 }
             }
@@ -241,6 +258,40 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
+            ACTION_EQ_ENABLED -> {
+                val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
+                runCatching { equalizer?.enabled = enabled; bassBoost?.enabled = enabled; virtualizer?.enabled = enabled }
+            }
+            ACTION_EQ_BAND -> {
+                val index = intent.getIntExtra(EXTRA_BAND_INDEX, -1)
+                val level = intent.getFloatExtra(EXTRA_BAND_LEVEL, 0f).coerceIn(-1f, 1f)
+                val effect = equalizer
+                if (effect != null && index in 0 until effect.numberOfBands.toInt()) {
+                    val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    val values = prefs.getString("eq_band_levels", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }?.toMutableList()
+                        ?: MutableList(effect.numberOfBands.toInt()) { 0f }
+                    while (values.size < effect.numberOfBands.toInt()) values.add(0f)
+                    values[index] = level
+                    prefs.edit().putString("eq_band_levels", values.joinToString(",")).apply()
+                    applyEqualizerBands()
+                }
+            }
+            ACTION_EQ_PROFILE -> {
+                val values = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putString("eq_band_levels", values).apply()
+                applyEqualizerBands()
+            }
+            ACTION_EQ_BASS -> {
+                val strength = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(0f, 100f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("eq_bass", strength).apply()
+                runCatching { bassBoost?.setStrength((strength * 10).toInt().toShort()) }
+            }
+            ACTION_EQ_SPACE -> {
+                val strength = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(0f, 100f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("eq_space", strength).apply()
+                runCatching { virtualizer?.setStrength((strength * 10).toInt().toShort()) }
+            }
             ACTION_SET_CROSSFADE -> {
                 val seconds = intent.getIntExtra(EXTRA_CROSSFADE_SECONDS, 0).coerceIn(0, 10)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("crossfade_seconds", seconds).apply()
@@ -387,6 +438,53 @@ class PlaybackService : MediaSessionService() {
         crossfadePlayer?.let { runCatching { it.volume = 0f; it.pause(); it.clearMediaItems() } }
     }
 
+
+    private fun initializeAudioEffects(sessionId: Int) {
+        runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
+        equalizer = null
+        bassBoost = null
+        virtualizer = null
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        try {
+            equalizer = Equalizer(0, sessionId).apply {
+                val count = numberOfBands.toInt()
+                val range = bandLevelRange
+                prefs.edit()
+                    .putInt("eq_band_count", count)
+                    .putInt("eq_band_min", range[0].toInt())
+                    .putInt("eq_band_max", range[1].toInt())
+                    .putString("eq_band_centers", (0 until count).joinToString(",") { getCenterFreq(it.toShort()).toString() })
+                    .apply()
+                enabled = prefs.getBoolean("eq_enabled", true)
+            }
+            bassBoost = BassBoost(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) }
+            virtualizer = Virtualizer(0, sessionId).apply { enabled = prefs.getBoolean("eq_enabled", true) }
+            runCatching { bassBoost?.setStrength((prefs.getFloat("eq_bass", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
+            runCatching { virtualizer?.setStrength((prefs.getFloat("eq_space", 0f).coerceIn(0f, 100f) * 10).toInt().toShort()) }
+            applyEqualizerBands()
+            prefs.edit().putBoolean("eq_available", true).putString("eq_error", "").apply()
+        } catch (error: Throwable) {
+            prefs.edit().putBoolean("eq_available", false).putString("eq_error", error.message ?: error.javaClass.simpleName).apply()
+            runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
+            equalizer = null
+            bassBoost = null
+            virtualizer = null
+        }
+    }
+
+    private fun applyEqualizerBands() {
+        val effect = equalizer ?: return
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        val range = effect.bandLevelRange
+        val values = prefs.getString("eq_band_levels", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        for (i in 0 until effect.numberOfBands.toInt()) {
+            val normalized = values.getOrNull(i)?.coerceIn(-1f, 1f) ?: 0f
+            val level = (range[0] + ((normalized + 1f) / 2f * (range[1] - range[0]))).toInt().toShort()
+            runCatching { effect.setBandLevel(i.toShort(), level) }
+        }
+        runCatching { effect.enabled = prefs.getBoolean("eq_enabled", true) }
+    }
+
     private fun applyReplayGain() {
         val player = mediaSession?.player ?: return
         val uri: Uri = player.currentMediaItem?.localConfiguration?.uri ?: return
@@ -431,6 +529,10 @@ class PlaybackService : MediaSessionService() {
         crossfadePlayer = null
         runCatching { loudnessEnhancer?.release() }
         loudnessEnhancer = null
+        runCatching { equalizer?.release(); bassBoost?.release(); virtualizer?.release() }
+        equalizer = null
+        bassBoost = null
+        virtualizer = null
         mediaSession?.run {
             player.release()
             release()
