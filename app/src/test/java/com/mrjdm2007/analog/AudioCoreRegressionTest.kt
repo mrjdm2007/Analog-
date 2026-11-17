@@ -53,7 +53,7 @@ class AudioCoreRegressionTest {
     @Test fun writesValidBwfHeaderWithEmbeddedCuePoints() {
         val file = File.createTempFile("analog-bwf-test", ".wav")
         try {
-            file.writeBytes(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES + 16))
+            file.writeBytes(ByteArray(WaveHeaderWriter.headerSizeBytes(32) + 16))
             WaveHeaderWriter.write(
                 file, dataSize = 16, rate = 48000, channels = 2, bitDepth = 32,
                 startedAtMillis = 1_794_923_696_000L, markerTimes = listOf(0L, 1000L)
@@ -68,13 +68,15 @@ class AudioCoreRegressionTest {
             assertEquals(2, leShort(bytes, 632))
             assertEquals(48000, leInt(bytes, 634))
             assertEquals(32, leShort(bytes, 644))
-            assertEquals("cue ", String(bytes, 646, 4, Charsets.US_ASCII))
-            assertEquals(2, leInt(bytes, 654))
-            assertEquals(0, leInt(bytes, 662))
-            assertEquals(48000, leInt(bytes, 686))
-            assertEquals("data", String(bytes, 3730, 4, Charsets.US_ASCII))
-            assertEquals(16, leInt(bytes, 3734))
-            assertEquals(WaveHeaderWriter.HEADER_SIZE_BYTES + 16, bytes.size)
+            assertEquals("fact", String(bytes, 646, 4, Charsets.US_ASCII))
+            assertEquals(2, leInt(bytes, 654)) // 16 bytes / (2 channels × 4 bytes)
+            assertEquals("cue ", String(bytes, 658, 4, Charsets.US_ASCII))
+            assertEquals(2, leInt(bytes, 666))
+            assertEquals(0, leInt(bytes, 674))
+            assertEquals(48000, leInt(bytes, 698))
+            assertEquals("data", String(bytes, 3742, 4, Charsets.US_ASCII))
+            assertEquals(16, leInt(bytes, 3746))
+            assertEquals(WaveHeaderWriter.headerSizeBytes(32) + 16, bytes.size)
         } finally {
             file.delete()
         }
@@ -83,7 +85,7 @@ class AudioCoreRegressionTest {
     @Test fun writesIntegerPcmFormatCodeFor24BitWav() {
         val file = File.createTempFile("analog-pcm-test", ".wav")
         try {
-            file.writeBytes(ByteArray(WaveHeaderWriter.HEADER_SIZE_BYTES))
+            file.writeBytes(ByteArray(WaveHeaderWriter.headerSizeBytes(24)))
             WaveHeaderWriter.write(file, 0, 44100, 1, 24, 0L, emptyList())
             val bytes = file.readBytes()
             assertEquals(1, leShort(bytes, 630)) // Integer PCM
@@ -97,11 +99,25 @@ class AudioCoreRegressionTest {
         }
     }
 
+    @Test fun padsOddLengthPcmDataToAWordBoundary() {
+        val file = File.createTempFile("analog-pad-test", ".wav")
+        try {
+            file.writeBytes(ByteArray(WaveHeaderWriter.headerSizeBytes(24) + 3))
+            WaveHeaderWriter.write(file, 3, 44100, 1, 24, 0L, emptyList())
+            val bytes = file.readBytes()
+            assertEquals(3, leInt(bytes, 3734))
+            assertEquals(0, bytes.last().toInt())
+            assertEquals(bytes.size - 8, leInt(bytes, 4))
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun rejectsRiffDataSizesThatWouldOverflowTheContainer() {
         val file = File.createTempFile("analog-limit-test", ".wav")
         try {
             try {
-                WaveHeaderWriter.write(file, WaveHeaderWriter.MAX_DATA_BYTES + 1, 48000, 2, 24, 0L, emptyList())
+                WaveHeaderWriter.write(file, WaveHeaderWriter.maxDataBytes(24) + 1, 48000, 2, 24, 0L, emptyList())
                 throw AssertionError("Expected oversized RIFF data to be rejected")
             } catch (_: IllegalArgumentException) {
                 // Expected: caller must stop and finalize before the 32-bit RIFF limit.
