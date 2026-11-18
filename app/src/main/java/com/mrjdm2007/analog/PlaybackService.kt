@@ -54,6 +54,10 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_EQ_BANDWIDTH = "com.mrjdm2007.analog.EQ_BANDWIDTH"
         const val ACTION_EQ_CROSSFEED = "com.mrjdm2007.analog.EQ_CROSSFEED"
         const val ACTION_EQ_MATCH_DEVICE = "com.mrjdm2007.analog.EQ_MATCH_DEVICE"
+        const val ACTION_EQ_PEAK_GUARD = "com.mrjdm2007.analog.EQ_PEAK_GUARD"
+        const val ACTION_EQ_STEREO_BALANCE = "com.mrjdm2007.analog.EQ_STEREO_BALANCE"
+        const val EXTRA_THRESHOLD_DB = "threshold_db"
+        const val EXTRA_STEREO_BALANCE = "stereo_balance"
         const val EXTRA_BANDWIDTH = "bandwidth"
         const val EXTRA_CROSSFEED_ENABLED = "crossfeed_enabled"
         const val EXTRA_CROSSFEED_AMOUNT = "crossfeed_amount"
@@ -331,6 +335,20 @@ class PlaybackService : MediaSessionService() {
                 applySoftwareEqualizer()
             }
             ACTION_EQ_MATCH_DEVICE -> refreshOutputDeviceProfile()
+            ACTION_EQ_PEAK_GUARD -> {
+                val enabled = intent.getBooleanExtra(EXTRA_ENABLED, false)
+                val threshold = intent.getFloatExtra(EXTRA_THRESHOLD_DB, -1f).coerceIn(-12f, -0.1f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+                    .putBoolean("eq_peak_guard_enabled", enabled)
+                    .putFloat("eq_peak_guard_threshold_db", threshold).apply()
+                applySoftwareEqualizer()
+            }
+            ACTION_EQ_STEREO_BALANCE -> {
+                val balance = intent.getFloatExtra(EXTRA_STEREO_BALANCE, 0f).coerceIn(-1f, 1f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+                    .putFloat("eq_stereo_balance", balance).apply()
+                applySoftwareEqualizer()
+            }
             ACTION_EQ_ENABLED -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
@@ -578,6 +596,9 @@ class PlaybackService : MediaSessionService() {
         val bandWidths = FloatArray(10) { i -> bandwidths.getOrNull(i)?.coerceIn(0.1f, 4f) ?: 1f }
         val crossfeedEnabled = prefs.getBoolean("eq_crossfeed_enabled", false)
         val crossfeedAmount = prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)
+        val peakGuardEnabled = prefs.getBoolean("eq_peak_guard_enabled", false)
+        val peakGuardThreshold = prefs.getFloat("eq_peak_guard_threshold_db", -1f).coerceIn(-12f, -0.1f)
+        val stereoBalance = prefs.getFloat("eq_stereo_balance", 0f).coerceIn(-1f, 1f)
         softwareEqualizer.setBands(gainsDb)
         crossfadeEqualizer.setBands(gainsDb)
         softwareEqualizer.setBandwidths(bandWidths)
@@ -588,6 +609,10 @@ class PlaybackService : MediaSessionService() {
         crossfadeEqualizer.setEnabled(enabled)
         softwareEqualizer.setCrossfeed(crossfeedEnabled, crossfeedAmount)
         crossfadeEqualizer.setCrossfeed(crossfeedEnabled, crossfeedAmount)
+        softwareEqualizer.setPeakGuard(peakGuardEnabled, peakGuardThreshold)
+        crossfadeEqualizer.setPeakGuard(peakGuardEnabled, peakGuardThreshold)
+        softwareEqualizer.setStereoBalance(stereoBalance)
+        crossfadeEqualizer.setStereoBalance(stereoBalance)
     }
 
     private fun initializeOptionalEffects(sessionId: Int) {
@@ -608,15 +633,15 @@ class PlaybackService : MediaSessionService() {
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         if (!prefs.getBoolean("eq_auto_match_device", true)) return
         val manager = getSystemService(AudioManager::class.java)
-        val devices = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
-        val device = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
-            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }
-            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER }
-            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HDMI || it.type == AudioDeviceInfo.TYPE_HDMI_ARC }
-            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-        val outputName = device?.productName?.toString()?.trim().orEmpty()
-        val profile = HeadphoneEqProfiles.findExact(HeadphoneEqProfiles.read(this), outputName)
+        val selection = OutputDeviceResolver.resolve(manager)
+        val outputName = selection.name
         val activeName = prefs.getString("eq_active_device_profile", null)
+        // Do not guess when Android reports multiple connected external sinks.
+        val profile = if (selection.ambiguous) null else HeadphoneEqProfiles.findExact(HeadphoneEqProfiles.read(this), outputName)
+        if (selection.ambiguous) {
+            prefs.edit().remove("eq_active_device_profile").apply()
+            return
+        }
         if (profile != null) {
             if (activeName == profile.name) return
             prefs.edit()
@@ -626,6 +651,9 @@ class PlaybackService : MediaSessionService() {
                 .putBoolean("eq_enabled", profile.eqEnabled)
                 .putBoolean("eq_crossfeed_enabled", profile.crossfeedEnabled)
                 .putFloat("eq_crossfeed_amount", profile.crossfeedAmount)
+                .putBoolean("eq_peak_guard_enabled", profile.peakGuardEnabled)
+                .putFloat("eq_peak_guard_threshold_db", profile.peakGuardThresholdDb)
+                .putFloat("eq_stereo_balance", profile.stereoBalance)
                 .putString("eq_active_device_profile", profile.name)
                 .apply()
             applySoftwareEqualizer()
@@ -637,6 +665,9 @@ class PlaybackService : MediaSessionService() {
                 .putBoolean("eq_enabled", true)
                 .putBoolean("eq_crossfeed_enabled", false)
                 .putFloat("eq_crossfeed_amount", 0.12f)
+                .putBoolean("eq_peak_guard_enabled", false)
+                .putFloat("eq_peak_guard_threshold_db", -1f)
+                .putFloat("eq_stereo_balance", 0f)
                 .remove("eq_active_device_profile")
                 .apply()
             applySoftwareEqualizer()
