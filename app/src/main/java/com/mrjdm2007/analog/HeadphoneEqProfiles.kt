@@ -49,6 +49,43 @@ object HeadphoneEqProfiles {
         }.getOrDefault(emptyList())
     }
 
+    fun exportJson(profiles: List<HeadphoneEqProfile>): String {
+        val array = JSONArray()
+        profiles.forEach { profile ->
+            array.put(JSONObject().apply {
+                put("name", profile.name)
+                put("gains", JSONArray(profile.gainsDb))
+                put("bandwidths", JSONArray(profile.bandwidths))
+                put("preampDb", profile.preampDb)
+                put("eqEnabled", profile.eqEnabled)
+                put("crossfeedEnabled", profile.crossfeedEnabled)
+                put("crossfeedAmount", profile.crossfeedAmount)
+            })
+        }
+        return array.toString(2)
+    }
+
+    fun importJson(raw: String): List<HeadphoneEqProfile> = runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
+                if (gains.size != 10) continue
+                val widths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
+                add(HeadphoneEqProfile(
+                    item.optString("name"),
+                    gains.map { it.coerceIn(-12f, 12f) },
+                    List(10) { widths.getOrElse(it) { 1f }.coerceIn(.1f, 4f) },
+                    item.optDouble("preampDb", 0.0).toFloat().coerceIn(-12f, 12f),
+                    item.optBoolean("eqEnabled", true),
+                    item.optBoolean("crossfeedEnabled", false),
+                    item.optDouble("crossfeedAmount", .12).toFloat().coerceIn(0f, .35f)
+                ))
+            }
+        }
+    }.getOrDefault(emptyList())
+
     fun write(context: Context, profiles: List<HeadphoneEqProfile>) {
         val array = JSONArray()
         profiles.forEach { profile ->
