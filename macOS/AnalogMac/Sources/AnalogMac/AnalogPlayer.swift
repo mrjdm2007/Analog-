@@ -530,8 +530,9 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func playRandomLibraryTrack() {
-        guard !tracks.isEmpty else { return }
-        let shuffled = tracks.shuffled()
+        let source = libraryOrderedTracks
+        guard !source.isEmpty else { return }
+        let shuffled = source.shuffled()
         queue = shuffled
         queueIndex = 0
         startTrack(shuffled[0], at: 0)
