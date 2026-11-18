@@ -12,6 +12,7 @@ import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.log10
+import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sinh
@@ -30,6 +31,10 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     @Volatile private var peakGuardEnabled = false
     @Volatile private var peakGuardThresholdDb = -1f
     @Volatile private var stereoBalance = 0f
+    @Volatile var outputPeak: Float = 0f
+        private set
+    @Volatile var outputRms: Float = 0f
+        private set
     private var sampleRate = 44_100f
     private var channelCount = 2
     private var encoding = C.ENCODING_PCM_16BIT
@@ -80,6 +85,9 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
         val balance = stereoBalance
         val leftGain = if (balance <= 0f) 1f else sqrt(2f) * cos((balance + 1f) * PI.toFloat() / 4f)
         val rightGain = if (balance >= 0f) 1f else sqrt(2f) * sin((balance + 1f) * PI.toFloat() / 4f)
+        var peak = 0f
+        var sumSquares = 0.0
+        var meterSamples = 0
 
         while (input.remaining() >= channelCount * bytesPerSample) {
             for (channel in 0 until channelCount) {
@@ -100,6 +108,9 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
             for (channel in 0 until channelCount) {
                 val protected = applyPeakGuard(frame[channel])
                 val sample = if (protected.isFinite()) protected.coerceIn(-1f, 0.9999695f) else 0f
+                peak = max(peak, abs(sample))
+                sumSquares += sample.toDouble() * sample.toDouble()
+                meterSamples++
                 if (encoding == C.ENCODING_PCM_16BIT) {
                     output.putShort((sample * 32768f).toInt().coerceIn(-32768, 32767).toShort())
                 } else {
@@ -107,6 +118,8 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
                 }
             }
         }
+        outputPeak = peak
+        outputRms = if (meterSamples > 0) sqrt(sumSquares / meterSamples).toFloat() else 0f
         input.position(input.limit())
         output.flip()
     }
@@ -216,6 +229,8 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
         previousGains = FloatArray(10) { Float.NaN }
         previousBandwidths = FloatArray(10) { Float.NaN }
         previousEnabled = enabled
+        outputPeak = 0f
+        outputRms = 0f
     }
 
     private data class Biquad(
