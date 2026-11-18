@@ -48,6 +48,11 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_EQ_SPACE = "com.mrjdm2007.analog.EQ_SPACE"
         const val ACTION_EQ_RETRY = "com.mrjdm2007.analog.EQ_RETRY"
         const val ACTION_EQ_PREAMP = "com.mrjdm2007.analog.EQ_PREAMP"
+        const val ACTION_EQ_BANDWIDTH = "com.mrjdm2007.analog.EQ_BANDWIDTH"
+        const val ACTION_EQ_CROSSFEED = "com.mrjdm2007.analog.EQ_CROSSFEED"
+        const val EXTRA_BANDWIDTH = "bandwidth"
+        const val EXTRA_CROSSFEED_ENABLED = "crossfeed_enabled"
+        const val EXTRA_CROSSFEED_AMOUNT = "crossfeed_amount"
         const val EXTRA_ENABLED = "enabled"
         const val EXTRA_BAND_INDEX = "band_index"
         const val EXTRA_BAND_LEVEL = "band_level"
@@ -275,7 +280,9 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             ACTION_TILE_PLAY -> startLastPlayedFromTile()
-            ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { if (it.isPlaying) it.pause() else it.play() }
+            ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { player ->
+                if (player.isPlaying) player.pause() else if (player.mediaItemCount == 0) startRandomLibraryTrack() else player.play()
+            }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
@@ -287,8 +294,28 @@ class PlaybackService : MediaSessionService() {
                     .putString("eq_error", "").apply()
             }
             ACTION_EQ_PREAMP -> {
-                val gain = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(-12f, 6f)
+                val gain = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(-12f, 12f)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putFloat("eq_preamp_db", gain).apply()
+                applySoftwareEqualizer()
+            }
+            ACTION_EQ_BANDWIDTH -> {
+                val index = intent.getIntExtra(EXTRA_BAND_INDEX, -1)
+                val value = intent.getFloatExtra(EXTRA_BANDWIDTH, 1f).coerceIn(0.1f, 4f)
+                if (index in 0 until 10) {
+                    val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    val values = prefs.getString("eq_band_bandwidths", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }?.toMutableList() ?: MutableList(10) { 1f }
+                    while (values.size < 10) values.add(1f)
+                    values[index] = value
+                    prefs.edit().putString("eq_band_bandwidths", values.joinToString(",")).apply()
+                    applySoftwareEqualizer()
+                }
+            }
+            ACTION_EQ_CROSSFEED -> {
+                val enabled = intent.getBooleanExtra(EXTRA_CROSSFEED_ENABLED, false)
+                val amount = intent.getFloatExtra(EXTRA_CROSSFEED_AMOUNT, 0.12f).coerceIn(0f, 0.35f)
+                getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+                    .putBoolean("eq_crossfeed_enabled", enabled)
+                    .putFloat("eq_crossfeed_amount", amount).apply()
                 applySoftwareEqualizer()
             }
             ACTION_EQ_ENABLED -> {
@@ -403,6 +430,41 @@ class PlaybackService : MediaSessionService() {
         updateWidget()
     }
 
+    private fun startRandomLibraryTrack() {
+        val player = mediaSession?.player as? ExoPlayer ?: return
+        if (player.mediaItemCount > 0) { player.play(); return }
+        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID)
+        val items = mutableListOf<androidx.media3.common.MediaItem>()
+        runCatching {
+            contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns, null, null, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val albumId = cursor.getLong(albumIdCol)
+                    val art = if (albumId > 0L) Uri.withAppendedPath(Uri.parse("content://media/external/audio/albumart"), albumId.toString()) else null
+                    val metadata = androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(cursor.getString(titleCol) ?: "Unknown title")
+                        .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
+                        .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
+                        .setArtworkUri(art).build()
+                    items += androidx.media3.common.MediaItem.Builder().setMediaId(id.toString())
+                        .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
+                        .setMediaMetadata(metadata).build()
+                }
+            }
+        }
+        if (items.isEmpty()) return
+        val order = items.shuffled()
+        player.setMediaItems(order, 0, 0L)
+        player.prepare()
+        player.play()
+        updateWidget()
+    }
+
     private fun runCrossfadeTick() {
         val primary = mediaSession?.player ?: return
         val secondary = crossfadePlayer ?: return
@@ -494,13 +556,21 @@ class PlaybackService : MediaSessionService() {
             ?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
         val gainsDb = FloatArray(10) { index -> (normalized.getOrNull(index) ?: 0f).coerceIn(-1f, 1f) * 12f }
         val enabled = prefs.getBoolean("eq_enabled", true)
-        val preamp = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 6f)
+        val preamp = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 12f)
+        val bandwidths = prefs.getString("eq_band_bandwidths", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        val bandWidths = FloatArray(10) { i -> bandwidths.getOrNull(i)?.coerceIn(0.1f, 4f) ?: 1f }
+        val crossfeedEnabled = prefs.getBoolean("eq_crossfeed_enabled", false)
+        val crossfeedAmount = prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)
         softwareEqualizer.setBands(gainsDb)
         crossfadeEqualizer.setBands(gainsDb)
+        softwareEqualizer.setBandwidths(bandWidths)
+        crossfadeEqualizer.setBandwidths(bandWidths)
         softwareEqualizer.setPreamp(preamp)
         crossfadeEqualizer.setPreamp(preamp)
         softwareEqualizer.setEnabled(enabled)
         crossfadeEqualizer.setEnabled(enabled)
+        softwareEqualizer.setCrossfeed(crossfeedEnabled, crossfeedAmount)
+        crossfadeEqualizer.setCrossfeed(crossfeedEnabled, crossfeedAmount)
     }
 
     private fun initializeOptionalEffects(sessionId: Int) {
