@@ -167,7 +167,7 @@ struct SpacebarShortcutMonitor: NSViewRepresentable {
                       event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
                       let window = NSApp.keyWindow else { return event }
                 let responder = window.firstResponder
-                if responder is NSTextView || responder is NSTextField || responder is NSComboBox {
+                if responder is NSTextView || responder is NSControl {
                     return event
                 }
                 self?.onSpace?()
@@ -206,6 +206,8 @@ struct MainWindowVisibilityProbe: NSViewRepresentable {
                 NSWindow.didDeminiaturizeNotification,
                 NSWindow.didBecomeKeyNotification,
                 NSWindow.didResignKeyNotification,
+                NSWindow.didChangeOcclusionStateNotification,
+                NSWindow.didChangeScreenNotification,
                 NSApplication.didBecomeActiveNotification,
                 NSApplication.didResignActiveNotification
             ]
@@ -218,8 +220,10 @@ struct MainWindowVisibilityProbe: NSViewRepresentable {
         }
 
         func report() {
-            let visible = window.map { $0.isVisible && !$0.isMiniaturized } ?? false
-            onChange?(visible && NSApp.isActive)
+            let visible = window.map {
+                $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
+            } ?? false
+            onChange?(visible)
         }
 
         deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }

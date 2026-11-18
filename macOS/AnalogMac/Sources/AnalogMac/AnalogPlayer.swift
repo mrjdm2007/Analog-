@@ -556,7 +556,7 @@ final class AnalogPlayer: ObservableObject {
             currentTrack = track
             currentTime = min(max(0, seconds), max(0, track.duration))
             segmentStart = currentTime
-            gaplessSegmentStartedAt = Date()
+            gaplessSegmentStartedAt = Date().addingTimeInterval(-currentTime)
             if !audioEngine.isRunning { try audioEngine.start() }
 
             if gaplessPlaybackEnabled {
@@ -693,8 +693,8 @@ final class AnalogPlayer: ObservableObject {
         if currentTime > 3 { seek(to: 0); return }
         guard !queue.isEmpty else { return }
         let index = queueIndex > 0 ? queueIndex - 1 : (repeatQueue ? queue.count - 1 : 0)
-        startTrack(queue[index], at: 0)
         queueIndex = index
+        startTrack(queue[index], at: 0)
     }
 
     func next() { advance() }
