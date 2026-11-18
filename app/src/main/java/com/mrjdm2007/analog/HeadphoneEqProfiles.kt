@@ -42,13 +42,13 @@ object HeadphoneEqProfiles {
                         name = item.optString("name"),
                         gainsDb = gains.map { it.coerceIn(-12f, 12f) },
                         bandwidths = List(10) { bandwidths.getOrElse(it) { 1f }.coerceIn(0.1f, 4f) },
-                        preampDb = item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).toFloat().coerceIn(-12f, 12f),
+                        preampDb = item.optDouble("preampDB", item.optDouble("preampDB", item.optDouble("preampDb", 0.0))).toFloat().coerceIn(-12f, 12f),
                         eqEnabled = item.optBoolean("eqEnabled", true),
                         crossfeedEnabled = item.optBoolean("crossfeedEnabled", false),
                         crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).toFloat().coerceIn(0f, 0.35f),
                         peakGuardEnabled = item.optBoolean("peakGuardEnabled", false),
-                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).toFloat().coerceIn(-12f, -0.1f),
-                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).toFloat().coerceIn(-1f, 1f)
+                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0))).toFloat().coerceIn(-12f, -0.1f),
+                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0))).toFloat().coerceIn(-1f, 1f)
                     ))
                 }
             }
@@ -105,10 +105,13 @@ object HeadphoneEqProfiles {
                 put("name", profile.name)
                 put("gains", JSONArray(profile.gainsDb))
                 put("bandwidths", JSONArray(profile.bandwidths))
-                put("preampDb", profile.preampDb)
+                put("preampDB", profile.preampDb)
                 put("eqEnabled", profile.eqEnabled)
                 put("crossfeedEnabled", profile.crossfeedEnabled)
                 put("crossfeedAmount", profile.crossfeedAmount)
+                put("peakGuardEnabled", profile.peakGuardEnabled)
+                put("peakGuardThresholdDB", profile.peakGuardThresholdDb)
+                put("stereoPan", profile.stereoBalance)
             })
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, array.toString()).apply()
