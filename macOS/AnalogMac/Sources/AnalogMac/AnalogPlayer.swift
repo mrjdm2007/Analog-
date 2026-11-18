@@ -214,7 +214,7 @@ final class AnalogPlayer: ObservableObject {
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
         ]
         if let path = track.artworkPath, let image = NSImage(contentsOfFile: path) {
-            info[MPMediaItemPropertyArtwork] = MPNowPlayingInfoMediaArtwork(
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(
                 boundsSize: image.size,
                 requestHandler: { _ in image }
             )
