@@ -315,8 +315,16 @@ final class AnalogPlayer: ObservableObject {
 
     var filteredTracks: [MusicTrack] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return tracks }
-        return tracks.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return libraryOrderedTracks }
+        return libraryOrderedTracks.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) }
+    }
+
+    var libraryOrderedTracks: [MusicTrack] {
+        guard !libraryShuffleOrder.isEmpty else { return tracks }
+        let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        let ordered = libraryShuffleOrder.compactMap { byID[$0] }
+        let orderedIDs = Set(ordered.map(\.id))
+        return ordered + tracks.filter { !orderedIDs.contains($0.id) }
     }
 
     var moodNames: [String] { ["Calm", "Energy", "Focus", "Nostalgia"] }
@@ -498,7 +506,7 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
-        let source = list ?? tracks
+        let source = list ?? libraryOrderedTracks
         queue = source
         queueIndex = queue.firstIndex(where: { $0.id == track.id }) ?? 0
         startTrack(track, at: 0)
