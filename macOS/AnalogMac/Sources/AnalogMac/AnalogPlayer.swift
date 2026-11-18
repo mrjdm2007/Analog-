@@ -5,6 +5,7 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 import os
+import MediaPlayer
 
 struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var path: String
@@ -159,6 +160,65 @@ final class AnalogPlayer: ObservableObject {
     private var segmentStart: Double = 0
     private var playbackToken = UUID()
     private let defaults = UserDefaults.standard
+    private var mediaCommandsConfigured = false
+
+    func configureMediaCommands() {
+        guard !mediaCommandsConfigured else { return }
+        mediaCommandsConfigured = true
+        let center = MPRemoteCommandCenter.shared()
+        center.previousTrackCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = true
+        center.togglePlayPauseCommand.isEnabled = true
+        center.playCommand.isEnabled = true
+        center.pauseCommand.isEnabled = true
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.previous() }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.next() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayback() }
+            return .success
+        }
+        center.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                if let self, !self.isPlaying { self.togglePlayback() }
+            }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                if let self, self.isPlaying { self.togglePlayback() }
+            }
+            return .success
+        }
+        updateSystemNowPlayingInfo()
+    }
+
+    private func updateSystemNowPlayingInfo() {
+        guard let track = currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyArtist: track.artist,
+            MPMediaItemPropertyAlbumTitle: track.album,
+            MPMediaItemPropertyPlaybackDuration: track.duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        if let path = track.artworkPath, let image = NSImage(contentsOfFile: path) {
+            info[MPMediaItemPropertyArtwork] = MPNowPlayingInfoMediaArtwork(
+                boundsSize: image.size,
+                requestHandler: { _ in image }
+            )
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
 
     init() {
         audioEngine.attach(playerNode)
@@ -468,10 +528,12 @@ final class AnalogPlayer: ObservableObject {
             }
             playerNode.play()
             isPlaying = true
+            updateSystemNowPlayingInfo()
             startClock()
         } catch {
             isPlaying = false
             currentTrack = track
+            updateSystemNowPlayingInfo()
             print("Analog playback error: \(error.localizedDescription)")
         }
     }
@@ -487,6 +549,7 @@ final class AnalogPlayer: ObservableObject {
         } else if let first = tracks.first {
             play(first)
         }
+        updateSystemNowPlayingInfo()
     }
 
     func seek(to seconds: Double) {
