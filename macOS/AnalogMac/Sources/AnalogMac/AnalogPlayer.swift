@@ -4,16 +4,77 @@ import AppKit
 import Combine
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
-struct MusicTrack: Identifiable, Hashable, Codable {
+struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var path: String
     var title: String
     var artist: String
     var album: String
     var duration: Double
+    var artworkPath: String? = nil
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
 }
+
+private let analogSupportedAudioExtensions: Set<String> = [
+    "mp3", "m4a", "m4b", "aac", "adts", "wav", "wave",
+    "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd"
+]
+
+private func makeMusicTrack(from url: URL) -> MusicTrack? {
+    guard analogSupportedAudioExtensions.contains(url.pathExtension.lowercased()),
+          let file = try? AVAudioFile(forReading: url) else { return nil }
+
+    let asset = AVURLAsset(url: url)
+    let metadata = asset.commonMetadata
+    func value(_ key: AVMetadataKey) -> String? {
+        metadata.first(where: { $0.commonKey == key })?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    let filename = url.deletingPathExtension().lastPathComponent
+    let title = value(.commonKeyTitle) ?? filename
+    let artist = value(.commonKeyArtist) ?? "Unknown Artist"
+    let album = value(.commonKeyAlbum) ?? "Unknown Album"
+
+    var artworkPath: String?
+    if let artwork = metadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue,
+       !artwork.isEmpty {
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Analog/Artwork", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        var hash: UInt64 = 14695981039346656037
+        for byte in url.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        let destination = cache.appendingPathComponent(String(hash, radix: 16) + ".artwork")
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            try? artwork.write(to: destination, options: .atomic)
+        }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            artworkPath = destination.path
+        }
+    }
+
+    let duration = file.processingFormat.sampleRate > 0
+        ? Double(file.length) / file.processingFormat.sampleRate : 0
+    return MusicTrack(
+        path: url.path,
+        title: title.isEmpty ? filename : title,
+        artist: artist.isEmpty ? "Unknown Artist" : artist,
+        album: album.isEmpty ? "Unknown Album" : album,
+        duration: duration,
+        artworkPath: artworkPath
+    )
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+private let analogVisualizerGate = OSAllocatedUnfairLock(
+    initialState: (enabled: false, lastUpdate: UInt64(0))
+)
 
 @MainActor
 final class AnalogPlayer: ObservableObject {
@@ -43,7 +104,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
-    @Published var visualizerEnabled = true
+    @Published var visualizerEnabled = false
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
     @Published var outputVolume: Float = 0.85
@@ -83,28 +144,42 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.connect(peakGuard, to: audioEngine.mainMixerNode, format: nil)
         peakGuard.auAudioUnit.shouldBypassEffect = true
         configurePeakGuard()
-        equalizer.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
+        equalizer.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             let count = Int(buffer.frameLength)
             guard count > 0 else { return }
-            let samples = Array(UnsafeBufferPointer(start: channel, count: count))
-            let bins = analogSpectrum(samples: samples, sampleRate: buffer.format.sampleRate, binCount: 36)
-            let waveform = analogWaveform(samples: samples, pointCount: 128)
+
             var peak: Float = 0
             var sumSquares: Double = 0
-            for sample in samples {
+            for index in 0..<count {
+                let sample = channel[index]
                 let magnitude = abs(sample)
                 if magnitude > peak { peak = magnitude }
                 sumSquares += Double(sample) * Double(sample)
             }
             let rms = Float(sqrt(sumSquares / Double(count)))
+
+            let shouldAnalyse = analogVisualizerGate.withLock { state -> Bool in
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard state.enabled, now &- state.lastUpdate >= 100_000_000 else { return false }
+                state.lastUpdate = now
+                return true
+            }
+            let samples = shouldAnalyse
+                ? Array(UnsafeBufferPointer(start: channel, count: count))
+                : []
+
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.eqOutputPeak = peak
                 self.eqOutputRMS = rms
-                if self.visualizerEnabled {
-                    self.visualizerBins = bins
-                    self.visualizerWaveform = waveform
+                if shouldAnalyse {
+                    self.visualizerBins = analogSpectrum(
+                        samples: samples,
+                        sampleRate: buffer.format.sampleRate,
+                        binCount: 36
+                    )
+                    self.visualizerWaveform = analogWaveform(samples: samples, pointCount: 128)
                 }
             }
         }
@@ -183,21 +258,7 @@ final class AnalogPlayer: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.audio]
         guard panel.runModal() == .OK else { return }
-        let supported = Set(["mp3", "m4a", "aac", "wav", "aif", "aiff", "caf", "flac", "alac"])
-        let additions = panel.urls.compactMap { url -> MusicTrack? in
-            guard supported.contains(url.pathExtension.lowercased()),
-                  let file = try? AVAudioFile(forReading: url) else { return nil }
-            let name = url.deletingPathExtension().lastPathComponent
-            let parts = name.components(separatedBy: " - ")
-            let artist = parts.count > 1 ? parts[0] : "Unknown Artist"
-            let title = parts.count > 1 ? parts.dropFirst().joined(separator: " - ") : name
-            let duration = Double(file.length) / file.processingFormat.sampleRate
-            return MusicTrack(path: url.path, title: title, artist: artist, album: "Local Files", duration: duration)
-        }
-        let existing = Set(tracks.map(\.id))
-        tracks.append(contentsOf: additions.filter { !existing.contains($0.id) })
-        tracks.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        persistState()
+        loadTracks(from: panel.urls, folder: nil)
     }
 
     func importMusicFolder() {
@@ -211,25 +272,63 @@ final class AnalogPlayer: ObservableObject {
         scan(folder)
     }
 
+    @Published var isScanning = false
+    @Published var scanSummary = ""
+
     func scan(_ folder: URL) {
-        let supported = Set(["mp3", "m4a", "aac", "wav", "aif", "aiff", "caf", "flac", "alac"])
-        let keys: [URLResourceKey] = [.isRegularFileKey]
-        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-        var found: [MusicTrack] = []
-        while let url = enumerator?.nextObject() as? URL {
-            guard supported.contains(url.pathExtension.lowercased()) else { continue }
-            let name = url.deletingPathExtension().lastPathComponent
-            let parts = name.components(separatedBy: " - ")
-            let artist = parts.count > 1 ? parts[0] : "Unknown Artist"
-            let title = parts.count > 1 ? parts.dropFirst().joined(separator: " - ") : name
-            let duration = (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.processingFormat.sampleRate } ?? 0
-            found.append(MusicTrack(path: url.path, title: title, artist: artist, album: "Local Files", duration: duration))
+        guard !isScanning else { return }
+        let urls = FileManager.default.enumerator(
+            at: folder,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        var candidates: [URL] = []
+        while let url = urls?.nextObject() as? URL {
+            candidates.append(url)
         }
-        var merged = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
-        for track in found { merged[track.id] = track }
-        tracks = merged.values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        defaults.set(folder.path, forKey: "musicFolder")
-        persistState()
+        loadTracks(from: candidates, folder: folder)
+    }
+
+    private func loadTracks(from urls: [URL], folder: URL?) {
+        guard !isScanning else { return }
+        isScanning = true
+        scanSummary = "Scanning audio files…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var found: [MusicTrack] = []
+            var skipped = 0
+            for url in urls {
+                guard analogSupportedAudioExtensions.contains(url.pathExtension.lowercased()) else {
+                    continue
+                }
+                if let track = makeMusicTrack(from: url) {
+                    found.append(track)
+                } else {
+                    skipped += 1
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
+                for track in found { merged[track.id] = track }
+                self.tracks = merged.values.sorted {
+                    $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
+                if let folder {
+                    self.defaults.set(folder.path, forKey: "musicFolder")
+                }
+                self.persistState()
+                self.isScanning = false
+                self.scanSummary = "Added/updated \(found.count) playable tracks • \(skipped) unreadable files skipped"
+            }
+        }
+    }
+
+    func setVisualizerEnabled(_ enabled: Bool) {
+        visualizerEnabled = enabled
+        analogVisualizerGate.withLock { state in
+            state.enabled = enabled
+            if !enabled { state.lastUpdate = 0 }
+        }
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
