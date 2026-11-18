@@ -85,21 +85,24 @@ object HeadphoneEqProfiles {
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
                 val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
-                if (gains.size != 10) continue
-                val widths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
+                if (gains.size != 10 || gains.any { !it.isFinite() }) continue
+                val rawWidths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
+                val widths = List(10) { index ->
+                    rawWidths.getOrNull(index)?.takeIf { it.isFinite() }?.coerceIn(0.1f, 4f) ?: 1f
+                }
                 val name = item.optString("name").trim()
                 if (name.isBlank()) continue
                 add(HeadphoneEqProfile(
                     name,
                     gains.map { it.coerceIn(-12f, 12f) },
                     List(10) { widths.getOrElse(it) { 1f }.coerceIn(.1f, 4f) },
-                    item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).toFloat().coerceIn(-12f, 12f),
+                    item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-12f, 12f) ?: 0f,
                     item.optBoolean("eqEnabled", true),
                     item.optBoolean("crossfeedEnabled", false),
-                    item.optDouble("crossfeedAmount", .12).toFloat().coerceIn(0f, .35f),
+                    item.optDouble("crossfeedAmount", .12).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0f, .35f) ?: .12f,
                     item.optBoolean("peakGuardEnabled", false),
-                    item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).toFloat().coerceIn(-12f, -.1f),
-                    item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).toFloat().coerceIn(-1f, 1f)
+                    item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-12f, -.1f) ?: -1f,
+                    item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-1f, 1f) ?: 0f
                 ))
             }
         }
