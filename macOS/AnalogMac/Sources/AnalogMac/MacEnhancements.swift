@@ -171,6 +171,7 @@ struct MainWindowVisibilityProbe: NSViewRepresentable {
     final class VisibilityView: NSView {
         var onChange: ((Bool) -> Void)?
         private var observers: [NSObjectProtocol] = []
+        private var lastReportedVisibility: Bool?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -198,7 +199,11 @@ struct MainWindowVisibilityProbe: NSViewRepresentable {
             let visible = window.map {
                 $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
             } ?? false
-            onChange?(visible)
+            guard visible != lastReportedVisibility else { return }
+            lastReportedVisibility = visible
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(visible)
+            }
         }
 
         deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
