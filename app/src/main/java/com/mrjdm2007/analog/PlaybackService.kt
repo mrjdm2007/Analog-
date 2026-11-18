@@ -10,6 +10,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Virtualizer
@@ -50,6 +53,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_EQ_PREAMP = "com.mrjdm2007.analog.EQ_PREAMP"
         const val ACTION_EQ_BANDWIDTH = "com.mrjdm2007.analog.EQ_BANDWIDTH"
         const val ACTION_EQ_CROSSFEED = "com.mrjdm2007.analog.EQ_CROSSFEED"
+        const val ACTION_EQ_MATCH_DEVICE = "com.mrjdm2007.analog.EQ_MATCH_DEVICE"
         const val EXTRA_BANDWIDTH = "bandwidth"
         const val EXTRA_CROSSFEED_ENABLED = "crossfeed_enabled"
         const val EXTRA_CROSSFEED_AMOUNT = "crossfeed_amount"
@@ -69,6 +73,7 @@ class PlaybackService : MediaSessionService() {
     private val softwareEqualizer = TenBandEqualizerProcessor()
     private val crossfadeEqualizer = TenBandEqualizerProcessor()
     private var optionalFxSessionId = 0
+    private var outputDeviceCallback: AudioDeviceCallback? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var crossfadePlayer: ExoPlayer? = null
@@ -131,6 +136,12 @@ class PlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        val audioManager = getSystemService(AudioManager::class.java)
+        outputDeviceCallback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
+        }.also { audioManager.registerAudioDeviceCallback(it, Handler(Looper.getMainLooper())) }
+        refreshOutputDeviceProfile()
         val eqPrefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         eqPrefs.edit()
             .putInt("eq_band_count", 10)
@@ -319,6 +330,7 @@ class PlaybackService : MediaSessionService() {
                     .putFloat("eq_crossfeed_amount", amount).apply()
                 applySoftwareEqualizer()
             }
+            ACTION_EQ_MATCH_DEVICE -> refreshOutputDeviceProfile()
             ACTION_EQ_ENABLED -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putBoolean("eq_enabled", enabled).apply()
@@ -592,6 +604,45 @@ class PlaybackService : MediaSessionService() {
         prefs.edit().putInt("eq_session_id", sessionId).putBoolean("eq_available", true).putString("eq_error", "").apply()
     }
 
+    private fun refreshOutputDeviceProfile() {
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        if (!prefs.getBoolean("eq_auto_match_device", true)) return
+        val manager = getSystemService(AudioManager::class.java)
+        val devices = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        val device = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
+            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }
+            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER }
+            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HDMI || it.type == AudioDeviceInfo.TYPE_HDMI_ARC }
+            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        val outputName = device?.productName?.toString()?.trim().orEmpty()
+        val profile = HeadphoneEqProfiles.findExact(HeadphoneEqProfiles.read(this), outputName)
+        val activeName = prefs.getString("eq_active_device_profile", null)
+        if (profile != null) {
+            if (activeName == profile.name) return
+            prefs.edit()
+                .putString("eq_band_levels", profile.gainsDb.map { (it / 12f).coerceIn(-1f, 1f) }.joinToString(","))
+                .putString("eq_band_bandwidths", profile.bandwidths.joinToString(","))
+                .putFloat("eq_preamp_db", profile.preampDb)
+                .putBoolean("eq_enabled", profile.eqEnabled)
+                .putBoolean("eq_crossfeed_enabled", profile.crossfeedEnabled)
+                .putFloat("eq_crossfeed_amount", profile.crossfeedAmount)
+                .putString("eq_active_device_profile", profile.name)
+                .apply()
+            applySoftwareEqualizer()
+        } else if (activeName != null) {
+            prefs.edit()
+                .putString("eq_band_levels", List(10) { "0" }.joinToString(","))
+                .putString("eq_band_bandwidths", List(10) { "1" }.joinToString(","))
+                .putFloat("eq_preamp_db", 0f)
+                .putBoolean("eq_enabled", true)
+                .putBoolean("eq_crossfeed_enabled", false)
+                .putFloat("eq_crossfeed_amount", 0.12f)
+                .remove("eq_active_device_profile")
+                .apply()
+            applySoftwareEqualizer()
+        }
+    }
+
     private fun applyReplayGain() {
         val player = mediaSession?.player ?: return
         val uri: Uri = player.currentMediaItem?.localConfiguration?.uri ?: return
@@ -641,6 +692,10 @@ class PlaybackService : MediaSessionService() {
         bassBoost = null
         virtualizer = null
         optionalFxSessionId = 0
+        outputDeviceCallback?.let { callback ->
+            runCatching { getSystemService(AudioManager::class.java).unregisterAudioDeviceCallback(callback) }
+        }
+        outputDeviceCallback = null
         mediaSession?.run {
             player.release()
             release()
