@@ -133,7 +133,13 @@ final class AnalogPlayer: ObservableObject {
     @Published var eqSnapshotB: [Float] = Array(repeating: 0, count: 10)
     @Published var repeatQueue = false
     @Published var repeatCurrentTrack = false
-    @Published var shuffleQueue = false
+    @Published var shuffleQueue = false {
+        didSet {
+            guard oldValue != shuffleQueue else { return }
+            shufflePlayedTrackIDs = shuffleQueue ? Set(currentTrack.map { [$0.id] } ?? []) : []
+        }
+    }
+    private var shufflePlayedTrackIDs = Set<String>()
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
@@ -513,9 +519,13 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
-        let source = list ?? libraryOrderedTracks
+        var source = list ?? libraryOrderedTracks
+        // A filtered/search result can outlive the source list. Ensure the selected
+        // track is actually represented in the queue before gapless scheduling.
+        if !source.contains(where: { $0.id == track.id }) { source.insert(track, at: 0) }
         queue = source
         queueIndex = queue.firstIndex(where: { $0.id == track.id }) ?? 0
+        shufflePlayedTrackIDs = shuffleQueue ? [track.id] : []
         startTrack(track, at: 0)
     }
 
@@ -523,6 +533,7 @@ final class AnalogPlayer: ObservableObject {
         guard !items.isEmpty else { return }
         queue = items
         queueIndex = min(max(0, index), items.count - 1)
+        shufflePlayedTrackIDs = shuffleQueue ? [items[queueIndex].id] : []
         startTrack(items[queueIndex], at: 0)
     }
 
@@ -537,6 +548,7 @@ final class AnalogPlayer: ObservableObject {
         let shuffled = source.shuffled()
         queue = shuffled
         queueIndex = 0
+        shufflePlayedTrackIDs = shuffleQueue ? [shuffled[0].id] : []
         startTrack(shuffled[0], at: 0)
     }
 
@@ -754,8 +766,38 @@ final class AnalogPlayer: ObservableObject {
         guard !queue.isEmpty else { isPlaying = false; timer?.invalidate(); return }
         var nextIndex = queueIndex + 1
         if shuffleQueue && queue.count > 1 {
-            nextIndex = Int.random(in: 0..<queue.count)
-            if nextIndex == queueIndex { nextIndex = (nextIndex + 1) % queue.count }
+            if !queue.indices.contains(queueIndex) {
+                isPlaying = false
+                timer?.invalidate()
+                return
+            }
+            var candidates = shuffleQueueCandidateIndices(
+                trackIDs: queue.map(\\.id),
+                playedTrackIDs: shufflePlayedTrackIDs,
+                currentIndex: queueIndex
+            )
+            if candidates.isEmpty {
+                guard repeatQueue else {
+                    isPlaying = false
+                    currentTime = 0
+                    timer?.invalidate()
+                    return
+                }
+                // Start a new shuffle cycle without immediately replaying the current item.
+                shufflePlayedTrackIDs = [queue[queueIndex].id]
+                candidates = shuffleQueueCandidateIndices(
+                    trackIDs: queue.map(\\.id),
+                    playedTrackIDs: shufflePlayedTrackIDs,
+                    currentIndex: queueIndex
+                )
+            }
+            guard let selected = candidates.randomElement() else {
+                isPlaying = false
+                timer?.invalidate()
+                return
+            }
+            nextIndex = selected
+            shufflePlayedTrackIDs.insert(queue[nextIndex].id)
         } else if nextIndex >= queue.count {
             if repeatQueue { nextIndex = 0 } else { isPlaying = false; currentTime = 0; timer?.invalidate(); return }
         }
