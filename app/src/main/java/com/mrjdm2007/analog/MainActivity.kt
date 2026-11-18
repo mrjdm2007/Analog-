@@ -94,7 +94,7 @@ private val Cream = Color(0xFFE8E1CF)
 private var Amber by mutableStateOf(DefaultAmber)
 private val Green = Color(0xFFB5D69B)
 
-data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long, val path: String = "")
+data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long, val path: String = "", val dateAdded: Long = 0L, val isMusic: Boolean = true)
 fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
+            var libraryShuffleOrder by remember { mutableStateOf(prefs().getString("library_shuffle_order", null)?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()) }
             var playCountVersion by remember { mutableIntStateOf(0) }
             var headsetSingle by remember { mutableStateOf(prefs().getString("headset_single", "Play/Pause") ?: "Play/Pause") }
             var headsetDouble by remember { mutableStateOf(prefs().getString("headset_double", "Next track") ?: "Next track") }
@@ -269,7 +270,7 @@ class MainActivity : ComponentActivity() {
                         sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, onArtistRadio = { id ->
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }, onArtistRadio = { id ->
                         tracks.firstOrNull { it.id == id }?.let { seed ->
                             val radio = tracks.filter { it.artist.equals(seed.artist, true) }.shuffled()
                             if (radio.isNotEmpty()) { play(radio, 0); playCountVersion++ }
@@ -304,7 +305,11 @@ class MainActivity : ComponentActivity() {
                             "Least played" -> currentTracks.sortedWith(compareBy<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
                             "Most played" -> currentTracks.sortedWith(compareByDescending<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
                             "Recently played" -> currentTracks.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
-                            "Highest rated" -> currentTracks.sortedWith(compareByDescending<Track> { prefs().getInt("rating:${it.id}", 0) }.thenBy { it.title.lowercase() })
+                            "Date added" -> currentTracks.sortedByDescending { it.dateAdded }
+                            "Shuffle" -> {
+                                val positions = libraryShuffleOrder.withIndex().associate { it.value to it.index }
+                                currentTracks.sortedBy { positions[it.id] ?: Int.MAX_VALUE }
+                            }
                             "Longest first" -> currentTracks.sortedByDescending { it.duration }
                             "Shortest first" -> currentTracks.sortedBy { it.duration }
                             else -> currentTracks.sortedBy { it.title.lowercase() }
@@ -353,7 +358,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                     LazyColumn {
                                         item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
-                                        items(listOf("Most played this month", "Most played all time", "Recently played", "Never played", "Top rated", "Hidden gems", "Favourites", "Quick Listen", "Long Listening", "Short tracks", "Surprise Me")) { name ->
+                                        items(listOf("Most played this month", "Most played all time", "Recently played", "Never played", "Favourites", "Quick Listen", "Long Listening", "Short tracks", "Surprise Me")) { name ->
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
                                             GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
                                         }
@@ -387,7 +392,16 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("${sortedTracks.size} SONGS", color = Cream.copy(alpha = .45f), fontSize = 10.sp, modifier = Modifier.weight(1f))
+                                        Text("${sortedTracks.size} SONGS" + currentTracks.count { !it.isMusic }.takeIf { it > 0 }?.let { " • $it UNCLASSIFIED AUDIO INCLUDED" }.orEmpty(), color = Cream.copy(alpha = .45f), fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                        TextButton(onClick = {
+                                            libraryShuffleOrder = currentTracks.shuffled().map { it.id }
+                                            prefs().edit().putString("library_shuffle_order", libraryShuffleOrder.joinToString(",")).putString("sort_mode", "Shuffle").apply()
+                                            sortMode = "Shuffle"
+                                        }) {
+                                            Icon(Icons.Default.Shuffle, contentDescription = null, tint = Amber, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("SHUFFLE", color = Amber, fontSize = 10.sp)
+                                        }
                                         SortDropdown(sortMode) { sortMode = it; prefs().edit().putString("sort_mode", it).apply() }
                                     }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
@@ -400,7 +414,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            MiniPlayer(controller) { nowPlaying = true }
+                            MiniPlayer(controller, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }) { nowPlaying = true }
                         }
                         if (playlistDialog) {
                             AlertDialog(
@@ -494,6 +508,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun playRandomLibrary(source: List<Track>) {
+        if (source.isEmpty()) return
+        play(source, kotlin.random.Random.nextInt(source.size))
+    }
+
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
@@ -523,9 +542,11 @@ class MainActivity : ComponentActivity() {
     private fun scanLibrary(): List<Track> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.ALBUM_ID)
+            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATE_ADDED, MediaStore.Audio.Media.IS_MUSIC)
         val found = mutableListOf<Track>()
-        contentResolver.query(uri, columns, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
+        // Do not filter by IS_MUSIC: Android often leaves legitimate audio files unclassified.
+        contentResolver.query(uri, columns, null, null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
             val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val title = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -533,11 +554,15 @@ class MainActivity : ComponentActivity() {
             val duration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val data = c.getColumnIndex(MediaStore.Audio.Media.DATA)
             val albumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val dateAdded = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+            val isMusic = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_MUSIC)
             while (c.moveToNext()) {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
+                val folderName = path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }
+                if (folderName.equals("Ringtones", true) || folderName.equals("Notifications", true) || folderName.equals("Alarms", true)) continue
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
-                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }, c.getLong(albumId), path)
+                    c.getLong(duration), folderName, c.getLong(albumId), path, c.getLong(dateAdded), c.getInt(isMusic) != 0)
             }
         }
         return found
@@ -553,15 +578,12 @@ class MainActivity : ComponentActivity() {
         val counts = currentMonthPlayCounts()
         val allTime = source.associate { track -> track.id to prefs().getInt("plays:${track.id}", 0) }
         val lastPlayed: (Track) -> Long = { prefs().getLong("last_played:${it.id}", 0L) }
-        val rating: (Track) -> Int = { prefs().getInt("rating:${it.id}", 0) }
         val recentCutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
         return when (name) {
             "Most played this month" -> source.filter { (counts[it.id] ?: 0) > 0 }.sortedByDescending { counts[it.id] ?: 0 }
             "Most played all time" -> source.filter { (allTime[it.id] ?: 0) > 0 }.sortedWith(compareByDescending<Track> { allTime[it.id] ?: 0 }.thenBy { it.title.lowercase() })
             "Recently played" -> source.filter { lastPlayed(it) >= recentCutoff }.sortedByDescending(lastPlayed)
             "Never played" -> source.filter { (allTime[it.id] ?: 0) == 0 }.sortedBy { it.title.lowercase() }
-            "Top rated" -> source.filter { rating(it) >= 4 }.sortedWith(compareByDescending<Track> { rating(it) }.thenByDescending(lastPlayed))
-            "Hidden gems" -> source.filter { rating(it) >= 4 && (allTime[it.id] ?: 0) in 1..5 }.sortedWith(compareBy<Track> { allTime[it.id] ?: 0 }.thenByDescending(rating))
             "Favourites" -> source.filter { it.id in favorites }.sortedByDescending(lastPlayed)
             "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending(lastPlayed)
             "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending(lastPlayed)
@@ -627,7 +649,7 @@ class MainActivity : ComponentActivity() {
     Box {
         TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null, tint = Amber); Spacer(Modifier.width(4.dp)); Text(selected, color = Amber, fontSize = 11.sp) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Least played", "Most played", "Recently played", "Highest rated", "Longest first", "Shortest first").forEach { mode ->
+            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Date added", "Least played", "Most played", "Recently played", "Longest first", "Shortest first").forEach { mode ->
                 DropdownMenuItem(text = { Text(mode) }, onClick = { onSelected(mode); expanded = false })
             }
         }
@@ -666,7 +688,7 @@ class MainActivity : ComponentActivity() {
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onMore() }) { Icon(Icons.Default.MoreVert, null, tint = Cream.copy(alpha = .6f)) }
     }
 }
-@Composable private fun MiniPlayer(player: MediaController?, onOpen: () -> Unit) {
+@Composable private fun MiniPlayer(player: MediaController?, onRandomPlay: () -> Unit, onOpen: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Choose a track") }
@@ -685,12 +707,12 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0) onRandomPlay() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -914,7 +936,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = themedText, modifier = Modifier.size(36.dp)) }
-            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
+            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0) onRandomPlay() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
@@ -967,7 +989,7 @@ class MainActivity : ComponentActivity() {
                 Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
             }
         }
-        PlayerJournalPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, textColor = themedText, muted = themedMuted)
+        PlayerMoodPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, muted = themedMuted)
         Spacer(Modifier.height(12.dp))
     }
     if (showQueueSets) {
@@ -1085,12 +1107,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, panel: Color, textColor: Color, muted: Color) {
+private fun PlayerMoodPanel(trackId: Long?, track: Track?, accent: Color, panel: Color, muted: Color) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
-    var rating by remember(trackId) { mutableIntStateOf(trackId?.let { prefs.getInt("rating:${it}", 0) } ?: 0) }
-    var note by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("journal:${it}", "") } ?: "") }
-    var mood by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("mood:${it}", "Unsorted") } ?: "Unsorted") }
+    var mood by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("mood:$it", "Unsorted") } ?: "Unsorted") }
     val moodNames = listOf("Focus", "Calm", "Energy", "Nostalgia")
     fun assignMood(label: String) {
         val id = trackId ?: return
@@ -1103,39 +1123,12 @@ private fun PlayerJournalPanel(trackId: Long?, track: Track?, accent: Color, pan
         }
         edit.apply()
     }
-    var expanded by remember(trackId) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 14.dp).background(panel, RoundedCornerShape(16.dp)).border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("LISTENING JOURNAL", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
-                Text("Personal ratings, moods and track notes", color = muted, fontSize = 9.sp)
-            }
-            TextButton(onClick = { expanded = !expanded }, enabled = trackId != null) { Text(if (expanded) "COLLAPSE" else "OPEN", color = accent, fontSize = 9.sp) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("YOUR RATING", color = muted, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
-            (1..5).forEach { star ->
-                IconButton(onClick = {
-                    rating = if (rating == star) 0 else star
-                    trackId?.let { prefs.edit().putInt("rating:${it}", rating).apply() }
-                }, enabled = trackId != null, modifier = Modifier.size(30.dp)) {
-                    Icon(if (star <= rating) Icons.Default.Star else Icons.Default.StarBorder, null, tint = if (star <= rating) accent else muted.copy(alpha = .5f), modifier = Modifier.size(19.dp))
-                }
-            }
-        }
-        Text("LISTENING MOOD", color = muted, fontSize = 9.sp, letterSpacing = 1.sp)
+        Text("LISTENING MOOD", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
+        Text(track?.let { "${it.title} • ${it.album}" } ?: "Choose a track to assign a mood", color = muted, fontSize = 9.sp, maxLines = 1)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             moodNames.forEach { label ->
                 FilterChip(selected = mood == label, onClick = { assignMood(label) }, enabled = trackId != null, label = { Text(label, fontSize = 9.sp) })
-            }
-        }
-        if (expanded) {
-            OutlinedTextField(value = note, onValueChange = { note = it }, enabled = trackId != null,
-                modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5,
-                label = { Text("Listening notes") }, placeholder = { Text("What stands out in this track?") })
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(track?.let { "${it.album} • ${it.folder}" } ?: "No track selected", color = muted, fontSize = 9.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                Button(onClick = { trackId?.let { prefs.edit().putString("journal:${it}", note).putInt("rating:${it}", rating).apply(); if (mood in moodNames) assignMood(mood) } }, enabled = trackId != null) { Text("SAVE NOTES", fontSize = 9.sp) }
             }
         }
     }

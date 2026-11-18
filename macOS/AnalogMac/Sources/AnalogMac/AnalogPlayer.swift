@@ -19,13 +19,15 @@ struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var sampleRateHz: Double? = nil
     var averageBitrateKbps: Int? = nil
     var audioChannels: Int? = nil
+    var dateAdded: Date? = nil
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
 }
 
 private let analogSupportedAudioExtensions: Set<String> = [
     "mp3", "m4a", "m4b", "aac", "adts", "wav", "wave",
-    "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd"
+    "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd",
+    "ogg", "oga", "opus", "wma", "ape", "wv", "dsf", "dff", "mka", "mp4", "3gp"
 ]
 
 private func makeMusicTrack(from url: URL) -> MusicTrack? {
@@ -94,7 +96,8 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         fileSizeBytes: fileSize,
         sampleRateHz: sampleRate > 0 ? sampleRate : nil,
         averageBitrateKbps: averageBitrate,
-        audioChannels: Int(file.processingFormat.channelCount)
+        audioChannels: Int(file.processingFormat.channelCount),
+        dateAdded: (attributes?[.creationDate] as? Date) ?? Date()
     )
 }
 private extension String {
@@ -117,8 +120,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var searchText = ""
     @Published var favorites: Set<String> = []
     @Published var moods: [String: String] = [:]
-    @Published var journal: [String: String] = [:]
-    @Published var ratings: [String: Int] = [:]
+    @Published var libraryShuffleOrder: [String] = []
+    @Published var skippedAudioFiles: [String] = []
     @Published var customPlaylists: [String: [String]] = [:]
     @Published var eqEnabled = true
     @Published var eqOutputPeak: Float = 0
@@ -326,8 +329,7 @@ final class AnalogPlayer: ObservableObject {
         favorites = Set(defaults.stringArray(forKey: "favorites") ?? [])
         if let data = defaults.data(forKey: "libraryTracks"), let saved = try? JSONDecoder().decode([MusicTrack].self, from: data) { tracks = saved.filter { FileManager.default.fileExists(atPath: $0.path) } }
         moods = defaults.dictionary(forKey: "moods") as? [String: String] ?? [:]
-        journal = defaults.dictionary(forKey: "journal") as? [String: String] ?? [:]
-        ratings = defaults.dictionary(forKey: "ratings") as? [String: Int] ?? [:]
+        libraryShuffleOrder = defaults.stringArray(forKey: "libraryShuffleOrder") ?? []
         customPlaylists = defaults.dictionary(forKey: "customPlaylists") as? [String: [String]] ?? [:]
         eqEnabled = defaults.object(forKey: "eqEnabled") as? Bool ?? true
         preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
@@ -358,8 +360,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(Array(favorites), forKey: "favorites")
         if let data = try? JSONEncoder().encode(tracks) { defaults.set(data, forKey: "libraryTracks") }
         defaults.set(moods, forKey: "moods")
-        defaults.set(journal, forKey: "journal")
-        defaults.set(ratings, forKey: "ratings")
+        defaults.set(libraryShuffleOrder, forKey: "libraryShuffleOrder")
         defaults.set(customPlaylists, forKey: "customPlaylists")
         defaults.set(eqEnabled, forKey: "eqEnabled")
         defaults.set(preampDB, forKey: "preampDB")
@@ -417,7 +418,7 @@ final class AnalogPlayer: ObservableObject {
                 options: [.skipsHiddenFiles]
             )
             var found: [MusicTrack] = []
-            var audioFilesSkipped = 0
+            var skippedFiles: [String] = []
             while let url = enumerator?.nextObject() as? URL {
                 let isAudio = analogSupportedAudioExtensions.contains(url.pathExtension.lowercased())
                     || (UTType(filenameExtension: url.pathExtension)?.conforms(to: .audio) ?? false)
@@ -425,20 +426,24 @@ final class AnalogPlayer: ObservableObject {
                 if let track = makeMusicTrack(from: url) {
                     found.append(track)
                 } else {
-                    audioFilesSkipped += 1
+                    skippedFiles.append(url.path)
                 }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
                 var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
-                for track in found { merged[track.id] = track }
+                for var track in found {
+                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
+                    merged[track.id] = track
+                }
+                self.skippedAudioFiles = skippedFiles.sorted()
                 self.tracks = merged.values.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
                 self.defaults.set(folder.path, forKey: "musicFolder")
                 self.persistState()
                 self.isScanning = false
-                self.scanSummary = "Library: \(self.tracks.count) tracks • \(audioFilesSkipped) unsupported/unreadable audio files skipped"
+                self.scanSummary = "Library: \(self.tracks.count) tracks • \(skippedFiles.count) unsupported/unreadable audio files"
             }
         }
     }
@@ -449,7 +454,7 @@ final class AnalogPlayer: ObservableObject {
         scanSummary = "Scanning audio files…"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found: [MusicTrack] = []
-            var skipped = 0
+            var skippedFiles: [String] = []
             for url in urls {
                 let extensionName = url.pathExtension.lowercased()
                 let isAudio = analogSupportedAudioExtensions.contains(extensionName)
@@ -458,13 +463,17 @@ final class AnalogPlayer: ObservableObject {
                 if let track = makeMusicTrack(from: url) {
                     found.append(track)
                 } else {
-                    skipped += 1
+                    skippedFiles.append(url.path)
                 }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
                 var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
-                for track in found { merged[track.id] = track }
+                for var track in found {
+                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
+                    merged[track.id] = track
+                }
+                self.skippedAudioFiles = skippedFiles.sorted()
                 self.tracks = merged.values.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
@@ -473,7 +482,7 @@ final class AnalogPlayer: ObservableObject {
                 }
                 self.persistState()
                 self.isScanning = false
-                self.scanSummary = "Added/updated \(found.count) playable tracks • \(skipped) unreadable files skipped"
+                self.scanSummary = "Added/updated \(found.count) playable tracks • \(skippedFiles.count) unreadable files"
             }
         }
     }
@@ -500,6 +509,19 @@ final class AnalogPlayer: ObservableObject {
         queue = items
         queueIndex = min(max(0, index), items.count - 1)
         startTrack(items[queueIndex], at: 0)
+    }
+
+    func shuffleLibrary() {
+        libraryShuffleOrder = tracks.map(\.id).shuffled()
+        persistState()
+    }
+
+    func playRandomLibraryTrack() {
+        guard !tracks.isEmpty else { return }
+        let shuffled = tracks.shuffled()
+        queue = shuffled
+        queueIndex = 0
+        startTrack(shuffled[0], at: 0)
     }
 
     func addNext(_ track: MusicTrack) {
@@ -674,8 +696,8 @@ final class AnalogPlayer: ObservableObject {
         } else if let track = currentTrack {
             let restartTime = currentTime >= track.duration ? 0 : currentTime
             startTrack(track, at: restartTime, recordPlay: false)
-        } else if let first = tracks.first {
-            play(first)
+        } else {
+            playRandomLibraryTrack()
         }
         updateSystemNowPlayingInfo()
     }
@@ -752,12 +774,6 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
-    func saveJournal(_ note: String, rating: Int, for track: MusicTrack) {
-        journal[track.id] = note
-        ratings[track.id] = rating
-        persistState()
-    }
-
     func exportPlaylist(_ name: String, tracks: [MusicTrack]) {
         guard !tracks.isEmpty else { return }
         let panel = NSSavePanel()
@@ -810,8 +826,6 @@ final class AnalogPlayer: ObservableObject {
         tracks.removeAll { $0.id == track.id }
         favorites.remove(track.id)
         moods.removeValue(forKey: track.id)
-        journal.removeValue(forKey: track.id)
-        ratings.removeValue(forKey: track.id)
         playHistory.removeAll { $0 == track.id }
         playCounts.removeValue(forKey: track.id)
         for name in Array(customPlaylists.keys) { customPlaylists[name]?.removeAll { $0 == track.id } }
@@ -836,15 +850,11 @@ final class AnalogPlayer: ObservableObject {
 
     var smartMixes: [AnalogSmartMix] {
         let recent = historyTracks
-        let rated = tracks.filter { (ratings[$0.id] ?? 0) >= 4 }
-        let unrated = tracks.filter { ratings[$0.id] == nil }
         let longTracks = tracks.filter { $0.duration >= 300 }
         let shortTracks = tracks.filter { $0.duration > 0 && $0.duration <= 180 }
         return [
             AnalogSmartMix(name: "Recently Played", subtitle: "Your latest listening rotation", tracks: recent),
             AnalogSmartMix(name: "Most Played", subtitle: "Tracks you return to most", tracks: mostPlayedTracks),
-            AnalogSmartMix(name: "Top Rated", subtitle: "Songs rated four stars or higher", tracks: rated),
-            AnalogSmartMix(name: "Never Rated", subtitle: "Discover tracks you have not rated", tracks: unrated),
             AnalogSmartMix(name: "Long Sessions", subtitle: "Tracks longer than five minutes", tracks: longTracks),
             AnalogSmartMix(name: "Quick Listen", subtitle: "Tracks under three minutes", tracks: shortTracks),
             AnalogSmartMix(name: "Favourites", subtitle: "Your saved favourite tracks", tracks: tracks.filter { favorites.contains($0.id) })

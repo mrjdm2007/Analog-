@@ -107,7 +107,6 @@ struct ContentView: View {
         case "Equalizer": return "10-BAND PARAMETRIC TONE CONTROL"
         case "Visualiser": return "LIVE SPECTRUM ANALYSIS • MAC ONLY"
         case "Recorder": return "LOCAL RECORDING • PCM CAPTURE"
-        case "Journal": return "YOUR TRACK NOTES AND RATINGS"
         default: return "ANALOG MUSIC SYSTEM"
         }
     }
@@ -120,7 +119,6 @@ struct ContentView: View {
         case "Smart Mixes": SmartMixesView()
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
-        case "Journal": JournalView()
         case "Equalizer": EqualizerView()
         case "Visualiser": VisualiserView()
         case "Recorder": RecorderView()
@@ -139,7 +137,6 @@ struct SidebarView: View {
         ("Smart Mixes", "sparkles"),
         ("Moods", "circle.lefthalf.filled"),
         ("Playlists", "music.note.list"),
-        ("Journal", "book.closed.fill"),
         ("Equalizer", "slider.horizontal.3"),
         ("Visualiser", "waveform.path"),
         ("Recorder", "waveform.badge.mic"),
@@ -256,6 +253,7 @@ struct LibraryView: View {
     @State private var libraryMode = "Songs"
     @State private var sortMode = "Title"
     @State private var sortAscending = true
+    @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
         player.filteredTracks.sorted { left, right in
@@ -268,6 +266,13 @@ struct LibraryView: View {
                 return sortAscending ? order == .orderedAscending : order == .orderedDescending
             case "Duration":
                 return sortAscending ? left.duration < right.duration : left.duration > right.duration
+            case "Date Added":
+                let leftDate = left.dateAdded ?? .distantPast
+                let rightDate = right.dateAdded ?? .distantPast
+                return sortAscending ? leftDate < rightDate : leftDate > rightDate
+            case "Shuffle":
+                let positions = Dictionary(uniqueKeysWithValues: player.libraryShuffleOrder.enumerated().map { ($1, $0) })
+                return (positions[left.id] ?? Int.max) < (positions[right.id] ?? Int.max)
             case "Play Count":
                 let leftCount = player.playCounts[left.id] ?? 0
                 let rightCount = player.playCounts[right.id] ?? 0
@@ -299,6 +304,9 @@ struct LibraryView: View {
                 Spacer()
                 Button { player.importAudioFiles() } label: { Label("ADD FILES", systemImage: "plus.square.on.square") }.buttonStyle(AnalogOutlineButton())
                 Button { player.importMusicFolder() } label: { Label("SCAN FOLDER", systemImage: "folder.badge.plus") }.buttonStyle(AnalogOutlineButton())
+                if !player.skippedAudioFiles.isEmpty {
+                    Button { showSkippedFiles = true } label: { Label("SKIPPED (\(player.skippedAudioFiles.count))", systemImage: "exclamationmark.triangle") }.buttonStyle(AnalogOutlineButton())
+                }
                 Button { showCreate = true } label: { Label("NEW PLAYLIST", systemImage: "plus") }.buttonStyle(AnalogOutlineButton())
                     .alert("Create playlist", isPresented: $showCreate) {
                         TextField("Playlist name", text: $playlistName)
@@ -324,10 +332,11 @@ struct LibraryView: View {
             }
             HStack(spacing: 8) {
                 Menu {
-                    ForEach(["Title", "Artist", "Album", "Duration", "Play Count"], id: \.self) { option in
+                    ForEach(["Title", "Artist", "Album", "Duration", "Date Added", "Play Count"], id: \.self) { option in
                         Button { sortMode = option } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
                     }
                 } label: { Label("SORT: \(sortMode.uppercased())", systemImage: "arrow.up.arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.cream).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }
+                Button { player.shuffleLibrary(); sortMode = "Shuffle" } label: { Label("SHUFFLE LIBRARY", systemImage: "shuffle").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Randomise the order of songs in your library")
                 Button { sortAscending.toggle() } label: { Image(systemName: sortAscending ? "arrow.up" : "arrow.down").foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Reverse sort order")
                 Spacer()
                 Text("\(player.filteredTracks.count) MATCHING TRACKS").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
@@ -380,6 +389,21 @@ struct LibraryView: View {
             }
         }
         .padding(22)
+        .sheet(isPresented: $showSkippedFiles) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("SKIPPED AUDIO FILES").font(.system(size: 16, weight: .black)).foregroundStyle(AnalogPalette.cream)
+                Text("These files were recognised as audio but Analog could not open them with its current audio decoder. The list includes their full paths so you can identify the missing tracks.")
+                    .font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                List(player.skippedAudioFiles, id: \.self) { path in
+                    Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.cream).textSelection(.enabled)
+                }.listStyle(.plain)
+                HStack {
+                    Text("\(player.skippedAudioFiles.count) files").foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Button("Done") { showSkippedFiles = false }.buttonStyle(AnalogActionButton())
+                }
+            }.padding(18).frame(minWidth: 620, minHeight: 420).background(AnalogPalette.ink)
+        }
     }
 }
 
@@ -415,7 +439,6 @@ struct TrackRow: View {
                     ForEach(player.customPlaylists.keys.sorted(), id: \.self) { name in
                         Button("Add to \(name)") { player.add(track, toPlaylist: name) }
                     }
-                    Button("Open journal") { player.selectedTab = "Journal" }
                 } label: {
                     Image(systemName: "ellipsis").foregroundStyle(AnalogPalette.cream.opacity(0.7)).frame(width: 26, height: 26)
                 }.menuStyle(.borderlessButton)
@@ -523,63 +546,6 @@ struct PlaylistCard: View {
             Button("Save") { player.renamePlaylist(name, to: newName) }
             Button("Cancel", role: .cancel) { }
         }
-    }
-}
-
-struct JournalView: View {
-    @EnvironmentObject private var player: AnalogPlayer
-    @State private var selectedID: String?
-    @State private var note = ""
-    @State private var rating = 0
-    var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("SONG JOURNAL").font(.system(size: 21, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
-                Text("Keep a note about the songs that matter to you.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(player.tracks) { track in
-                            Button {
-                                selectedID = track.id
-                                note = player.journal[track.id] ?? ""
-                                rating = player.ratings[track.id] ?? 0
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(track.title).font(.system(size: 10, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
-                                        Text(track.artist).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
-                                    }
-                                    Spacer()
-                                    if player.journal[track.id]?.isEmpty == false { Image(systemName: "note.text").foregroundStyle(AnalogPalette.green) }
-                                }.padding(9).background(selectedID == track.id ? AnalogPalette.amber.opacity(0.12) : AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 8))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }.frame(width: 250)
-            Rectangle().fill(AnalogPalette.cream.opacity(0.1)).frame(width: 1)
-            VStack(alignment: .leading, spacing: 14) {
-                Text("LISTENING NOTES").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundStyle(AnalogPalette.amber)
-                Text(player.tracks.first(where: { $0.id == selectedID })?.title ?? "Choose a song")
-                    .font(.system(size: 18, weight: .bold)).foregroundStyle(AnalogPalette.cream)
-                HStack {
-                    ForEach(1...5, id: \.self) { value in
-                        Button { rating = value } label: {
-                            Image(systemName: value <= rating ? "star.fill" : "star").foregroundStyle(value <= rating ? AnalogPalette.amber : AnalogPalette.muted)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                TextEditor(text: $note).font(.system(size: 12)).scrollContentBackground(.hidden)
-                    .padding(10).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-                HStack {
-                    Spacer()
-                    Button("SAVE JOURNAL ENTRY") {
-                        if let track = player.tracks.first(where: { $0.id == selectedID }) { player.saveJournal(note, rating: rating, for: track) }
-                    }.buttonStyle(AnalogActionButton()).disabled(selectedID == nil)
-                }
-                Spacer()
-            }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.padding(22)
     }
 }
 
@@ -1295,7 +1261,7 @@ struct SmartMixesView: View {
                     HStack(spacing: 12) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [AnalogPalette.raised, AnalogPalette.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            Image(systemName: mix.name == "Recently Played" ? "clock" : mix.name == "Most Played" ? "chart.bar.fill" : mix.name == "Top Rated" ? "star.fill" : mix.name == "Favourites" ? "heart.fill" : "sparkles").font(.system(size: 20)).foregroundStyle(AnalogPalette.amber)
+                            Image(systemName: mix.name == "Recently Played" ? "clock" : mix.name == "Most Played" ? "chart.bar.fill" : mix.name == "Favourites" ? "heart.fill" : "sparkles").font(.system(size: 20)).foregroundStyle(AnalogPalette.amber)
                         }.frame(width: 48, height: 48)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(mix.name).font(.system(size: 12, weight: .bold)).foregroundStyle(AnalogPalette.cream)
