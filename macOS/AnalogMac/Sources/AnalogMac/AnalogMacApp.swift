@@ -59,6 +59,45 @@ struct AnalogMacApp: App {
                     player.selectedTab = "Queue"
                 }
                 .keyboardShortcut("q", modifiers: [.command, .shift])
+
+                Button("Seek Back 10 Seconds") {
+                    player.seek(to: max(0, player.currentTime - 10))
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.option])
+
+                Button("Seek Forward 10 Seconds") {
+                    let duration = player.currentTrack?.duration ?? player.currentTime + 10
+                    player.seek(to: min(duration, player.currentTime + 10))
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.option])
+
+                Divider()
+
+                Button(player.shuffleQueue ? "Turn Shuffle Off" : "Turn Shuffle On") {
+                    player.shuffleQueue.toggle()
+                    player.persistState()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+
+                Button(player.repeatCurrentTrack ? "Repeat Track: On" : "Repeat Track: Off") {
+                    player.repeatCurrentTrack.toggle()
+                    if player.repeatCurrentTrack { player.repeatQueue = false }
+                    player.persistState()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+
+                Button(player.repeatQueue ? "Repeat Queue: On" : "Repeat Queue: Off") {
+                    player.repeatQueue.toggle()
+                    if player.repeatQueue { player.repeatCurrentTrack = false }
+                    player.persistState()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+
+                Button("Favorite Current Track") {
+                    if let track = player.currentTrack { player.toggleFavorite(track) }
+                }
+                .disabled(player.currentTrack == nil)
+                .keyboardShortcut("f", modifiers: [.command, .option])
             }
 
             CommandMenu("Navigate") {
