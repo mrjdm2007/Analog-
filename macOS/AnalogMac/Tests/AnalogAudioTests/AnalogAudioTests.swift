@@ -114,6 +114,7 @@ extension AnalogAudioTests {
         XCTAssertEqual(decoded.stereoPan ?? 0, 0.15, accuracy: 0.0001)
 
         var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacyObject.removeValue(forKey: "id")
         legacyObject.removeValue(forKey: "crossfeedEnabled")
         legacyObject.removeValue(forKey: "crossfeedAmount")
         legacyObject.removeValue(forKey: "peakGuardEnabled")
@@ -123,5 +124,6 @@ extension AnalogAudioTests {
         let legacy = try JSONDecoder().decode(EQDevicePreset.self, from: legacyData)
         XCTAssertNil(legacy.crossfeedEnabled)
         XCTAssertNil(legacy.stereoPan)
+        XCTAssertNotNil(legacy.id)
     }
 }
