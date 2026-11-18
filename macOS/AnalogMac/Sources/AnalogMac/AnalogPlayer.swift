@@ -277,16 +277,39 @@ final class AnalogPlayer: ObservableObject {
 
     func scan(_ folder: URL) {
         guard !isScanning else { return }
-        let urls = FileManager.default.enumerator(
-            at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        var candidates: [URL] = []
-        while let url = urls?.nextObject() as? URL {
-            candidates.append(url)
+        isScanning = true
+        scanSummary = "Scanning your music collection…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let enumerator = FileManager.default.enumerator(
+                at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            var found: [MusicTrack] = []
+            var audioFilesSkipped = 0
+            while let url = enumerator?.nextObject() as? URL {
+                let isAudio = analogSupportedAudioExtensions.contains(url.pathExtension.lowercased())
+                    || (UTType(filenameExtension: url.pathExtension)?.conforms(to: .audio) ?? false)
+                guard isAudio else { continue }
+                if let track = makeMusicTrack(from: url) {
+                    found.append(track)
+                } else {
+                    audioFilesSkipped += 1
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
+                for track in found { merged[track.id] = track }
+                self.tracks = merged.values.sorted {
+                    $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
+                self.defaults.set(folder.path, forKey: "musicFolder")
+                self.persistState()
+                self.isScanning = false
+                self.scanSummary = "Library: \(self.tracks.count) tracks • \(audioFilesSkipped) unsupported/unreadable audio files skipped"
+            }
         }
-        loadTracks(from: candidates, folder: folder)
     }
 
     private func loadTracks(from urls: [URL], folder: URL?) {
