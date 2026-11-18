@@ -9,17 +9,8 @@ final class AnalogAudioTests: XCTestCase {
         let bypassedBoostRMS = try renderOneKilohertzTone(eqGain: 10, bypass: true)
 
         XCTAssertGreaterThan(flatRMS, 0.01, "The offline audio engine should render the input tone.")
-        XCTAssertGreaterThan(
-            boostedRMS,
-            flatRMS * 2.0,
-            "A +10 dB 1 kHz EQ band should measurably increase the rendered 1 kHz signal."
-        )
-        XCTAssertEqual(
-            bypassedBoostRMS,
-            flatRMS,
-            accuracy: 0.0005,
-            "Bypassing the EQ should restore the flat response even when a band has a stored boost."
-        )
+        XCTAssertGreaterThan(boostedRMS, flatRMS * 2.0, "A +10 dB 1 kHz EQ band should measurably increase the rendered 1 kHz signal.")
+        XCTAssertEqual(bypassedBoostRMS, flatRMS, accuracy: 0.0005, "Bypassing the EQ should restore the flat response even when a band has a stored boost.")
     }
 
     private func renderOneKilohertzTone(eqGain: Float, bypass: Bool) throws -> Double {
@@ -45,11 +36,7 @@ final class AnalogAudioTests: XCTestCase {
             band.bypass = bypass
         }
 
-        try engine.enableManualRenderingMode(
-            .offline,
-            format: format,
-            maximumFrameCount: frameCount
-        )
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: frameCount)
         try engine.start()
 
         let input = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
@@ -61,10 +48,7 @@ final class AnalogAudioTests: XCTestCase {
             channels[1][frame] = value
         }
 
-        let output = AVAudioPCMBuffer(
-            pcmFormat: engine.manualRenderingFormat,
-            frameCapacity: frameCount
-        )!
+        let output = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: frameCount)!
         player.scheduleBuffer(input, at: nil, options: [])
         player.play()
         let status = try engine.renderOffline(frameCount, to: output)
@@ -85,31 +69,26 @@ final class AnalogAudioTests: XCTestCase {
     }
 }
 
-
 extension AnalogAudioTests {
     func testDeviceEQProfileRequiresExactOutputNameMatch() {
-        let preset = EQDevicePreset(
-            name: "Realtek USB Audio",
-            gains: Array(repeating: 0, count: 10),
-            bandwidths: Array(repeating: 1, count: 10),
-            preampDB: 0,
-            eqEnabled: true
-        )
+        let preset = EQDevicePreset(name: "Realtek USB Audio", gains: Array(repeating: 0, count: 10),
+                                    bandwidths: Array(repeating: 1, count: 10), preampDB: 0, eqEnabled: true)
         XCTAssertTrue(preset.matchesOutput(named: "  realtek usb audio  "))
         XCTAssertFalse(preset.matchesOutput(named: "Realtek USB"))
         XCTAssertFalse(preset.matchesOutput(named: "USB Audio Realtek"))
     }
-}
 
-
-extension AnalogAudioTests {
-    func testStereoCrossfeedMatrixBlendsOppositeChannelsWithoutChangingMasterGain() {
+    func testStereoCrossfeedMatrixIsAValidTwoByTwoMixerMatrix() {
         let matrix = stereoCrossfeedMatrix(amount: 0.2)
-        XCTAssertEqual(matrix.count, 9)
+        XCTAssertEqual(matrix.count, 4)
         XCTAssertEqual(matrix[0], 0.8, accuracy: 0.0001)
         XCTAssertEqual(matrix[1], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(matrix[3], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(matrix[4], 0.8, accuracy: 0.0001)
-        XCTAssertEqual(matrix[8], 1, accuracy: 0.0001)
+        XCTAssertEqual(matrix[2], 0.2, accuracy: 0.0001)
+        XCTAssertEqual(matrix[3], 0.8, accuracy: 0.0001)
+    }
+
+    func testStereoCrossfeedAmountIsClamped() {
+        XCTAssertEqual(stereoCrossfeedMatrix(amount: -1), [1, 0, 0, 1])
+        XCTAssertEqual(stereoCrossfeedMatrix(amount: 2), [0.65, 0.35, 0.35, 0.65])
     }
 }
