@@ -198,11 +198,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 send(PlaybackService.ACTION_EQ_ENABLED) { putExtra(PlaybackService.EXTRA_ENABLED, value) }
             })
         }
-        Text("OUTPUT • " + detectedOutput + "  /  " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
+        Text("CONNECTED OUTPUT CANDIDATE • " + detectedOutput + "  /  " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("AUTOMATIC DAC / HEADPHONE MATCHING", color = green, fontSize = 9.sp, letterSpacing = 1.sp)
-                Text("Uses exact output-name matching for saved profiles", color = text.copy(alpha = .5f), fontSize = 8.sp)
+                Text("Exact-name profiles; automatic matching pauses if multiple external outputs are connected", color = text.copy(alpha = .5f), fontSize = 8.sp)
             }
             Switch(checked = autoMatch, onCheckedChange = {
                 autoMatch = it
@@ -288,15 +288,17 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                             colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
                         Text("%+.1f".format(java.util.Locale.US, value * 12f), color = green, fontSize = 9.sp, modifier = Modifier.width(34.dp))
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("BW", color = text.copy(alpha = .5f), fontSize = 8.sp, modifier = Modifier.width(62.dp))
-                        Slider(value = bandwidths.getOrElse(index) { 1f }, onValueChange = { v ->
-                            bandwidths = bandwidths.toMutableList().also { while (it.size < 10) it.add(1f); it[index] = v }
-                            prefs.edit().putString("eq_band_bandwidths", bandwidths.joinToString(",")).apply()
-                            send(PlaybackService.ACTION_EQ_BANDWIDTH) { putExtra(PlaybackService.EXTRA_BAND_INDEX, index); putExtra(PlaybackService.EXTRA_BANDWIDTH, v) }
-                        }, valueRange = 0.1f..4f, enabled = enabled && available, modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = green, activeTrackColor = green))
-                        Text("%.1f".format(java.util.Locale.US, bandwidths.getOrElse(index) { 1f }), color = green, fontSize = 8.sp, modifier = Modifier.width(30.dp))
+                    if (index in 1..8) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("BW", color = text.copy(alpha = .5f), fontSize = 8.sp, modifier = Modifier.width(62.dp))
+                            Slider(value = bandwidths.getOrElse(index) { 1f }, onValueChange = { v ->
+                                bandwidths = bandwidths.toMutableList().also { while (it.size < 10) it.add(1f); it[index] = v }
+                                prefs.edit().putString("eq_band_bandwidths", bandwidths.joinToString(",")).apply()
+                                send(PlaybackService.ACTION_EQ_BANDWIDTH) { putExtra(PlaybackService.EXTRA_BAND_INDEX, index); putExtra(PlaybackService.EXTRA_BANDWIDTH, v) }
+                            }, valueRange = 0.1f..4f, enabled = enabled && available, modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(thumbColor = green, activeTrackColor = green))
+                            Text("%.1f".format(java.util.Locale.US, bandwidths.getOrElse(index) { 1f }), color = green, fontSize = 8.sp, modifier = Modifier.width(30.dp))
+                        }
                     }
                     }
                 }
