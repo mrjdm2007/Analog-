@@ -38,6 +38,7 @@ struct ContentView: View {
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
         .onAppear {
+            player.configureMediaCommands()
             player.setVisualizerEnabled(player.selectedTab == "Visualiser")
             if let folder = UserDefaults.standard.string(forKey: "musicFolder") {
                 player.scan(URL(fileURLWithPath: folder))
@@ -222,9 +223,10 @@ struct TrackArtwork: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
         .task(id: track.artworkPath) {
             guard let path = track.artworkPath else { artwork = nil; return }
-            artwork = await Task.detached(priority: .utility) {
-                NSImage(contentsOfFile: path)
+            let data = await Task.detached(priority: .utility) {
+                try? Data(contentsOf: URL(fileURLWithPath: path))
             }.value
+            artwork = data.flatMap { NSImage(data: $0) }
         }
     }
 }
@@ -815,6 +817,23 @@ struct SettingsView: View {
     }
 }
 
+private func formattedFileSize(_ bytes: Int64?) -> String {
+    guard let bytes, bytes >= 0 else { return "—" }
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    return formatter.string(fromByteCount: bytes)
+}
+
+private func technicalValue(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+        Text(label).font(.system(size: 7, weight: .black)).tracking(0.8).foregroundStyle(AnalogPalette.muted)
+        Text(value).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.cream).lineLimit(1).minimumScaleFactor(0.75)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(7)
+    .background(AnalogPalette.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+}
+
 struct NowPlayingPanel: View {
     @EnvironmentObject private var player: AnalogPlayer
     var body: some View {
@@ -846,10 +865,24 @@ struct NowPlayingPanel: View {
                 Text(player.currentTrack?.title ?? "Nothing playing").font(.system(size: 16, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(2)
                 Text(player.currentTrack.map { "\($0.album)  •  \($0.artist)" } ?? "Choose a song from your library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
             }
-            HStack {
-                Text("FORMAT").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.muted)
-                Spacer()
-                Text(player.currentTrack?.url.pathExtension.uppercased() ?? "—").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.green)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("FILE DETAILS").font(.system(size: 8, weight: .black)).tracking(1.4).foregroundStyle(AnalogPalette.muted)
+                HStack(spacing: 6) {
+                    technicalValue("FORMAT", player.currentTrack?.url.pathExtension.uppercased() ?? "—")
+                    technicalValue("SIZE", player.currentTrack.map { formattedFileSize($0.fileSizeBytes) } ?? "—")
+                }
+                HStack(spacing: 6) {
+                    technicalValue("AVG. BITRATE", player.currentTrack.map { $0.averageBitrateKbps.map { "\($0) kbps" } ?? "—" } ?? "—")
+                    technicalValue("SAMPLE RATE", player.currentTrack.map { $0.sampleRateHz.map { "\(Int($0 / 1000)) kHz" } ?? "—" } ?? "—")
+                }
+                HStack(spacing: 6) {
+                    technicalValue("DURATION", player.currentTrack.map { formatTime($0.duration) } ?? "—")
+                    technicalValue("CHANNELS", player.currentTrack.map { _ in
+                        player.currentTrack.flatMap { try? AVAudioFile(forReading: $0.url).processingFormat.channelCount }.map { "\($0) ch" } ?? "—"
+                    } ?? "—")
+                }
+                Text("Bitrate is an estimated average from file size and duration; lossless and VBR files can vary throughout playback.")
+                    .font(.system(size: 8)).foregroundStyle(AnalogPalette.muted).fixedSize(horizontal: false, vertical: true)
             }.padding(10).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 8))
             HStack {
                 Text("UP NEXT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.muted)
