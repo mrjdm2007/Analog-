@@ -55,13 +55,14 @@ internal object SafAudioLibrary {
                         val nameCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                         val mimeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                         val modifiedCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-                        if (idCol < 0 || nameCol < 0 || mimeCol < 0) return@use
-                        while (cursor.moveToNext()) {
-                            val id = cursor.getString(idCol) ?: continue
-                            val name = cursor.getString(nameCol) ?: continue
-                            val mime = cursor.getString(mimeCol).orEmpty()
-                            val modified = if (modifiedCol >= 0) cursor.getLong(modifiedCol) else 0L
-                            add(Child(id, name, mime, modified))
+                        if (idCol >= 0 && nameCol >= 0 && mimeCol >= 0) {
+                            while (cursor.moveToNext()) {
+                                val id = cursor.getString(idCol) ?: continue
+                                val name = cursor.getString(nameCol) ?: continue
+                                val mime = cursor.getString(mimeCol).orEmpty()
+                                val modified = if (modifiedCol >= 0) cursor.getLong(modifiedCol) else 0L
+                                add(Child(id, name, mime, modified))
+                            }
                         }
                     }
                 }.orEmpty()
