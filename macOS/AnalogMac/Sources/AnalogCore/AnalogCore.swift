@@ -1,5 +1,19 @@
 import Foundation
 
+/// Returns the indices that should follow the current track in a gapless queue.
+/// Each queued track appears at most once before the queue repeats.
+public func gaplessQueueIndices(count: Int, currentIndex: Int, repeatQueue: Bool, shuffleQueue: Bool = false) -> [Int] {
+    guard count > 0, currentIndex >= 0, currentIndex < count else { return [] }
+    let candidates = (0..<count).filter { index in
+        index != currentIndex && (repeatQueue || index > currentIndex)
+    }
+    if shuffleQueue { return candidates.shuffled() }
+    if repeatQueue {
+        return Array((currentIndex + 1)..<count) + Array(0..<currentIndex)
+    }
+    return Array((currentIndex + 1)..<count)
+}
+
 public func stereoCrossfeedMatrix(amount rawAmount: Float) -> [Float32] {
     let amount = min(0.35, max(0, rawAmount))
     // AVAudioUnitMatrixMixer uses one coefficient per input/output pair.
