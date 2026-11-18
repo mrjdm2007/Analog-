@@ -672,7 +672,8 @@ final class AnalogPlayer: ObservableObject {
             isPlaying = false
             timer?.invalidate()
         } else if let track = currentTrack {
-            startTrack(track, at: currentTime, recordPlay: false)
+            let restartTime = currentTime >= track.duration ? 0 : currentTime
+            startTrack(track, at: restartTime, recordPlay: false)
         } else if let first = tracks.first {
             play(first)
         }
@@ -682,7 +683,17 @@ final class AnalogPlayer: ObservableObject {
     func seek(to seconds: Double) {
         guard let track = currentTrack else { return }
         let wasPlaying = isPlaying
-        startTrack(track, at: min(max(0, seconds), track.duration), recordPlay: false)
+        let target = min(max(0, seconds), max(0, track.duration))
+        if target >= track.duration {
+            if wasPlaying {
+                advance()
+            } else {
+                currentTime = track.duration
+                updateSystemNowPlayingInfo()
+            }
+            return
+        }
+        startTrack(track, at: target, recordPlay: false)
         if !wasPlaying {
             playerNode.pause()
             isPlaying = false
