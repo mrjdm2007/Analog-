@@ -66,7 +66,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             if (imported.isNotEmpty()) {
                 profiles = (profiles.filterNot { existing -> imported.any { it.name.equals(existing.name, true) } } + imported).sortedBy { it.name.lowercase() }
                 HeadphoneEqProfiles.write(context, profiles)
-                send(PlaybackService.ACTION_EQ_MATCH_DEVICE)
+                runCatching { context.startService(Intent(context, PlaybackService::class.java).setAction(PlaybackService.ACTION_EQ_MATCH_DEVICE)) }
                 Toast.makeText(context, "Imported " + imported.size + " EQ profiles", Toast.LENGTH_SHORT).show()
             } else Toast.makeText(context, "No valid EQ profiles found", Toast.LENGTH_SHORT).show()
         }.onFailure { Toast.makeText(context, "Profile import failed", Toast.LENGTH_SHORT).show() }
