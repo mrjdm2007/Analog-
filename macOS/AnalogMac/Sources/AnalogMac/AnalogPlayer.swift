@@ -859,6 +859,32 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func installCrossfeedUnit(_ unit: AVAudioUnit) {
+        var inputBusCount: UInt32 = 1
+        var outputBusCount: UInt32 = 1
+        let elementCountSize = UInt32(MemoryLayout<UInt32>.size)
+        let inputStatus = AudioUnitSetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_ElementCount,
+            kAudioUnitScope_Input,
+            0,
+            &inputBusCount,
+            elementCountSize
+        )
+        let outputStatus = AudioUnitSetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_ElementCount,
+            kAudioUnitScope_Output,
+            0,
+            &outputBusCount,
+            elementCountSize
+        )
+        guard inputStatus == noErr, outputStatus == noErr else {
+            crossfeedAvailable = false
+            crossfeedEnabled = false
+            print("Analog crossfeed bus configuration failed: input=\\(inputStatus), output=\\(outputStatus)")
+            return
+        }
+
         let wasRunning = audioEngine.isRunning
         let wasPlaying = isPlaying
         if wasPlaying { updateClock() }
@@ -869,6 +895,7 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.attach(unit)
         audioEngine.connect(playerNode, to: unit, format: nil)
         audioEngine.connect(unit, to: equalizer, format: nil)
+        audioEngine.prepare()
         crossfeedUnit = unit
         crossfeedAvailable = true
         applyCrossfeedMatrix()
@@ -884,6 +911,8 @@ final class AnalogPlayer: ObservableObject {
                     }
                 }
             } catch {
+                crossfeedAvailable = false
+                crossfeedEnabled = false
                 print("Analog audio graph update failed: \\(error.localizedDescription)")
             }
         }
@@ -891,6 +920,12 @@ final class AnalogPlayer: ObservableObject {
 
     private func bypassCrossfeedUnit() {
         guard let unit = crossfeedUnit else { return }
+        let wasRunning = audioEngine.isRunning
+        let wasPlaying = isPlaying
+        if wasPlaying { updateClock() }
+        let resumeTrack = currentTrack
+        let resumeTime = currentTime
+        if wasRunning { audioEngine.stop() }
         audioEngine.disconnectNodeOutput(playerNode)
         audioEngine.disconnectNodeOutput(unit)
         audioEngine.detach(unit)
@@ -898,6 +933,23 @@ final class AnalogPlayer: ObservableObject {
         crossfeedUnit = nil
         crossfeedEnabled = false
         crossfeedAvailable = false
+        if wasRunning {
+            do {
+                try audioEngine.start()
+                if let resumeTrack {
+                    startTrack(resumeTrack, at: resumeTime, recordPlay: false)
+                    if !wasPlaying {
+                        playerNode.pause()
+                        isPlaying = false
+                        timer?.invalidate()
+                    }
+                }
+            } catch {
+                isPlaying = false
+                timer?.invalidate()
+                print("Analog crossfeed bypass recovery failed: \\(error.localizedDescription)")
+            }
+        }
     }
 
     private func applyCrossfeedMatrix() {
