@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
-            var libraryShuffleOrder by remember { mutableStateOf(prefs().getString("library_shuffle_order", null)?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()) }
+            var libraryShuffleOrder by remember { mutableStateOf<List<Long>>(prefs().getString("library_shuffle_order", null)?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()) }
             var playCountVersion by remember { mutableIntStateOf(0) }
             var headsetSingle by remember { mutableStateOf(prefs().getString("headset_single", "Play/Pause") ?: "Play/Pause") }
             var headsetDouble by remember { mutableStateOf(prefs().getString("headset_double", "Next track") ?: "Next track") }
