@@ -554,13 +554,16 @@ final class AnalogPlayer: ObservableObject {
                 var sequence: [(track: MusicTrack, index: Int)] = []
                 if queue.indices.contains(queueIndex) {
                     sequence.append((queue[queueIndex], queueIndex))
-                    var remaining = Array(queue.indices.filter { $0 != queueIndex })
-                    if shuffleQueue { remaining.shuffle() }
-                    sequence.append(contentsOf: remaining.map { (queue[$0], $0) })
-                    if repeatCurrentTrack { sequence.append((queue[queueIndex], queueIndex)) }
-                    else if repeatQueue && queue.count > 1 {
-                        let prefix = Array(queue.indices.filter { $0 < queueIndex })
-                        sequence.append(contentsOf: prefix.map { (queue[$0], $0) })
+                    if repeatCurrentTrack {
+                        sequence.append((queue[queueIndex], queueIndex))
+                    } else {
+                        var remaining = Array(queue.indices.filter { $0 != queueIndex })
+                        if shuffleQueue { remaining.shuffle() }
+                        sequence.append(contentsOf: remaining.map { (queue[$0], $0) })
+                        if repeatQueue && queue.count > 1 {
+                            let prefix = Array(queue.indices.filter { $0 < queueIndex })
+                            sequence.append(contentsOf: prefix.map { (queue[$0], $0) })
+                        }
                     }
                 } else {
                     sequence = [(track, 0)]
@@ -840,7 +843,7 @@ final class AnalogPlayer: ObservableObject {
     private func applyMatchingDevicePreset(for name: String) {
         let key = normalizedDeviceName(name)
         guard !key.isEmpty,
-              let preset = devicePresets.first(where: { normalizedDeviceName($0.name) == key }) else {
+              let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
             activeDevicePresetName = nil
             eqGains = Array(repeating: 0, count: 10)
             eqBandwidths = Array(repeating: 1, count: 10)
