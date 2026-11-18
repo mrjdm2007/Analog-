@@ -99,6 +99,10 @@ class PlaybackService : MediaSessionService() {
                         .putLong("listened_day:$dayKey", prefs.getLong("listened_day:$dayKey", 0L) + 1000L)
                         .apply()
                 }
+                prefs.edit()
+                    .putFloat("eq_output_peak", softwareEqualizer.outputPeak)
+                    .putFloat("eq_output_rms", softwareEqualizer.outputRms)
+                    .apply()
                 updateWidget()
                 timerHandler.postDelayed(this, 1000L)
             }
