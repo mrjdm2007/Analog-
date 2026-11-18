@@ -1021,7 +1021,7 @@ struct QueueView: View {
             }
             ScrollView {
                 LazyVStack(spacing: 7) {
-                    ForEach(player.queue.indices, id: \\.self) { index in
+                    ForEach(player.queue.indices, id: \.self) { index in
                         let track = player.queue[index]
                         HStack(spacing: 10) {
                             Text(String(format: "%02d", index + 1)).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(index == player.queueIndex ? AnalogPalette.amber : AnalogPalette.muted).frame(width: 28)
