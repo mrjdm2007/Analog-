@@ -3,7 +3,6 @@ package com.mrjdm2007.analog
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.provider.OpenableColumns
 import android.media.MediaMetadataRetriever
 import java.util.ArrayDeque
 import java.util.UUID
@@ -24,41 +23,29 @@ internal object SafAudioLibrary {
         if (treeUris.isEmpty()) return emptyList()
         val resolver = context.contentResolver
         val result = LinkedHashMap<String, Track>()
-        val queue = ArrayDeque<Pair<String, String>>()
+        val queue = ArrayDeque<Folder>()
 
         for (raw in treeUris) {
             val tree = runCatching { Uri.parse(raw) }.getOrNull() ?: continue
             val rootId = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull() ?: continue
             val rootName = rootId.substringAfter(':').substringAfterLast('/').ifBlank { "Selected folder" }
-            queue.add(rootId to rootName)
+            queue.add(Folder(tree, rootId, rootName, 0))
         }
 
         val visited = HashSet<String>()
         var examined = 0
         while (queue.isNotEmpty() && examined < 20_000) {
-            val (parentId, relativeFolder) = queue.removeFirst()
-            if (!visited.add(parentId)) continue
+            val folder = queue.removeFirst()
+            val visitKey = folder.treeUri.toString() + "|" + folder.documentId
+            if (!visited.add(visitKey)) continue
             val childrenUri = runCatching {
-                DocumentsContract.buildChildDocumentsUriUsingTree(
-                    treeUris.firstOrNull { raw ->
-                        runCatching { DocumentsContract.getTreeDocumentId(Uri.parse(raw)) == parentId }.getOrDefault(false)
-                    }?.let(Uri::parse) ?: Uri.parse(treeUris.first()),
-                    parentId
-                )
+                DocumentsContract.buildChildDocumentsUriUsingTree(folder.treeUri, folder.documentId)
             }.getOrNull() ?: continue
-
-            val treeUri = treeUris.firstOrNull { raw ->
-                runCatching {
-                    val root = DocumentsContract.getTreeDocumentId(Uri.parse(raw))
-                    parentId == root || parentId.startsWith(root.substringBefore(':') + ":")
-                }.getOrDefault(false)
-            }?.let(Uri::parse) ?: Uri.parse(treeUris.first())
 
             val columns = arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_SIZE,
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED
             )
             val rows = runCatching {
@@ -68,6 +55,7 @@ internal object SafAudioLibrary {
                         val nameCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                         val mimeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                         val modifiedCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                        if (idCol < 0 || nameCol < 0 || mimeCol < 0) return@use
                         while (cursor.moveToNext()) {
                             val id = cursor.getString(idCol) ?: continue
                             val name = cursor.getString(nameCol) ?: continue
@@ -82,17 +70,17 @@ internal object SafAudioLibrary {
             for (child in rows) {
                 examined++
                 if (child.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    if (parentId.count { it == '/' } < 32) {
-                        queue.add(child.documentId to child.displayName)
+                    if (folder.depth < 32) {
+                        queue.add(Folder(folder.treeUri, child.documentId, child.displayName, folder.depth + 1))
                     }
                     continue
                 }
                 val extension = child.displayName.substringAfterLast('.', "").lowercase()
                 if (!child.mimeType.startsWith("audio/") && extension !in audioExtensions) continue
-                if (child.displayName.startsWith(".") || child.displayName.equals("cover.jpg", true)) continue
+                if (child.displayName.startsWith(".")) continue
 
                 val documentUri = runCatching {
-                    DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId)
+                    DocumentsContract.buildDocumentUriUsingTree(folder.treeUri, child.documentId)
                 }.getOrNull() ?: continue
                 val key = documentUri.toString()
                 if (result.containsKey(key)) continue
@@ -106,7 +94,7 @@ internal object SafAudioLibrary {
                     album = metadata.album,
                     uri = documentUri,
                     duration = metadata.duration,
-                    folder = relativeFolder,
+                    folder = folder.relativeName,
                     albumId = 0L,
                     path = key,
                     dateAdded = (child.lastModified / 1000L).coerceAtLeast(0L),
@@ -116,6 +104,13 @@ internal object SafAudioLibrary {
         }
         return result.values.toList()
     }
+
+    private data class Folder(
+        val treeUri: Uri,
+        val documentId: String,
+        val relativeName: String,
+        val depth: Int
+    )
 
     private data class Child(
         val documentId: String,
