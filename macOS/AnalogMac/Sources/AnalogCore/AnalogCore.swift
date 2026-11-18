@@ -5,7 +5,7 @@ import Foundation
 public func gaplessQueueIndices(count: Int, currentIndex: Int, repeatQueue: Bool, shuffleQueue: Bool = false) -> [Int] {
     guard count > 0, currentIndex >= 0, currentIndex < count else { return [] }
     let candidates = (0..<count).filter { index in
-        index != currentIndex && (repeatQueue || index > currentIndex)
+        index != currentIndex && (shuffleQueue || repeatQueue || index > currentIndex)
     }
     if shuffleQueue { return candidates.shuffled() }
     if repeatQueue {
