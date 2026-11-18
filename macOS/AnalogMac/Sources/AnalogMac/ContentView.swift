@@ -256,7 +256,7 @@ struct LibraryView: View {
     @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
-        let shufflePositions = Dictionary(uniqueKeysWithValues: player.libraryShuffleOrder.enumerated().map { ($1, $0) })
+        let shufflePositions = Dictionary(player.libraryShuffleOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         return player.filteredTracks.sorted { left, right in
             switch sortMode {
             case "Artist":
