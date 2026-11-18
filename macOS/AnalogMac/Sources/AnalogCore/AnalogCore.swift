@@ -17,14 +17,37 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
     public var bandwidths: [Float]
     public var preampDB: Float
     public var eqEnabled: Bool
+    // Optional fields preserve compatibility with profile JSON exported by earlier versions.
+    public var crossfeedEnabled: Bool?
+    public var crossfeedAmount: Float?
+    public var peakGuardEnabled: Bool?
+    public var peakGuardThresholdDB: Float?
+    public var stereoPan: Float?
 
-    public init(id: UUID = UUID(), name: String, gains: [Float], bandwidths: [Float], preampDB: Float, eqEnabled: Bool) {
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        gains: [Float],
+        bandwidths: [Float],
+        preampDB: Float,
+        eqEnabled: Bool,
+        crossfeedEnabled: Bool? = nil,
+        crossfeedAmount: Float? = nil,
+        peakGuardEnabled: Bool? = nil,
+        peakGuardThresholdDB: Float? = nil,
+        stereoPan: Float? = nil
+    ) {
         self.id = id
         self.name = name
         self.gains = gains
         self.bandwidths = bandwidths
         self.preampDB = preampDB
         self.eqEnabled = eqEnabled
+        self.crossfeedEnabled = crossfeedEnabled
+        self.crossfeedAmount = crossfeedAmount
+        self.peakGuardEnabled = peakGuardEnabled
+        self.peakGuardThresholdDB = peakGuardThresholdDB
+        self.stereoPan = stereoPan
     }
 
     public func matchesOutput(named outputName: String) -> Bool {
