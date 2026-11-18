@@ -99,3 +99,16 @@ extension AnalogAudioTests {
         XCTAssertFalse(preset.matchesOutput(named: "USB Audio Realtek"))
     }
 }
+
+
+extension AnalogAudioTests {
+    func testStereoCrossfeedMatrixBlendsOppositeChannelsWithoutChangingMasterGain() {
+        let matrix = stereoCrossfeedMatrix(amount: 0.2)
+        XCTAssertEqual(matrix.count, 9)
+        XCTAssertEqual(matrix[0], 0.8, accuracy: 0.0001)
+        XCTAssertEqual(matrix[1], 0.2, accuracy: 0.0001)
+        XCTAssertEqual(matrix[3], 0.2, accuracy: 0.0001)
+        XCTAssertEqual(matrix[4], 0.8, accuracy: 0.0001)
+        XCTAssertEqual(matrix[8], 1, accuracy: 0.0001)
+    }
+}

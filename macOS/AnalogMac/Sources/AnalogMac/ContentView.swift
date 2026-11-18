@@ -657,6 +657,32 @@ struct EqualizerView: View {
             } message: {
                 Text("The profile name is matched against the detected macOS output device name.")
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("HEADPHONE CROSSFEED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
+                        Text(player.crossfeedAvailable ? "Subtle L/R channel blending in the playback DSP" : "Preparing native stereo matrix processor…")
+                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Toggle("ON", isOn: Binding(get: { player.crossfeedEnabled }, set: { player.setCrossfeed(enabled: $0) }))
+                        .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+                        .disabled(!player.crossfeedAvailable)
+                }
+                HStack(spacing: 8) {
+                    ForEach([("LOW", Float(0.08)), ("MED", Float(0.16)), ("HIGH", Float(0.25))], id: \.0) { item in
+                        Button(item.0) { player.setCrossfeed(enabled: true, amount: item.1) }
+                            .buttonStyle(AnalogOutlineButton()).disabled(!player.crossfeedAvailable)
+                    }
+                    Spacer()
+                    Text(String(format: "%.0f%% blend", player.crossfeedAmount * 100))
+                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                }
+                Slider(value: Binding(get: { Double(player.crossfeedAmount) }, set: { player.setCrossfeed(enabled: player.crossfeedEnabled, amount: Float($0)) }), in: 0...0.35)
+                    .tint(AnalogPalette.amber).disabled(!player.crossfeedAvailable)
+            }
+            .padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             HStack(spacing: 8) {
                 ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones"], id: \.self) { preset in
                     Button(preset.uppercased()) { player.applyPreset(preset) }.buttonStyle(AnalogOutlineButton())

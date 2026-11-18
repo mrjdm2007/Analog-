@@ -3,6 +3,15 @@ import AVFoundation
 import CoreAudio
 import SwiftUI
 
+func stereoCrossfeedMatrix(amount rawAmount: Float) -> [Float32] {
+    let amount = min(0.35, max(0, rawAmount))
+    return [
+        1 - amount, amount, 0,
+        amount, 1 - amount, 0,
+        0, 0, 1
+    ]
+}
+
 struct EQDevicePreset: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
