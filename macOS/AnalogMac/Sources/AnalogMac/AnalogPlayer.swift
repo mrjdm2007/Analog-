@@ -1192,12 +1192,40 @@ final class AnalogPlayer: ObservableObject {
 
     private func configurePeakGuard() {
         let threshold = min(-0.1, max(-12, peakGuardThresholdDB))
+        // Configure the Dynamics Processor as a fast peak-control stage.
+        // Headroom is the maximum level allowed above threshold; keeping it
+        // close to zero prevents the default, softer compressor behavior from
+        // allowing large overshoots after EQ/preamp boosts.
         _ = AudioUnitSetParameter(
             peakGuard.audioUnit,
             AudioUnitParameterID(kDynamicsProcessorParam_Threshold),
             kAudioUnitScope_Global,
             0,
             threshold,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_HeadRoom),
+            kAudioUnitScope_Global,
+            0,
+            0.1,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_AttackTime),
+            kAudioUnitScope_Global,
+            0,
+            0.001,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_ReleaseTime),
+            kAudioUnitScope_Global,
+            0,
+            0.05,
             0
         )
         peakGuard.auAudioUnit.shouldBypassEffect = !peakGuardEnabled
