@@ -127,3 +127,28 @@ extension AnalogAudioTests {
         XCTAssertNotNil(legacy.id)
     }
 }
+
+
+extension AnalogAudioTests {
+    func testGaplessRepeatQueueVisitsEveryTrackOnceBeforeWrapping() {
+        XCTAssertEqual(
+            gaplessQueueIndices(count: 4, currentIndex: 2, repeatQueue: true),
+            [3, 0, 1]
+        )
+        XCTAssertEqual(
+            gaplessQueueIndices(count: 4, currentIndex: 2, repeatQueue: false),
+            [3]
+        )
+    }
+
+    func testGaplessShuffleQueueDoesNotDuplicateEarlierTracks() {
+        let indices = gaplessQueueIndices(count: 4, currentIndex: 2, repeatQueue: true, shuffleQueue: true)
+        XCTAssertEqual(indices.count, 3)
+        XCTAssertEqual(Set(indices), Set([0, 1, 3]))
+    }
+
+    func testGaplessQueueHandlesInvalidCurrentIndex() {
+        XCTAssertEqual(gaplessQueueIndices(count: 3, currentIndex: 3, repeatQueue: true), [])
+        XCTAssertEqual(gaplessQueueIndices(count: 0, currentIndex: 0, repeatQueue: true), [])
+    }
+}
