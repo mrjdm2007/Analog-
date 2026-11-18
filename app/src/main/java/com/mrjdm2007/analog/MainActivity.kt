@@ -402,7 +402,14 @@ class MainActivity : ComponentActivity() {
                                             Spacer(Modifier.width(4.dp))
                                             Text("SHUFFLE", color = Amber, fontSize = 10.sp)
                                         }
-                                        SortDropdown(sortMode) { sortMode = it; prefs().edit().putString("sort_mode", it).apply() }
+                                        SortDropdown(sortMode) {
+                                            sortMode = it
+                                            if (it == "Shuffle") {
+                                                libraryShuffleOrder = tracks.shuffled().map { track -> track.id }
+                                                prefs().edit().putString("library_shuffle_order", libraryShuffleOrder.joinToString(",")).apply()
+                                            }
+                                            prefs().edit().putString("sort_mode", it).apply()
+                                        }
                                     }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
                                         itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
@@ -581,7 +588,12 @@ class MainActivity : ComponentActivity() {
     private fun prefs() = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
     private fun currentAudioRoute(): String {
         val manager = getSystemService(AudioManager::class.java)
-        val device = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET) }
+        val devices = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        val device = devices.firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE) }
+            ?: devices.firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET) }
+            ?: devices.firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER) }
+            ?: devices.firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC) }
+            ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         return device?.productName?.toString()?.takeIf { it.isNotBlank() }?.let { "Connected: $it" } ?: "Phone speaker / other output"
     }
     private fun smartPlaylistTracks(name: String, source: List<Track>, favorites: Set<Long>): List<Track> {
@@ -659,7 +671,7 @@ class MainActivity : ComponentActivity() {
     Box {
         TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null, tint = Amber); Spacer(Modifier.width(4.dp)); Text(selected, color = Amber, fontSize = 11.sp) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Date added", "Least played", "Most played", "Recently played", "Longest first", "Shortest first").forEach { mode ->
+            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Date added", "Shuffle", "Least played", "Most played", "Recently played", "Longest first", "Shortest first").forEach { mode ->
                 DropdownMenuItem(text = { Text(mode) }, onClick = { onSelected(mode); expanded = false })
             }
         }
@@ -717,7 +729,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0) onRandomPlay() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
         }
     }
