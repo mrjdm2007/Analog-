@@ -145,6 +145,9 @@ final class AnalogPlayer: ObservableObject {
     @Published var activeDevicePresetName: String?
     @Published var autoMatchOutputDevice = true
     @Published var gaplessPlaybackEnabled = true
+    @Published var crossfeedEnabled = false
+    @Published var crossfeedAmount: Float = 0.12
+    @Published private(set) var crossfeedAvailable = false
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -172,6 +175,7 @@ final class AnalogPlayer: ObservableObject {
     private var outputDeviceCancellable: AnyCancellable?
     private var gaplessFiles: [AVAudioFile] = []
     private var gaplessSegmentStartedAt = Date()
+    private var crossfeedUnit: AVAudioUnit?
 
     func configureMediaCommands() {
         guard !mediaCommandsConfigured else { return }
@@ -297,6 +301,7 @@ final class AnalogPlayer: ObservableObject {
         }
         restoreState()
         applyEqualizer()
+        configureCrossfeedUnit()
         outputDeviceName = outputDeviceMonitor.deviceName
         outputDeviceCancellable = outputDeviceMonitor.$deviceName.removeDuplicates().sink { [weak self] name in
             Task { @MainActor in self?.handleOutputDeviceChange(name) }
@@ -334,6 +339,8 @@ final class AnalogPlayer: ObservableObject {
         if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
+        crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
+        crossfeedAmount = min(0.35, max(0, defaults.object(forKey: "crossfeedAmount") as? Float ?? 0.12))
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
         if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
@@ -364,6 +371,8 @@ final class AnalogPlayer: ObservableObject {
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
+        defaults.set(crossfeedEnabled, forKey: "crossfeedEnabled")
+        defaults.set(crossfeedAmount, forKey: "crossfeedAmount")
         defaults.set(eqGains, forKey: "eqGains")
         defaults.set(eqBandwidths, forKey: "eqBandwidths")
         defaults.set(eqSnapshotA, forKey: "eqSnapshotA")
@@ -829,6 +838,106 @@ final class AnalogPlayer: ObservableObject {
         ]
     }
 
+
+
+    private func configureCrossfeedUnit() {
+        let description = AudioComponentDescription(
+            componentType: kAudioUnitType_Mixer,
+            componentSubType: kAudioUnitSubType_MatrixMixer,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        AVAudioUnit.instantiate(with: description, options: []) { [weak self] unit, error in
+            guard let unit else {
+                if let error { print("Analog crossfeed unavailable: \\(error.localizedDescription)") }
+                return
+            }
+            Task { @MainActor in self?.installCrossfeedUnit(unit) }
+        }
+    }
+
+    private func installCrossfeedUnit(_ unit: AVAudioUnit) {
+        let wasRunning = audioEngine.isRunning
+        let wasPlaying = isPlaying
+        if wasPlaying { updateClock() }
+        let resumeTrack = currentTrack
+        let resumeTime = currentTime
+        if wasRunning { audioEngine.stop() }
+        audioEngine.disconnectNodeOutput(playerNode)
+        audioEngine.attach(unit)
+        audioEngine.connect(playerNode, to: unit, format: nil)
+        audioEngine.connect(unit, to: equalizer, format: nil)
+        crossfeedUnit = unit
+        crossfeedAvailable = true
+        applyCrossfeedMatrix()
+        if wasRunning {
+            do {
+                try audioEngine.start()
+                if let resumeTrack {
+                    startTrack(resumeTrack, at: resumeTime, recordPlay: false)
+                    if !wasPlaying {
+                        playerNode.pause()
+                        isPlaying = false
+                        timer?.invalidate()
+                    }
+                }
+            } catch {
+                print("Analog audio graph update failed: \\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func bypassCrossfeedUnit() {
+        guard let unit = crossfeedUnit else { return }
+        audioEngine.disconnectNodeOutput(playerNode)
+        audioEngine.disconnectNodeOutput(unit)
+        audioEngine.detach(unit)
+        audioEngine.connect(playerNode, to: equalizer, format: nil)
+        crossfeedUnit = nil
+        crossfeedEnabled = false
+        crossfeedAvailable = false
+    }
+
+    private func applyCrossfeedMatrix() {
+        guard let unit = crossfeedUnit else { return }
+        var dimensions = [UInt32](repeating: 0, count: 2)
+        var size = UInt32(MemoryLayout<UInt32>.size * dimensions.count)
+        guard AudioUnitGetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_MatrixDimensions,
+            kAudioUnitScope_Global,
+            0,
+            &dimensions,
+            &size
+        ) == noErr, dimensions == [2, 2] else {
+            bypassCrossfeedUnit()
+            return
+        }
+        let amount = crossfeedEnabled ? min(0.35, max(0, crossfeedAmount)) : 0
+        var levels = stereoCrossfeedMatrix(amount: amount)
+        let status = levels.withUnsafeMutableBufferPointer { buffer in
+            AudioUnitSetProperty(
+                unit.audioUnit,
+                kAudioUnitProperty_MatrixLevels,
+                kAudioUnitScope_Global,
+                0,
+                buffer.baseAddress!,
+                UInt32(buffer.count * MemoryLayout<Float32>.size)
+            )
+        }
+        if status != noErr {
+            print("Analog crossfeed matrix update failed: \\(status)")
+            bypassCrossfeedUnit()
+        }
+    }
+
+    func setCrossfeed(enabled: Bool, amount: Float? = nil) {
+        crossfeedEnabled = enabled
+        if let amount { crossfeedAmount = min(0.35, max(0, amount)) }
+        applyCrossfeedMatrix()
+        persistState()
+    }
 
     private func normalizedDeviceName(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
