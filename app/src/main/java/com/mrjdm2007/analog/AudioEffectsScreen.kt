@@ -66,6 +66,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             if (imported.isNotEmpty()) {
                 profiles = (profiles.filterNot { existing -> imported.any { it.name.equals(existing.name, true) } } + imported).sortedBy { it.name.lowercase() }
                 HeadphoneEqProfiles.write(context, profiles)
+                send(PlaybackService.ACTION_EQ_MATCH_DEVICE)
                 Toast.makeText(context, "Imported " + imported.size + " EQ profiles", Toast.LENGTH_SHORT).show()
             } else Toast.makeText(context, "No valid EQ profiles found", Toast.LENGTH_SHORT).show()
         }.onFailure { Toast.makeText(context, "Profile import failed", Toast.LENGTH_SHORT).show() }
@@ -100,6 +101,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
+        activeProfile = prefs.getString("eq_active_device_profile", null)
     }
     fun applyDeviceProfile(profile: HeadphoneEqProfile) {
         bands = profile.gainsDb.map { (it / 12f).coerceIn(-1f, 1f) }
@@ -185,7 +187,11 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 Text("AUTOMATIC DAC / HEADPHONE MATCHING", color = green, fontSize = 9.sp, letterSpacing = 1.sp)
                 Text("Uses exact output-name matching for saved profiles", color = text.copy(alpha = .5f), fontSize = 8.sp)
             }
-            Switch(checked = autoMatch, onCheckedChange = { autoMatch = it; prefs.edit().putBoolean("eq_auto_match_device", it).apply() })
+            Switch(checked = autoMatch, onCheckedChange = {
+                autoMatch = it
+                prefs.edit().putBoolean("eq_auto_match_device", it).apply()
+                send(PlaybackService.ACTION_EQ_MATCH_DEVICE)
+            })
         }
         Text(if (activeProfile == null) "NO DEVICE PROFILE ACTIVE" else "ACTIVE PROFILE • " + activeProfile, color = if (activeProfile == null) accent else green, fontSize = 8.sp)
         if (!available || bandCount <= 0) {
@@ -416,6 +422,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                         val profile = HeadphoneEqProfile(name, bands.map { it * 12f }, List(10) { bandwidths.getOrElse(it) { 1f } }, preampDb, enabled, crossfeedEnabled, crossfeedAmount)
                         profiles = (profiles.filterNot { it.name.equals(name, true) } + profile).sortedBy { it.name.lowercase() }
                         HeadphoneEqProfiles.write(context, profiles)
+                        send(PlaybackService.ACTION_EQ_MATCH_DEVICE)
                         activeProfile = name
                         prefs.edit().putString("eq_active_device_profile", name).apply()
                     }
