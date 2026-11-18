@@ -603,13 +603,13 @@ final class AnalogPlayer: ObservableObject {
                     if repeatCurrentTrack {
                         sequence.append((queue[queueIndex], queueIndex))
                     } else {
-                        var remaining = Array(queue.indices.filter { $0 != queueIndex })
-                        if shuffleQueue { remaining.shuffle() }
-                        sequence.append(contentsOf: remaining.map { (queue[$0], $0) })
-                        if repeatQueue && queue.count > 1 {
-                            let prefix = Array(queue.indices.filter { $0 < queueIndex })
-                            sequence.append(contentsOf: prefix.map { (queue[$0], $0) })
-                        }
+                        let following = gaplessQueueIndices(
+                            count: queue.count,
+                            currentIndex: queueIndex,
+                            repeatQueue: repeatQueue,
+                            shuffleQueue: shuffleQueue
+                        )
+                        sequence.append(contentsOf: following.map { (queue[$0], $0) })
                     }
                 } else {
                     sequence = [(track, 0)]
@@ -803,9 +803,26 @@ final class AnalogPlayer: ObservableObject {
         catch { print("Analog playlist export error: \(error.localizedDescription)") }
     }
 
+    private func uniquePlaylistName(_ rawName: String, excluding: String? = nil) -> String? {
+        let base = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return nil }
+        func isTaken(_ candidate: String) -> Bool {
+            moodNames.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+                || customPlaylists.keys.contains {
+                    $0 != excluding && $0.caseInsensitiveCompare(candidate) == .orderedSame
+                }
+        }
+        if !isTaken(base) { return base }
+        var suffix = 2
+        while isTaken("\\(base) (\\(suffix))") { suffix += 1 }
+        return "\\(base) (\\(suffix))"
+    }
+
     func renamePlaylist(_ oldName: String, to newName: String) {
-        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, oldName != clean, let items = customPlaylists.removeValue(forKey: oldName) else { return }
+        guard let items = customPlaylists[oldName],
+              let clean = uniquePlaylistName(newName, excluding: oldName),
+              clean != oldName else { return }
+        customPlaylists.removeValue(forKey: oldName)
         customPlaylists[clean] = items
         persistState()
     }
@@ -818,7 +835,8 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func createPlaylist(_ name: String, tracks: [MusicTrack]) {
-        customPlaylists[name] = tracks.map(\.id)
+        guard let clean = uniquePlaylistName(name) else { return }
+        customPlaylists[clean] = tracks.map(\\.id)
         persistState()
     }
 
