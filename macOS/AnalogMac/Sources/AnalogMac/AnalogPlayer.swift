@@ -661,6 +661,7 @@ final class AnalogPlayer: ObservableObject {
                                 let next = scheduled[position + 1]
                                 self.queueIndex = next.index
                                 self.currentTrack = next.track
+                                self.shufflePlayedTrackIDs.insert(next.track.id)
                                 self.currentTime = 0
                                 self.segmentStart = 0
                                 self.gaplessSegmentStartedAt = Date()
