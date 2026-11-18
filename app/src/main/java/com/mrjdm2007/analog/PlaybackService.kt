@@ -90,6 +90,7 @@ class PlaybackService : MediaSessionService() {
                         .putLong("listened_day:$dayKey", prefs.getLong("listened_day:$dayKey", 0L) + 1000L)
                         .apply()
                 }
+                updateWidget()
                 timerHandler.postDelayed(this, 1000L)
             }
         }
@@ -614,7 +615,8 @@ class PlaybackService : MediaSessionService() {
         val player = mediaSession?.player
         val title = player?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a track"
         val artist = player?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() } ?: "ANALOG • OFFLINE"
-        AnalogWidgetProvider.update(this, title, artist, player?.isPlaying == true, player?.mediaMetadata?.artworkUri)
+        AnalogWidgetProvider.update(this, title, artist, player?.isPlaying == true, player?.mediaMetadata?.artworkUri,
+            player?.currentPosition ?: 0L, player?.duration?.takeIf { it > 0L } ?: 0L)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
