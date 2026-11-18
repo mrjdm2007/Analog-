@@ -44,6 +44,9 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bandwidths by remember { mutableStateOf(prefs.getString("eq_band_bandwidths", null)?.split(",")?.mapNotNull { it.toFloatOrNull() } ?: List(10) { 1f }) }
     var crossfeedEnabled by remember { mutableStateOf(prefs.getBoolean("eq_crossfeed_enabled", false)) }
     var crossfeedAmount by remember { mutableFloatStateOf(prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)) }
+    var peakGuardEnabled by remember { mutableStateOf(prefs.getBoolean("eq_peak_guard_enabled", false)) }
+    var peakGuardThresholdDb by remember { mutableFloatStateOf(prefs.getFloat("eq_peak_guard_threshold_db", -1f).coerceIn(-12f, -0.1f)) }
+    var stereoBalance by remember { mutableFloatStateOf(prefs.getFloat("eq_stereo_balance", 0f).coerceIn(-1f, 1f)) }
     var autoMatch by remember { mutableStateOf(prefs.getBoolean("eq_auto_match_device", true)) }
     var detectedOutput by remember { mutableStateOf("Detecting output…") }
     var profiles by remember { mutableStateOf(HeadphoneEqProfiles.read(context)) }
@@ -98,6 +101,9 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         bandwidths = List(10) { i -> widths?.getOrNull(i)?.coerceIn(0.1f, 4f) ?: 1f }
         crossfeedEnabled = prefs.getBoolean("eq_crossfeed_enabled", false)
         crossfeedAmount = prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)
+        peakGuardEnabled = prefs.getBoolean("eq_peak_guard_enabled", false)
+        peakGuardThresholdDb = prefs.getFloat("eq_peak_guard_threshold_db", -1f).coerceIn(-12f, -0.1f)
+        stereoBalance = prefs.getFloat("eq_stereo_balance", 0f).coerceIn(-1f, 1f)
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
@@ -110,11 +116,16 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         enabled = profile.eqEnabled
         crossfeedEnabled = profile.crossfeedEnabled
         crossfeedAmount = profile.crossfeedAmount
+        peakGuardEnabled = profile.peakGuardEnabled
+        peakGuardThresholdDb = profile.peakGuardThresholdDb
+        stereoBalance = profile.stereoBalance
         activeProfile = profile.name
         prefs.edit().putString("eq_band_levels", bands.joinToString(","))
             .putString("eq_band_bandwidths", bandwidths.joinToString(","))
             .putFloat("eq_preamp_db", preampDb).putBoolean("eq_enabled", enabled)
             .putBoolean("eq_crossfeed_enabled", crossfeedEnabled).putFloat("eq_crossfeed_amount", crossfeedAmount)
+            .putBoolean("eq_peak_guard_enabled", peakGuardEnabled).putFloat("eq_peak_guard_threshold_db", peakGuardThresholdDb)
+            .putFloat("eq_stereo_balance", stereoBalance)
             .putString("eq_active_device_profile", profile.name).apply()
         send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, bands.joinToString(",")) }
         bandwidths.forEachIndexed { index, value -> send(PlaybackService.ACTION_EQ_BANDWIDTH) {
@@ -126,19 +137,21 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             putExtra(PlaybackService.EXTRA_CROSSFEED_ENABLED, crossfeedEnabled)
             putExtra(PlaybackService.EXTRA_CROSSFEED_AMOUNT, crossfeedAmount)
         }
+        send(PlaybackService.ACTION_EQ_PEAK_GUARD) {
+            putExtra(PlaybackService.EXTRA_ENABLED, peakGuardEnabled)
+            putExtra(PlaybackService.EXTRA_THRESHOLD_DB, peakGuardThresholdDb)
+        }
+        send(PlaybackService.ACTION_EQ_STEREO_BALANCE) {
+            putExtra(PlaybackService.EXTRA_STEREO_BALANCE, stereoBalance)
+        }
     }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     DisposableEffect(audioManager, autoMatch, profiles, activeProfile) {
         fun refreshOutput() {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
-            val device = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
-                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }
-                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET }
-                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HDMI || it.type == AudioDeviceInfo.TYPE_HDMI_ARC }
-                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            val name = device?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "No active output detected"
+            val selection = OutputDeviceResolver.resolve(audioManager)
+            val name = selection.name
             detectedOutput = name
-            if (autoMatch) {
+            if (autoMatch && !selection.ambiguous) {
                 val match = HeadphoneEqProfiles.findExact(profiles, name)
                 if (match != null && activeProfile != match.name) applyDeviceProfile(match)
                 else if (match == null && activeProfile != null) {
@@ -146,6 +159,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                     activeProfile = null
                     prefs.edit().remove("eq_active_device_profile").apply()
                 }
+            } else if (selection.ambiguous) {
+                activeProfile = null
             }
         }
         refreshOutput()
@@ -379,6 +394,46 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 Text("%.0f%%".format(java.util.Locale.US, crossfeedAmount * 100), color = green, fontSize = 9.sp)
             }
             Spacer(Modifier.height(14.dp))
+            Text("DYNAMIC PEAK GUARD", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Prevent EQ boosts from clipping", color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("8:1 soft-knee-style peak compression above the selected ceiling", color = text.copy(alpha = .5f), fontSize = 8.sp)
+                }
+                Switch(checked = peakGuardEnabled, onCheckedChange = { value ->
+                    peakGuardEnabled = value
+                    prefs.edit().putBoolean("eq_peak_guard_enabled", value).apply()
+                    send(PlaybackService.ACTION_EQ_PEAK_GUARD) {
+                        putExtra(PlaybackService.EXTRA_ENABLED, value)
+                        putExtra(PlaybackService.EXTRA_THRESHOLD_DB, peakGuardThresholdDb)
+                    }
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("CEILING", color = text.copy(alpha = .6f), fontSize = 8.sp, modifier = Modifier.width(58.dp))
+                Slider(value = peakGuardThresholdDb, onValueChange = { value ->
+                    peakGuardThresholdDb = value
+                    prefs.edit().putFloat("eq_peak_guard_threshold_db", value).apply()
+                    send(PlaybackService.ACTION_EQ_PEAK_GUARD) {
+                        putExtra(PlaybackService.EXTRA_ENABLED, peakGuardEnabled)
+                        putExtra(PlaybackService.EXTRA_THRESHOLD_DB, value)
+                    }
+                }, valueRange = -12f..-0.1f, enabled = peakGuardEnabled, modifier = Modifier.weight(1f))
+                Text("%+.1f dB".format(java.util.Locale.US, peakGuardThresholdDb), color = green, fontSize = 9.sp)
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("STEREO BALANCE", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("L", color = text, fontSize = 9.sp)
+                Slider(value = stereoBalance, onValueChange = { value ->
+                    stereoBalance = value
+                    prefs.edit().putFloat("eq_stereo_balance", value).apply()
+                    send(PlaybackService.ACTION_EQ_STEREO_BALANCE) { putExtra(PlaybackService.EXTRA_STEREO_BALANCE, value) }
+                }, valueRange = -1f..1f, modifier = Modifier.weight(1f))
+                Text("R", color = text, fontSize = 9.sp)
+            }
+            Text(if (kotlin.math.abs(stereoBalance) < 0.01f) "CENTER" else if (stereoBalance < 0f) "LEFT %.0f%%".format(java.util.Locale.US, -stereoBalance * 100) else "RIGHT %.0f%%".format(java.util.Locale.US, stereoBalance * 100), color = green, fontSize = 8.sp)
+            Spacer(Modifier.height(14.dp))
             Text("HEADPHONE / DAC PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             OutlinedButton(onClick = { newProfileName = detectedOutput.takeUnless { it == "No active output detected" || it == "Detecting output…" } ?: ""; showSaveProfile = true }, modifier = Modifier.fillMaxWidth()) { Text("SAVE CURRENT EQ AS DEVICE PROFILE", fontSize = 9.sp) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -408,7 +463,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             }, valueRange = 0f..100f, enabled = enabled && available,
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
         }
-        Text("The 10-band EQ, preamp, bandwidth and stereo crossfeed are processed in Analog's PCM playback pipeline. Device profiles are stored locally and matched by exact output name.", color = text.copy(alpha = .55f), fontSize = 9.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
+        Text("The 10-band EQ uses low/high shelves, parametric mids, preamp, bandwidth, crossfeed, stereo balance and peak protection in Analog's PCM playback pipeline. Android exposes connected outputs rather than the exact active AudioTrack route; automatic matching pauses when multiple external outputs are connected.", color = text.copy(alpha = .55f), fontSize = 9.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
     }
     if (showSaveProfile) {
         AlertDialog(
@@ -419,7 +474,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 TextButton(onClick = {
                     val name = newProfileName.trim()
                     if (name.isNotEmpty()) {
-                        val profile = HeadphoneEqProfile(name, bands.map { it * 12f }, List(10) { bandwidths.getOrElse(it) { 1f } }, preampDb, enabled, crossfeedEnabled, crossfeedAmount)
+                        val profile = HeadphoneEqProfile(name, bands.map { it * 12f }, List(10) { bandwidths.getOrElse(it) { 1f } }, preampDb, enabled, crossfeedEnabled, crossfeedAmount, peakGuardEnabled, peakGuardThresholdDb, stereoBalance)
                         profiles = (profiles.filterNot { it.name.equals(name, true) } + profile).sortedBy { it.name.lowercase() }
                         HeadphoneEqProfiles.write(context, profiles)
                         send(PlaybackService.ACTION_EQ_MATCH_DEVICE)
