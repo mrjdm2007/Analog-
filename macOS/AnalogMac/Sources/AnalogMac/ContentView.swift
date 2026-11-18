@@ -15,6 +15,7 @@ struct ContentView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @EnvironmentObject private var recorder: AnalogRecorder
     @Environment(\.openWindow) private var openWindow
+    @State private var mainWindowVisible = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,19 +39,20 @@ struct ContentView: View {
         .background(AnalogPalette.ink)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
+            mainWindowVisible = visible
             player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
         }.frame(width: 0, height: 0))
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
         .onAppear {
             player.configureMediaCommands()
-            player.setVisualizerEnabled(player.selectedTab == "Visualiser")
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && mainWindowVisible)
             if let folder = UserDefaults.standard.string(forKey: "musicFolder") {
                 player.scan(URL(fileURLWithPath: folder))
             }
         }
         .onChange(of: player.selectedTab) { tab in
-            player.setVisualizerEnabled(tab == "Visualiser")
+            player.setVisualizerEnabled(tab == "Visualiser" && mainWindowVisible)
         }
     }
 
