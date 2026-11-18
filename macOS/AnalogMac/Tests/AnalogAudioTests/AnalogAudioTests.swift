@@ -165,6 +165,8 @@ extension AnalogAudioTests {
         XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: nil, outputName: "Built-in Output"))
         XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "   ", outputName: "Built-in Output"))
         XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: ""))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "No output device"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "Detecting output…"))
         XCTAssertTrue(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "Built-in Output"))
     }
 }
