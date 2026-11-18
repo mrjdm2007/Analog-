@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -94,9 +95,6 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         bandwidths = List(10) { i -> widths?.getOrNull(i)?.coerceIn(0.1f, 4f) ?: 1f }
         crossfeedEnabled = prefs.getBoolean("eq_crossfeed_enabled", false)
         crossfeedAmount = prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)
-        autoMatch = prefs.getBoolean("eq_auto_match_device", true)
-        profiles = HeadphoneEqProfiles.read(context)
-        activeProfile = prefs.getString("eq_active_device_profile", null)
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
@@ -126,7 +124,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         }
     }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    DisposableEffect(audioManager) {
+    DisposableEffect(audioManager, autoMatch, profiles, activeProfile) {
         fun refreshOutput() {
             val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
             val device = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
@@ -136,8 +134,14 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
             val name = device?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "No active output detected"
             detectedOutput = name
-            if (autoMatch) HeadphoneEqProfiles.findExact(profiles, name)?.let { profile ->
-                if (activeProfile != profile.name) applyDeviceProfile(profile)
+            if (autoMatch) {
+                val match = HeadphoneEqProfiles.findExact(profiles, name)
+                if (match != null && activeProfile != match.name) applyDeviceProfile(match)
+                else if (match == null && activeProfile != null) {
+                    applyDeviceProfile(HeadphoneEqProfile("Flat", List(10) { 0f }, List(10) { 1f }, 0f, true, false, 0.12f))
+                    activeProfile = null
+                    prefs.edit().remove("eq_active_device_profile").apply()
+                }
             }
         }
         refreshOutput()
