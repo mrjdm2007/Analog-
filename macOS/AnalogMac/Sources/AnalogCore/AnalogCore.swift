@@ -92,3 +92,15 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
         return !normalize(name).isEmpty && normalize(name) == normalize(outputName)
     }
 }
+
+
+/// An unmatched or temporarily unknown route must not erase a user's manual EQ.
+/// Only clear settings when they came from a previously applied device preset.
+public func shouldClearAutoAppliedDevicePreset(activePresetName: String?, outputName: String) -> Bool {
+    guard let activePresetName,
+          !activePresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !outputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return false
+    }
+    return true
+}
