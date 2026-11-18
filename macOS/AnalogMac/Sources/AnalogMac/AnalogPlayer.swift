@@ -1041,7 +1041,13 @@ final class AnalogPlayer: ObservableObject {
             eqBandwidths = Array(repeating: 1, count: 10)
             preampDB = 0
             eqEnabled = true
+            crossfeedEnabled = false
+            crossfeedAmount = 0.12
+            peakGuardEnabled = false
+            peakGuardThresholdDB = -1
+            stereoPan = 0
             applyEqualizer()
+            applyCrossfeedMatrix()
             persistState()
             return
         }
@@ -1057,7 +1063,13 @@ final class AnalogPlayer: ObservableObject {
     func saveDevicePreset(named rawName: String) {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, eqGains.count == 10, eqBandwidths.count == 10 else { return }
-        let preset = EQDevicePreset(name: name, gains: eqGains, bandwidths: eqBandwidths, preampDB: preampDB, eqEnabled: eqEnabled)
+        let preset = EQDevicePreset(
+            name: name, gains: eqGains, bandwidths: eqBandwidths,
+            preampDB: preampDB, eqEnabled: eqEnabled,
+            crossfeedEnabled: crossfeedEnabled, crossfeedAmount: crossfeedAmount,
+            peakGuardEnabled: peakGuardEnabled, peakGuardThresholdDB: peakGuardThresholdDB,
+            stereoPan: stereoPan
+        )
         if let index = devicePresets.firstIndex(where: { normalizedDeviceName($0.name) == normalizedDeviceName(name) }) {
             devicePresets[index] = preset
         } else {
@@ -1073,8 +1085,14 @@ final class AnalogPlayer: ObservableObject {
         eqBandwidths = preset.bandwidths.map { min(4, max(0.1, $0)) }
         preampDB = min(12, max(-12, preset.preampDB))
         eqEnabled = preset.eqEnabled
+        if let value = preset.crossfeedEnabled { crossfeedEnabled = value }
+        if let value = preset.crossfeedAmount { crossfeedAmount = min(0.35, max(0, value)) }
+        if let value = preset.peakGuardEnabled { peakGuardEnabled = value }
+        if let value = preset.peakGuardThresholdDB { peakGuardThresholdDB = min(-0.1, max(-12, value)) }
+        if let value = preset.stereoPan { stereoPan = min(1, max(-1, value)) }
         activeDevicePresetName = preset.name
         applyEqualizer()
+        applyCrossfeedMatrix()
         persistState()
     }
 
