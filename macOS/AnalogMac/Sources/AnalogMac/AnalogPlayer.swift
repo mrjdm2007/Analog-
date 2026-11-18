@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import AppKit
 import Combine
 import SwiftUI
@@ -55,7 +56,16 @@ final class AnalogPlayer: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let equalizer = AVAudioUnitEQ(numberOfBands: 10)
-    private let peakGuard = AVAudioUnitDynamicsProcessor()
+    private let peakGuard: AVAudioUnitEffect = {
+        let description = AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_DynamicsProcessor,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        return AVAudioUnitEffect(audioComponentDescription: description)
+    }()
     private var audioFile: AVAudioFile?
     private var timer: Timer?
     private var sleepTimer: Timer?
@@ -71,14 +81,8 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.connect(playerNode, to: equalizer, format: nil)
         audioEngine.connect(equalizer, to: peakGuard, format: nil)
         audioEngine.connect(peakGuard, to: audioEngine.mainMixerNode, format: nil)
-        peakGuard.threshold = -1
-        peakGuard.headRoom = 0
-        peakGuard.expansionRatio = 1
-        peakGuard.expansionThreshold = -60
-        peakGuard.attackTime = 0.001
-        peakGuard.releaseTime = 0.08
-        peakGuard.masterGain = 0
-        peakGuard.bypass = true
+        peakGuard.auAudioUnit.shouldBypassEffect = true
+        configurePeakGuard()
         equalizer.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             let count = Int(buffer.frameLength)
@@ -526,10 +530,22 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
-    private func applyEqualizer() {
+    private func configurePeakGuard() {
+        let threshold = min(-0.1, max(-12, peakGuardThresholdDB))
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_Threshold),
+            kAudioUnitScope_Global,
+            0,
+            threshold,
+            0
+        )
+        peakGuard.auAudioUnit.shouldBypassEffect = !peakGuardEnabled
+    }
+
+    func applyEqualizer() {
         equalizer.globalGain = preampDB
-        peakGuard.threshold = min(-0.1, max(-12, peakGuardThresholdDB))
-        peakGuard.bypass = !peakGuardEnabled
+        configurePeakGuard()
         playerNode.pan = stereoPan
         for index in equalizer.bands.indices {
             equalizer.bands[index].gain = eqGains[index]
