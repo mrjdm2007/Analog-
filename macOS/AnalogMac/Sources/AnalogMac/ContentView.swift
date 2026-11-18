@@ -314,7 +314,6 @@ struct LibraryView: View {
             }
             HStack {
                 Text(libraryMode == "Albums" ? "ALBUM" : libraryMode == "Artists" ? "ARTIST" : libraryMode == "Folders" ? "FOLDER" : "TRACK").frame(maxWidth: .infinity, alignment: .leading)
-                Text("ALBUM").frame(width: 135, alignment: .leading)
                 Text("LENGTH").frame(width: 60, alignment: .trailing)
                 Text("ACTIONS").frame(width: 95, alignment: .trailing)
             }
@@ -380,7 +379,6 @@ struct TrackRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }.buttonStyle(.plain)
-            Text(track.album).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).frame(width: 135, alignment: .leading).lineLimit(1)
             Text(formatTime(track.duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted).frame(width: 60, alignment: .trailing)
             HStack(spacing: 2) {
                 Button { player.toggleFavorite(track) } label: {
@@ -846,7 +844,7 @@ struct NowPlayingPanel: View {
             }.aspectRatio(1, contentMode: .fit)
             VStack(alignment: .leading, spacing: 5) {
                 Text(player.currentTrack?.title ?? "Nothing playing").font(.system(size: 16, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(2)
-                Text(player.currentTrack?.artist ?? "Choose a song from your library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                Text(player.currentTrack.map { "\($0.album)  •  \($0.artist)" } ?? "Choose a song from your library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
             }
             HStack {
                 Text("FORMAT").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.muted)
