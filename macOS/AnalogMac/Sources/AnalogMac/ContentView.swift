@@ -55,6 +55,10 @@ struct ContentView: View {
         .onChange(of: player.selectedTab) { tab in
             player.setVisualizerEnabled(tab == "Visualiser" && mainWindowVisible)
         }
+        .onChange(of: player.shuffleQueue) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.repeatQueue) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.repeatCurrentTrack) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.gaplessPlaybackEnabled) { _ in player.refreshPlaybackSchedule(force: true) }
     }
 
     private var topBar: some View {

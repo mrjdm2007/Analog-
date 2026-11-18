@@ -811,6 +811,7 @@ final class AnalogPlayer: ObservableObject {
         if removesCurrentTrack {
             playbackToken = UUID()
             playerNode.stop()
+            gaplessFiles.removeAll()
             isPlaying = false
             self.currentTrack = nil
             currentTime = 0
