@@ -113,7 +113,11 @@ internal object SafAudioLibrary {
         val volume = documentId.substring(0, separator)
         val relative = documentId.substring(separator + 1).trimStart('/')
         if (volume.equals("raw", true)) return "/$relative"
-        val root = if (volume.equals("primary", true)) "/storage/emulated/0" else "/storage/$volume"
+        val root = when {
+            volume.equals("primary", true) -> "/storage/emulated/0"
+            volume.matches(Regex("[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}")) -> "/storage/$volume"
+            else -> return fallbackUri
+        }
         return "$root/$relative"
     }
 
