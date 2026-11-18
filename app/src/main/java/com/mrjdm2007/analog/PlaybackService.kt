@@ -655,7 +655,8 @@ class PlaybackService : MediaSessionService() {
             return
         }
         if (profile != null) {
-            if (activeName == profile.name) return
+            // Reapply even when the profile name is unchanged: imported/edited profiles may
+            // have replaced its contents while keeping the same output-name key.
             prefs.edit()
                 .putString("eq_band_levels", profile.gainsDb.map { (it / 12f).coerceIn(-1f, 1f) }.joinToString(","))
                 .putString("eq_band_bandwidths", profile.bandwidths.joinToString(","))
