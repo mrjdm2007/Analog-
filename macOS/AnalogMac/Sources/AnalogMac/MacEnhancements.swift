@@ -1,33 +1,8 @@
 import AppKit
 import AVFoundation
 import CoreAudio
+import AnalogCore
 import SwiftUI
-
-func stereoCrossfeedMatrix(amount rawAmount: Float) -> [Float32] {
-    let amount = min(0.35, max(0, rawAmount))
-    return [
-        1 - amount, amount, 0,
-        amount, 1 - amount, 0,
-        0, 0, 1
-    ]
-}
-
-struct EQDevicePreset: Identifiable, Codable, Equatable {
-    var id: UUID = UUID()
-    var name: String
-    var gains: [Float]
-    var bandwidths: [Float]
-    var preampDB: Float
-    var eqEnabled: Bool
-
-    func matchesOutput(named outputName: String) -> Bool {
-        let normalize: (String) -> String = {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        }
-        return !normalize(name).isEmpty && normalize(name) == normalize(outputName)
-    }
-}
 
 @MainActor
 final class OutputDeviceMonitor: ObservableObject {
