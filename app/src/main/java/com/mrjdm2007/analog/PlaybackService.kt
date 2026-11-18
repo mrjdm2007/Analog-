@@ -217,6 +217,10 @@ class PlaybackService : MediaSessionService() {
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
                     cancelCrossfade()
+                    getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+                        .putFloat("eq_output_peak", 0f)
+                        .putFloat("eq_output_rms", 0f)
+                        .apply()
                     // A pause during a crossfade must never leave the primary deck attenuated.
                     mediaSession?.player?.volume = 1f
                 }
