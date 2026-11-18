@@ -42,13 +42,13 @@ object HeadphoneEqProfiles {
                         name = item.optString("name"),
                         gainsDb = gains.map { it.coerceIn(-12f, 12f) },
                         bandwidths = List(10) { bandwidths.getOrElse(it) { 1f }.coerceIn(0.1f, 4f) },
-                        preampDb = item.optDouble("preampDB", item.optDouble("preampDB", item.optDouble("preampDb", 0.0))).toFloat().coerceIn(-12f, 12f),
+                        preampDb = item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).toFloat().coerceIn(-12f, 12f),
                         eqEnabled = item.optBoolean("eqEnabled", true),
                         crossfeedEnabled = item.optBoolean("crossfeedEnabled", false),
                         crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).toFloat().coerceIn(0f, 0.35f),
                         peakGuardEnabled = item.optBoolean("peakGuardEnabled", false),
-                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0))).toFloat().coerceIn(-12f, -0.1f),
-                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0))).toFloat().coerceIn(-1f, 1f)
+                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).toFloat().coerceIn(-12f, -0.1f),
+                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).toFloat().coerceIn(-1f, 1f)
                     ))
                 }
             }
@@ -82,17 +82,19 @@ object HeadphoneEqProfiles {
                 val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
                 if (gains.size != 10) continue
                 val widths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
+                val name = item.optString("name").trim()
+                if (name.isBlank()) continue
                 add(HeadphoneEqProfile(
-                    item.optString("name"),
+                    name,
                     gains.map { it.coerceIn(-12f, 12f) },
                     List(10) { widths.getOrElse(it) { 1f }.coerceIn(.1f, 4f) },
-                    item.optDouble("preampDb", 0.0).toFloat().coerceIn(-12f, 12f),
+                    item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).toFloat().coerceIn(-12f, 12f),
                     item.optBoolean("eqEnabled", true),
                     item.optBoolean("crossfeedEnabled", false),
                     item.optDouble("crossfeedAmount", .12).toFloat().coerceIn(0f, .35f),
                     item.optBoolean("peakGuardEnabled", false),
-                    item.optDouble("peakGuardThresholdDb", -1.0).toFloat().coerceIn(-12f, -.1f),
-                    item.optDouble("stereoBalance", 0.0).toFloat().coerceIn(-1f, 1f)
+                    item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).toFloat().coerceIn(-12f, -.1f),
+                    item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).toFloat().coerceIn(-1f, 1f)
                 ))
             }
         }
