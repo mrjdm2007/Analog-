@@ -2,10 +2,11 @@ import Foundation
 
 public func stereoCrossfeedMatrix(amount rawAmount: Float) -> [Float32] {
     let amount = min(0.35, max(0, rawAmount))
+    // AVAudioUnitMatrixMixer uses one coefficient per input/output pair.
+    // For stereo this is a 2 × 2 matrix, not a 3 × 3 matrix.
     return [
-        1 - amount, amount, 0,
-        amount, 1 - amount, 0,
-        0, 0, 1
+        1 - amount, amount,
+        amount, 1 - amount
     ]
 }
 
