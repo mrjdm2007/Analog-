@@ -998,7 +998,7 @@ struct VisualiserView: View {
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(style == item ? AnalogPalette.amber.opacity(0.8) : .clear, lineWidth: 1))
                 }
                 Spacer()
-                Button { player.visualizerEnabled.toggle() } label: {
+                Button { player.setVisualizerEnabled(!player.visualizerEnabled) } label: {
                     Label(player.visualizerEnabled ? "ANALYSER ON" : "ANALYSER PAUSED", systemImage: player.visualizerEnabled ? "waveform" : "pause.fill")
                 }.buttonStyle(AnalogActionButton())
             }
