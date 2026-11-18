@@ -614,9 +614,7 @@ final class AnalogPlayer: ObservableObject {
                 var sequence: [(track: MusicTrack, index: Int)] = []
                 if queue.indices.contains(queueIndex) {
                     sequence.append((queue[queueIndex], queueIndex))
-                    if repeatCurrentTrack {
-                        sequence.append((queue[queueIndex], queueIndex))
-                    } else {
+                    if !repeatCurrentTrack {
                         let following = gaplessQueueIndices(
                             count: queue.count,
                             currentIndex: queueIndex,
