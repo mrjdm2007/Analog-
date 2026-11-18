@@ -68,7 +68,7 @@ class TenBandEqualizerProcessorTest {
 
     @Test
     fun stereoBalanceCanPanFullyToEitherChannel() {
-        val (left, right) = renderStereoLevels(balance = 1f, crossfeed = 0f)
+        val (left, right) = renderStereoLevels(balance = 1f, crossfeed = 0f, rightInput = true)
         assertTrue("Full right pan should strongly attenuate the left channel", left < right * 0.01)
         assertTrue("The right channel should remain audible", right > 0.02)
     }
@@ -80,7 +80,7 @@ class TenBandEqualizerProcessorTest {
         assertTrue("Crossfeed should add signal to the opposite channel", right > 0.002)
     }
 
-    private fun renderStereoLevels(balance: Float, crossfeed: Float): Pair<Double, Double> {
+    private fun renderStereoLevels(balance: Float, crossfeed: Float, rightInput: Boolean = false): Pair<Double, Double> {
         val sampleRate = 48_000
         val frames = 8192
         val processor = TenBandEqualizerProcessor()
@@ -92,7 +92,7 @@ class TenBandEqualizerProcessorTest {
         for (frame in 0 until frames) {
             val value = (0.1 * sin(2.0 * PI * 1000.0 * frame / sampleRate) * 32767.0).toInt().toShort()
             input.putShort(value)
-            input.putShort(0)
+            input.putShort(if (rightInput) value else 0)
         }
         input.flip()
         processor.queueInput(input)
