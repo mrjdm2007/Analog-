@@ -98,13 +98,23 @@ internal object SafAudioLibrary {
                     duration = metadata.duration,
                     folder = folder.relativeName,
                     albumId = 0L,
-                    path = key,
+                    path = storagePath(child.documentId, key),
                     dateAdded = (child.lastModified / 1000L).coerceAtLeast(0L),
                     isMusic = true
                 )
             }
         }
         return result.values.toList()
+    }
+
+    private fun storagePath(documentId: String, fallbackUri: String): String {
+        val separator = documentId.indexOf(':')
+        if (separator <= 0) return fallbackUri
+        val volume = documentId.substring(0, separator)
+        val relative = documentId.substring(separator + 1).trimStart('/')
+        if (volume.equals("raw", true)) return "/$relative"
+        val root = if (volume.equals("primary", true)) "/storage/emulated/0" else "/storage/$volume"
+        return "$root/$relative"
     }
 
     private data class Folder(
