@@ -23,8 +23,10 @@ private let analogSupportedAudioExtensions: Set<String> = [
 ]
 
 private func makeMusicTrack(from url: URL) -> MusicTrack? {
-    guard analogSupportedAudioExtensions.contains(url.pathExtension.lowercased()),
-          let file = try? AVAudioFile(forReading: url) else { return nil }
+    let extensionName = url.pathExtension.lowercased()
+    let isAudio = analogSupportedAudioExtensions.contains(extensionName)
+        || (UTType(filenameExtension: extensionName)?.conforms(to: .audio) ?? false)
+    guard isAudio, let file = try? AVAudioFile(forReading: url) else { return nil }
 
     let asset = AVURLAsset(url: url)
     let metadata = asset.commonMetadata
@@ -168,6 +170,7 @@ final class AnalogPlayer: ObservableObject {
             let samples = shouldAnalyse
                 ? Array(UnsafeBufferPointer(start: channel, count: count))
                 : []
+            let sampleRate = buffer.format.sampleRate
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -176,7 +179,7 @@ final class AnalogPlayer: ObservableObject {
                 if shouldAnalyse {
                     self.visualizerBins = analogSpectrum(
                         samples: samples,
-                        sampleRate: buffer.format.sampleRate,
+                        sampleRate: sampleRate,
                         binCount: 36
                     )
                     self.visualizerWaveform = analogWaveform(samples: samples, pointCount: 128)
