@@ -97,7 +97,8 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         sampleRateHz: sampleRate > 0 ? sampleRate : nil,
         averageBitrateKbps: averageBitrate,
         audioChannels: Int(file.processingFormat.channelCount),
-        dateAdded: (attributes?[.creationDate] as? Date) ?? Date()
+        // This is the first-import timestamp, not the file's filesystem creation date.
+        dateAdded: Date()
     )
 }
 private extension String {
@@ -320,11 +321,15 @@ final class AnalogPlayer: ObservableObject {
     }
 
     var libraryOrderedTracks: [MusicTrack] {
-        guard !libraryShuffleOrder.isEmpty else { return tracks }
-        let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        // Old library snapshots can contain duplicate paths after repeated imports.
+        // De-duplicate before building the lookup to avoid Dictionary's duplicate-key trap.
+        var seen = Set<String>()
+        let uniqueTracks = tracks.filter { seen.insert($0.id).inserted }
+        guard !libraryShuffleOrder.isEmpty else { return uniqueTracks }
+        let byID = Dictionary(uniqueTracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ordered = libraryShuffleOrder.compactMap { byID[$0] }
         let orderedIDs = Set(ordered.map(\.id))
-        return ordered + tracks.filter { !orderedIDs.contains($0.id) }
+        return ordered + uniqueTracks.filter { !orderedIDs.contains($0.id) }
     }
 
     var moodNames: [String] { ["Calm", "Energy", "Focus", "Nostalgia"] }
@@ -439,7 +444,7 @@ final class AnalogPlayer: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
+                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 for var track in found {
                     if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
                     merged[track.id] = track
