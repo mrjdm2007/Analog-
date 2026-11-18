@@ -147,6 +147,12 @@ extension AnalogAudioTests {
         XCTAssertEqual(Set(indices), Set([0, 1, 3]))
     }
 
+    func testGaplessShuffleIncludesTheWholeRemainingQueueEvenWithoutRepeat() {
+        let indices = gaplessQueueIndices(count: 4, currentIndex: 2, repeatQueue: false, shuffleQueue: true)
+        XCTAssertEqual(indices.count, 3)
+        XCTAssertEqual(Set(indices), Set([0, 1, 3]))
+    }
+
     func testGaplessQueueHandlesInvalidCurrentIndex() {
         XCTAssertEqual(gaplessQueueIndices(count: 3, currentIndex: 3, repeatQueue: true), [])
         XCTAssertEqual(gaplessQueueIndices(count: 0, currentIndex: 0, repeatQueue: true), [])
