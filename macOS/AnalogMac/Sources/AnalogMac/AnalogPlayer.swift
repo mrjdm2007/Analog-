@@ -261,10 +261,10 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func removeFromQueue(at index: Int) {
-        guard queue.indices.contains(index) else { return }
+        // The active track is controlled by the transport, not the upcoming queue.
+        guard queue.indices.contains(index), index != queueIndex else { return }
         queue.remove(at: index)
         if index < queueIndex { queueIndex -= 1 }
-        else if index == queueIndex { queueIndex = min(queueIndex, max(0, queue.count - 1)) }
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
@@ -460,11 +460,21 @@ final class AnalogPlayer: ObservableObject {
         playHistory.removeAll { $0 == track.id }
         playCounts.removeValue(forKey: track.id)
         for name in Array(customPlaylists.keys) { customPlaylists[name]?.removeAll { $0 == track.id } }
+        let currentQueuePosition = min(queueIndex, queue.count)
+        let removedBeforeCurrent = queue.prefix(currentQueuePosition).filter { $0.id == track.id }.count
+        let removesCurrentTrack = currentTrack?.id == track.id
         queue.removeAll { $0.id == track.id }
-        if let currentTrack, currentTrack.id == track.id {
-            playerNode.stop(); isPlaying = false; self.currentTrack = nil; currentTime = 0; timer?.invalidate()
+        if removesCurrentTrack {
+            playbackToken = UUID()
+            playerNode.stop()
+            isPlaying = false
+            self.currentTrack = nil
+            currentTime = 0
+            timer?.invalidate()
+            queueIndex = min(queueIndex, max(0, queue.count - 1))
+        } else {
+            queueIndex = max(0, queueIndex - removedBeforeCurrent)
         }
-        queueIndex = min(queueIndex, max(0, queue.count - 1))
         persistState()
     }
 
@@ -638,8 +648,10 @@ final class AnalogRecorder: ObservableObject {
     private var outputFile: AVAudioFile?
     private var startedAt: Date?
     private var timer: Timer?
+    private var inputTapInstalled = false
 
     func start() {
+        guard !isRecording else { return }
         let panel = NSSavePanel()
         panel.title = "Save Analog recording"
         panel.nameFieldStringValue = "Analog Recording.caf"
@@ -679,6 +691,7 @@ final class AnalogRecorder: ObservableObject {
                     self?.inputRMS = rms
                 }
             }
+            inputTapInstalled = true
             try engine.start()
             startedAt = Date()
             elapsed = 0
@@ -693,13 +706,24 @@ final class AnalogRecorder: ObservableObject {
             }
         } catch {
             errorMessage = error.localizedDescription
+            if inputTapInstalled {
+                engine.inputNode.removeTap(onBus: 0)
+                inputTapInstalled = false
+            }
+            engine.stop()
             outputFile = nil
+            timer?.invalidate()
+            isRecording = false
+            startedAt = nil
         }
     }
 
     func stop() {
-        guard isRecording else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        guard isRecording || inputTapInstalled || engine.isRunning else { return }
+        if inputTapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            inputTapInstalled = false
+        }
         engine.stop()
         outputFile = nil
         timer?.invalidate()
