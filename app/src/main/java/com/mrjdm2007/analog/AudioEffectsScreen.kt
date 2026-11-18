@@ -159,8 +159,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                     activeProfile = null
                     prefs.edit().remove("eq_active_device_profile").apply()
                 }
-            } else if (selection.ambiguous) {
+            } else if (selection.ambiguous && activeProfile != null) {
+                applyDeviceProfile(HeadphoneEqProfile("Flat", List(10) { 0f }, List(10) { 1f }, 0f, true, false, 0.12f))
                 activeProfile = null
+                prefs.edit().remove("eq_active_device_profile").apply()
             }
         }
         refreshOutput()
@@ -227,7 +229,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 Slider(value = preampDb, onValueChange = { value ->
                     preampDb = value
                     send(PlaybackService.ACTION_EQ_PREAMP) { putExtra(PlaybackService.EXTRA_STRENGTH, value) }
-                }, valueRange = -12f..12f, enabled = enabled && available,
+                }, valueRange = -12f..12f, enabled = available,
                     modifier = Modifier.weight(1f),
                     colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
             }
