@@ -1058,24 +1058,36 @@ final class AnalogPlayer: ObservableObject {
 
     private func applyMatchingDevicePreset(for name: String) {
         let key = normalizedDeviceName(name)
-        guard !key.isEmpty,
-              let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
-            activeDevicePresetName = nil
-            eqGains = Array(repeating: 0, count: 10)
-            eqBandwidths = Array(repeating: 1, count: 10)
-            preampDB = 0
-            eqEnabled = true
-            crossfeedEnabled = false
-            crossfeedAmount = 0.12
-            peakGuardEnabled = false
-            peakGuardThresholdDB = -1
-            stereoPan = 0
-            applyEqualizer()
-            applyCrossfeedMatrix()
-            persistState()
+        // A transient/unknown route is not evidence that the user's manual EQ
+        // should be replaced. Keep the current processing until a real route is known.
+        guard !key.isEmpty else { return }
+
+        if let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) {
+            applyDevicePreset(preset)
             return
         }
-        applyDevicePreset(preset)
+
+        // Only reset when leaving a device whose saved preset was actually applied.
+        // Previously this branch flattened manual EQ every time an unmatched output
+        // appeared, including on startup when no device preset had ever been active.
+        guard shouldClearAutoAppliedDevicePreset(
+            activePresetName: activeDevicePresetName,
+            outputName: name
+        ) else { return }
+
+        activeDevicePresetName = nil
+        eqGains = Array(repeating: 0, count: 10)
+        eqBandwidths = Array(repeating: 1, count: 10)
+        preampDB = 0
+        eqEnabled = true
+        crossfeedEnabled = false
+        crossfeedAmount = 0.12
+        peakGuardEnabled = false
+        peakGuardThresholdDB = -1
+        stereoPan = 0
+        applyEqualizer()
+        applyCrossfeedMatrix()
+        persistState()
     }
 
     func setAutomaticDeviceMatching(_ enabled: Bool) {
@@ -1131,8 +1143,11 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func deleteDevicePreset(_ preset: EQDevicePreset) {
+        let wasActive = activeDevicePresetName == preset.name
         devicePresets.removeAll { $0.id == preset.id }
-        if activeDevicePresetName == preset.name { activeDevicePresetName = nil }
+        // Keep the active marker until matching runs so it can safely clear only
+        // settings that came from the now-deleted automatic device preset.
+        if wasActive && !autoMatchOutputDevice { activeDevicePresetName = nil }
         persistState()
         if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }
