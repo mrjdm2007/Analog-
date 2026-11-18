@@ -98,11 +98,15 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
 /// Only clear settings when they came from a previously applied device preset.
 public func shouldClearAutoAppliedDevicePreset(activePresetName: String?, outputName: String) -> Bool {
     guard let activePresetName,
-          !activePresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-          !outputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          !activePresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         return false
     }
-    return true
+    let normalizedOutput = outputName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let unresolvedRouteLabels: Set<String> = [
+        "", "detecting output…", "detecting output...", "no output device",
+        "unknown output device", "no output device detected"
+    ]
+    return !unresolvedRouteLabels.contains(normalizedOutput)
 }
 
 
