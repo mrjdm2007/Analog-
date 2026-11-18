@@ -647,19 +647,24 @@ class PlaybackService : MediaSessionService() {
         // Do not guess when Android reports multiple connected external sinks.
         val profile = if (selection.ambiguous) null else HeadphoneEqProfiles.findExact(HeadphoneEqProfiles.read(this), outputName)
         if (selection.ambiguous) {
-            prefs.edit()
-                .putString("eq_band_levels", List(10) { "0" }.joinToString(","))
-                .putString("eq_band_bandwidths", List(10) { "1" }.joinToString(","))
-                .putFloat("eq_preamp_db", 0f)
-                .putBoolean("eq_enabled", true)
-                .putBoolean("eq_crossfeed_enabled", false)
-                .putFloat("eq_crossfeed_amount", 0.12f)
-                .putBoolean("eq_peak_guard_enabled", false)
-                .putFloat("eq_peak_guard_threshold_db", -1f)
-                .putFloat("eq_stereo_balance", 0f)
-                .remove("eq_active_device_profile")
-                .apply()
-            applySoftwareEqualizer()
+            // An unknown route must not erase a user's manual EQ. Only clear a
+            // previously auto-applied device profile, which might otherwise leak
+            // onto a different output.
+            if (activeName != null) {
+                prefs.edit()
+                    .putString("eq_band_levels", List(10) { "0" }.joinToString(","))
+                    .putString("eq_band_bandwidths", List(10) { "1" }.joinToString(","))
+                    .putFloat("eq_preamp_db", 0f)
+                    .putBoolean("eq_enabled", true)
+                    .putBoolean("eq_crossfeed_enabled", false)
+                    .putFloat("eq_crossfeed_amount", 0.12f)
+                    .putBoolean("eq_peak_guard_enabled", false)
+                    .putFloat("eq_peak_guard_threshold_db", -1f)
+                    .putFloat("eq_stereo_balance", 0f)
+                    .remove("eq_active_device_profile")
+                    .apply()
+                applySoftwareEqualizer()
+            }
             return
         }
         if (profile != null) {
