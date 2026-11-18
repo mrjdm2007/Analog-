@@ -344,9 +344,6 @@ final class AnalogPlayer: ObservableObject {
     private func persistListeningState() {
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
-        if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
-        defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
-        defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
     }
 
     func persistState() {
@@ -364,6 +361,9 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(peakGuardThresholdDB, forKey: "peakGuardThresholdDB")
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
+        if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
+        defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
+        defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
         defaults.set(eqGains, forKey: "eqGains")
         defaults.set(eqBandwidths, forKey: "eqBandwidths")
         defaults.set(eqSnapshotA, forKey: "eqSnapshotA")
