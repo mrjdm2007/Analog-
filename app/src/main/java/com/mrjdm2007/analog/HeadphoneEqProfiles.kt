@@ -36,19 +36,24 @@ object HeadphoneEqProfiles {
                 for (i in 0 until array.length()) {
                     val item = array.getJSONObject(i)
                     val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
-                    val bandwidths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
-                    if (gains.size != 10) continue
+                    if (gains.size != 10 || gains.any { !it.isFinite() }) continue
+                    val rawBandwidths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
+                    val bandwidths = List(10) { index ->
+                        rawBandwidths.getOrNull(index)?.takeIf { it.isFinite() }?.coerceIn(0.1f, 4f) ?: 1f
+                    }
+                    val name = item.optString("name").trim()
+                    if (name.isBlank()) continue
                     add(HeadphoneEqProfile(
-                        name = item.optString("name"),
+                        name = name,
                         gainsDb = gains.map { it.coerceIn(-12f, 12f) },
                         bandwidths = List(10) { bandwidths.getOrElse(it) { 1f }.coerceIn(0.1f, 4f) },
-                        preampDb = item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).toFloat().coerceIn(-12f, 12f),
+                        preampDb = item.optDouble("preampDB", item.optDouble("preampDb", 0.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-12f, 12f) ?: 0f,
                         eqEnabled = item.optBoolean("eqEnabled", true),
                         crossfeedEnabled = item.optBoolean("crossfeedEnabled", false),
-                        crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).toFloat().coerceIn(0f, 0.35f),
+                        crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).takeIf { it.isFinite() }?.toFloat()?.coerceIn(0f, 0.35f) ?: 0.12f,
                         peakGuardEnabled = item.optBoolean("peakGuardEnabled", false),
-                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).toFloat().coerceIn(-12f, -0.1f),
-                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).toFloat().coerceIn(-1f, 1f)
+                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDB", item.optDouble("peakGuardThresholdDb", -1.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-12f, -0.1f) ?: -1f,
+                        stereoBalance = item.optDouble("stereoPan", item.optDouble("stereoBalance", 0.0)).takeIf { it.isFinite() }?.toFloat()?.coerceIn(-1f, 1f) ?: 0f
                     ))
                 }
             }
