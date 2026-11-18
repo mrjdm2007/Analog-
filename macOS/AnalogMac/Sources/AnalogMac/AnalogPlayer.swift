@@ -481,7 +481,7 @@ final class AnalogPlayer: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
+                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 for var track in found {
                     if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
                     merged[track.id] = track
