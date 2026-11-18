@@ -158,3 +158,13 @@ extension AnalogAudioTests {
         XCTAssertEqual(gaplessQueueIndices(count: 0, currentIndex: 0, repeatQueue: true), [])
     }
 }
+
+
+extension AnalogAudioTests {
+    func testUnmatchedOutputDoesNotClearManualEQ() {
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: nil, outputName: "Built-in Output"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "   ", outputName: "Built-in Output"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: ""))
+        XCTAssertTrue(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "Built-in Output"))
+    }
+}
