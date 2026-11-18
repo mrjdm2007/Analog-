@@ -96,6 +96,8 @@ class TenBandEqualizerProcessorTest {
         }
         input.flip()
         processor.queueInput(input)
+        assertTrue("Output peak meter should report a finite signal", processor.outputPeak.isFinite() && processor.outputPeak > 0f)
+        assertTrue("Output RMS meter should report a finite signal", processor.outputRms.isFinite() && processor.outputRms > 0f)
         val output = processor.getOutput().order(ByteOrder.nativeOrder())
         var leftSquares = 0.0
         var rightSquares = 0.0
