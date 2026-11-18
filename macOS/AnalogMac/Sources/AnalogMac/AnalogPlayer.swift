@@ -1113,7 +1113,9 @@ final class AnalogPlayer: ObservableObject {
         } else {
             devicePresets.append(preset)
         }
-        activeDevicePresetName = name
+        // Saving a profile is not the same as applying it. Mark it active only
+        // when its name actually matches the currently routed output.
+        activeDevicePresetName = preset.matchesOutput(named: outputDeviceName) ? name : nil
         persistState()
     }
 
