@@ -91,4 +91,37 @@ extension AnalogAudioTests {
         XCTAssertEqual(stereoCrossfeedMatrix(amount: -1), [1, 0, 0, 1])
         XCTAssertEqual(stereoCrossfeedMatrix(amount: 2), [0.65, 0.35, 0.35, 0.65])
     }
+
+    func testDeviceProfileRoundTripsAllDSPSettingsAndReadsLegacyProfiles() throws {
+        let preset = EQDevicePreset(
+            name: "USB DAC",
+            gains: Array(repeating: 1, count: 10),
+            bandwidths: Array(repeating: 1.25, count: 10),
+            preampDB: -3,
+            eqEnabled: true,
+            crossfeedEnabled: true,
+            crossfeedAmount: 0.2,
+            peakGuardEnabled: true,
+            peakGuardThresholdDB: -2,
+            stereoPan: 0.15
+        )
+        let encoded = try JSONEncoder().encode(preset)
+        let decoded = try JSONDecoder().decode(EQDevicePreset.self, from: encoded)
+        XCTAssertEqual(decoded.crossfeedEnabled, true)
+        XCTAssertEqual(decoded.crossfeedAmount ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(decoded.peakGuardEnabled, true)
+        XCTAssertEqual(decoded.peakGuardThresholdDB ?? 0, -2, accuracy: 0.0001)
+        XCTAssertEqual(decoded.stereoPan ?? 0, 0.15, accuracy: 0.0001)
+
+        var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacyObject.removeValue(forKey: "crossfeedEnabled")
+        legacyObject.removeValue(forKey: "crossfeedAmount")
+        legacyObject.removeValue(forKey: "peakGuardEnabled")
+        legacyObject.removeValue(forKey: "peakGuardThresholdDB")
+        legacyObject.removeValue(forKey: "stereoPan")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacy = try JSONDecoder().decode(EQDevicePreset.self, from: legacyData)
+        XCTAssertNil(legacy.crossfeedEnabled)
+        XCTAssertNil(legacy.stereoPan)
+    }
 }
