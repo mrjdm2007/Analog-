@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import android.media.MediaMetadataRetriever
 import java.util.ArrayDeque
 import java.util.UUID
+import java.util.Locale
 
 /**
  * Reads audio from user-granted Storage Access Framework trees.
@@ -76,7 +77,7 @@ internal object SafAudioLibrary {
                     }
                     continue
                 }
-                val extension = child.displayName.substringAfterLast('.', "").lowercase()
+                val extension = child.displayName.substringAfterLast('.', "").lowercase(Locale.ROOT)
                 if (!child.mimeType.startsWith("audio/") && extension !in audioExtensions) continue
                 if (child.displayName.startsWith(".")) continue
 
@@ -127,13 +128,13 @@ internal object SafAudioLibrary {
         val duration: Long
     )
 
-    private fun readMetadata(context: Context, uri: Uri, fileName: String): Metadata? {
+    private fun readMetadata(context: Context, uri: Uri, fileName: String): Metadata {
+        val fallbackTitle = fileName.substringBeforeLast('.', fileName).ifBlank { "Unknown title" }
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
             val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                ?.takeIf { it.isNotBlank() }
-                ?: fileName.substringBeforeLast('.', fileName)
+                ?.takeIf { it.isNotBlank() } ?: fallbackTitle
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() } ?: "Unknown artist"
             val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
@@ -142,7 +143,9 @@ internal object SafAudioLibrary {
                 ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
             Metadata(title, artist, album, duration)
         } catch (_: Exception) {
-            null
+            // Metadata extraction can fail for formats ExoPlayer may still decode.
+            // Keep the file in the library rather than silently dropping it.
+            Metadata(fallbackTitle, "Unknown artist", "Unknown album", 0L)
         } finally {
             runCatching { retriever.release() }
         }
