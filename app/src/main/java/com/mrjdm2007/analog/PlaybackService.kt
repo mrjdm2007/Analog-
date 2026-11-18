@@ -115,7 +115,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun dispatchHeadsetAction(action: String, player: ExoPlayer) {
         when (action) {
-            "Play/Pause" -> if (player.isPlaying) player.pause() else player.play()
+            "Play/Pause" -> if (player.isPlaying) player.pause() else resumeOrRestart(player)
             "Next track" -> player.seekToNext()
             "Previous track" -> player.seekToPrevious()
         }
@@ -186,7 +186,7 @@ class PlaybackService : MediaSessionService() {
                         timerHandler.postDelayed(pending, headsetPressWindowMs)
                         return true
                     }
-                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); return true }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> { resumeOrRestart(player); return true }
                     KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); return true }
                     KeyEvent.KEYCODE_MEDIA_NEXT -> { player.seekToNext(); return true }
                     KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { player.seekToPrevious(); return true }
@@ -223,6 +223,17 @@ class PlaybackService : MediaSessionService() {
                         .apply()
                     // A pause during a crossfade must never leave the primary deck attenuated.
                     mediaSession?.player?.volume = 1f
+                }
+            }
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && crossfadeInProgress) {
+                    cancelCrossfade()
+                    crossfadeForIndex = -1
+                    player.volume = 1f
                 }
             }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
@@ -305,7 +316,9 @@ class PlaybackService : MediaSessionService() {
             }
             ACTION_TILE_PLAY -> startLastPlayedFromTile()
             ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { player ->
-                if (player.isPlaying) player.pause() else if (player.currentMediaItem == null) startRandomLibraryTrack() else player.play()
+                if (player.isPlaying) player.pause()
+                else if (player.currentMediaItem == null) startRandomLibraryTrack()
+                else resumeOrRestart(player)
             }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
@@ -404,6 +417,11 @@ class PlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
+    private fun resumeOrRestart(player: Player) {
+        if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
+        player.play()
+    }
+
     private fun clearSleepTimer(restoreVolume: Boolean) {
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepFade?.let(timerHandler::removeCallbacks)
@@ -471,7 +489,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun startRandomLibraryTrack() {
         val player = mediaSession?.player as? ExoPlayer ?: return
-        if (player.currentMediaItem != null && player.mediaItemCount > 0) { player.play(); return }
+        if (player.currentMediaItem != null && player.mediaItemCount > 0) { resumeOrRestart(player); return }
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATA)
         val items = mutableListOf<androidx.media3.common.MediaItem>()
         runCatching {
