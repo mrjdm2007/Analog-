@@ -60,6 +60,46 @@ class TenBandEqualizerProcessorTest {
     }
 
     @Test
+    fun nonFiniteFloatSamplesAndControlsCannotPoisonDspState() {
+        val sampleRate = 48_000
+        val frames = 4096
+        val processor = TenBandEqualizerProcessor()
+        processor.setBands(FloatArray(10) { if (it == 5) 6f else 0f })
+        processor.setBandwidths(FloatArray(10) { Float.NaN })
+        processor.setPreamp(Float.NaN)
+        processor.setCrossfeed(true, Float.NaN)
+        processor.setPeakGuard(true, Float.NaN)
+        processor.setStereoBalance(Float.NaN)
+        processor.configure(AudioProcessor.AudioFormat(sampleRate, 2, C.ENCODING_PCM_FLOAT))
+        processor.flush()
+
+        val input = ByteBuffer.allocateDirect(frames * 2 * 4).order(ByteOrder.nativeOrder())
+        input.putFloat(Float.NaN)
+        input.putFloat(Float.POSITIVE_INFINITY)
+        for (frame in 1 until frames) {
+            val value = (0.1 * sin(2.0 * PI * 1000.0 * frame / sampleRate)).toFloat()
+            input.putFloat(value)
+            input.putFloat(value)
+        }
+        input.flip()
+        processor.queueInput(input)
+        val output = processor.getOutput().order(ByteOrder.nativeOrder())
+        var rmsSquares = 0.0
+        var count = 0
+        while (output.remaining() >= 8) {
+            val left = output.float
+            val right = output.float
+            assertTrue("Every output sample must remain finite", left.isFinite() && right.isFinite())
+            if (count >= 256) rmsSquares += left.toDouble() * left.toDouble()
+            count++
+        }
+        assertEquals(frames, count)
+        val rms = kotlin.math.sqrt(rmsSquares / (count - 256))
+        assertTrue("Finite audio after an invalid frame must continue through the EQ", rms > 0.02)
+        processor.reset()
+    }
+
+    @Test
     fun extremeBandValuesAreClampedAndOutputRemainsFinite() {
         val gains = FloatArray(10) { if (it % 2 == 0) 100f else -100f }
         val rms = renderTone(gains = gains, enabled = true, preampDb = -12f)
