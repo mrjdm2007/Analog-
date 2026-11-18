@@ -323,9 +323,10 @@ final class AnalogPlayer: ObservableObject {
             var found: [MusicTrack] = []
             var skipped = 0
             for url in urls {
-                guard analogSupportedAudioExtensions.contains(url.pathExtension.lowercased()) else {
-                    continue
-                }
+                let extensionName = url.pathExtension.lowercased()
+                let isAudio = analogSupportedAudioExtensions.contains(extensionName)
+                    || (UTType(filenameExtension: extensionName)?.conforms(to: .audio) ?? false)
+                guard isAudio else { continue }
                 if let track = makeMusicTrack(from: url) {
                     found.append(track)
                 } else {
