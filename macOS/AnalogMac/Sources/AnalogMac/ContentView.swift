@@ -1,4 +1,5 @@
 import AppKit
+import AnalogCore
 import SwiftUI
 
 private enum AnalogPalette {
