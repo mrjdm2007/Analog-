@@ -516,19 +516,29 @@ class MainActivity : ComponentActivity() {
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
-        val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
         val libraryPrefs = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+        val shuffleLibraryEnabled = libraryPrefs.getString("sort_mode", null) == "Shuffle"
+        val libraryShuffleIds = libraryPrefs.getString("library_shuffle_order", null)
+            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+        val tracksById = list.associateBy { it.id }
+        val libraryOrdered = if (shuffleLibraryEnabled && !libraryShuffleIds.isNullOrEmpty()) {
+            val ordered = libraryShuffleIds.mapNotNull { tracksById[it] }
+            val included = ordered.mapTo(HashSet<Long>()) { it.id }
+            ordered + list.filter { it.id !in included }
+        } else list
+
+        val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
         val dailyShuffleDue = libraryPrefs.getString("daily_shuffle_day", null) != dayKey
         val savedOrder = libraryPrefs.getString("daily_shuffle_order", null)
             ?.split(",")?.mapNotNull { it.toLongOrNull() }
-        val tracksById = list.associateBy { it.id }
         val restoredOrder = savedOrder?.takeIf { ids ->
-            ids.size == list.size && ids.toSet().size == ids.size && ids.all { it in tracksById }
+            ids.size == libraryOrdered.size && ids.toSet().size == ids.size && ids.all { it in tracksById }
         }?.mapNotNull { tracksById[it] }
         val orderedTracks = when {
-            dailyShuffleDue && list.size > 1 -> list.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
+            shuffleLibraryEnabled -> libraryOrdered
+            dailyShuffleDue && libraryOrdered.size > 1 -> libraryOrdered.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
             restoredOrder != null -> restoredOrder
-            else -> list
+            else -> libraryOrdered
         }
         if (dailyShuffleDue) libraryPrefs.edit()
             .putString("daily_shuffle_day", dayKey)
