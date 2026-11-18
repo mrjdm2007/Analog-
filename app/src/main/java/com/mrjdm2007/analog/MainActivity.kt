@@ -635,11 +635,11 @@ class MainActivity : ComponentActivity() {
             val safTracks = SafAudioLibrary.scan(this, safTrees)
             val existingUris = found.asSequence().map { it.uri.toString() }.toHashSet()
             val existingPaths = found.asSequence()
-                .map { it.path.replace('\\\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT) }
+                .map { it.path.replace(92.toChar(), '/').trimEnd('/').lowercase(java.util.Locale.ROOT) }
                 .filter { it.isNotBlank() }
                 .toMutableSet()
             found += safTracks.filter { track ->
-                val normalizedPath = track.path.replace('\\\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
+                val normalizedPath = track.path.replace(92.toChar(), '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
                 if (normalizedPath.startsWith("content://")) {
                     track.uri.toString() !in existingUris
                 } else {
