@@ -13,6 +13,9 @@ struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var album: String
     var duration: Double
     var artworkPath: String? = nil
+    var fileSizeBytes: Int64? = nil
+    var sampleRateHz: Double? = nil
+    var averageBitrateKbps: Int? = nil
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
 }
@@ -30,46 +33,66 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
 
     let asset = AVURLAsset(url: url)
     let metadata = asset.commonMetadata
-    func value(_ key: AVMetadataKey) -> String? {
-        metadata.first(where: { $0.commonKey == key })?.stringValue?
+    func metadataValue(_ names: Set<String>) -> String? {
+        metadata.first(where: { item in
+            guard let key = item.commonKey?.rawValue.lowercased() else { return false }
+            return names.contains(key)
+        })?.stringValue?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
     }
 
     let filename = url.deletingPathExtension().lastPathComponent
-    let title = value(.commonKeyTitle) ?? filename
-    let artist = value(.commonKeyArtist) ?? "Unknown Artist"
-    let album = value(.commonKeyAlbum) ?? "Unknown Album"
+    let title = metadataValue(["title"]) ?? filename
+    let artist = metadataValue(["artist", "author"]) ?? "Unknown Artist"
+    let album = metadataValue(["album", "albumname", "albumtitle"]) ?? "Unknown Album"
+
+    let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Analog/Artwork", isDirectory: true)
+    try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+
+    var artworkData = metadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue
+    if artworkData == nil || artworkData?.isEmpty == true {
+        let folder = url.deletingLastPathComponent()
+        for name in ["cover.jpg", "cover.jpeg", "cover.png", "folder.jpg",
+                     "folder.jpeg", "folder.png", "AlbumArt.jpg", "AlbumArt.jpeg"] {
+            if let data = try? Data(contentsOf: folder.appendingPathComponent(name)), !data.isEmpty {
+                artworkData = data
+                break
+            }
+        }
+    }
 
     var artworkPath: String?
-    if let artwork = metadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue,
-       !artwork.isEmpty {
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Analog/Artwork", isDirectory: true)
-        try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+    if let artwork = artworkData, !artwork.isEmpty {
         var hash: UInt64 = 14695981039346656037
         for byte in url.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         let destination = cache.appendingPathComponent(String(hash, radix: 16) + ".artwork")
         if !FileManager.default.fileExists(atPath: destination.path) {
             try? artwork.write(to: destination, options: .atomic)
         }
-        if FileManager.default.fileExists(atPath: destination.path) {
-            artworkPath = destination.path
-        }
+        if FileManager.default.fileExists(atPath: destination.path) { artworkPath = destination.path }
     }
 
     let duration = file.processingFormat.sampleRate > 0
         ? Double(file.length) / file.processingFormat.sampleRate : 0
+    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+    let fileSize = (attributes?[.size] as? NSNumber)?.int64Value
+    let sampleRate = file.processingFormat.sampleRate
+    let averageBitrate = duration > 0 ? Int((Double(fileSize ?? 0) * 8 / duration / 1000).rounded()) : nil
+
     return MusicTrack(
         path: url.path,
         title: title.isEmpty ? filename : title,
         artist: artist.isEmpty ? "Unknown Artist" : artist,
         album: album.isEmpty ? "Unknown Album" : album,
         duration: duration,
-        artworkPath: artworkPath
+        artworkPath: artworkPath,
+        fileSizeBytes: fileSize,
+        sampleRateHz: sampleRate > 0 ? sampleRate : nil,
+        averageBitrateKbps: averageBitrate
     )
 }
-
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
