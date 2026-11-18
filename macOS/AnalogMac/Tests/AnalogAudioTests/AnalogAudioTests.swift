@@ -3,14 +3,21 @@ import XCTest
 
 final class AnalogAudioTests: XCTestCase {
     func testTenBandEQChangesRenderedAudioAndBypassRestoresIt() throws {
-        let dryRMS = try renderOneKilohertzTone(eqGain: 0, bypass: true)
+        let flatRMS = try renderOneKilohertzTone(eqGain: 0, bypass: false)
         let boostedRMS = try renderOneKilohertzTone(eqGain: 10, bypass: false)
+        let bypassedBoostRMS = try renderOneKilohertzTone(eqGain: 10, bypass: true)
 
-        XCTAssertGreaterThan(dryRMS, 0.01, "The offline audio engine should render the input tone.")
+        XCTAssertGreaterThan(flatRMS, 0.01, "The offline audio engine should render the input tone.")
         XCTAssertGreaterThan(
             boostedRMS,
-            dryRMS * 2.0,
+            flatRMS * 2.0,
             "A +10 dB 1 kHz EQ band should measurably increase the rendered 1 kHz signal."
+        )
+        XCTAssertEqual(
+            bypassedBoostRMS,
+            flatRMS,
+            accuracy: 0.0005,
+            "Bypassing the EQ should restore the flat response even when a band has a stored boost."
         )
     }
 
