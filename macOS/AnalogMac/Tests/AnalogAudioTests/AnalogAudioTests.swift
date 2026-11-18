@@ -83,3 +83,19 @@ final class AnalogAudioTests: XCTestCase {
         return sqrt(squares / Double(frames))
     }
 }
+
+
+extension AnalogAudioTests {
+    func testDeviceEQProfileRequiresExactOutputNameMatch() {
+        let preset = EQDevicePreset(
+            name: "Realtek USB Audio",
+            gains: Array(repeating: 0, count: 10),
+            bandwidths: Array(repeating: 1, count: 10),
+            preampDB: 0,
+            eqEnabled: true
+        )
+        XCTAssertTrue(preset.matchesOutput(named: "  realtek usb audio  "))
+        XCTAssertFalse(preset.matchesOutput(named: "Realtek USB"))
+        XCTAssertFalse(preset.matchesOutput(named: "USB Audio Realtek"))
+    }
+}

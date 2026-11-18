@@ -140,6 +140,11 @@ final class AnalogPlayer: ObservableObject {
     @Published var peakGuardThresholdDB: Float = -1
     @Published var playHistory: [String] = []
     @Published var playCounts: [String: Int] = [:]
+    @Published var devicePresets: [EQDevicePreset] = []
+    @Published var outputDeviceName = "Detecting output…"
+    @Published var activeDevicePresetName: String?
+    @Published var autoMatchOutputDevice = true
+    @Published var gaplessPlaybackEnabled = true
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -163,6 +168,10 @@ final class AnalogPlayer: ObservableObject {
     private var playbackToken = UUID()
     private let defaults = UserDefaults.standard
     private var mediaCommandsConfigured = false
+    private let outputDeviceMonitor = OutputDeviceMonitor()
+    private var outputDeviceCancellable: AnyCancellable?
+    private var gaplessFiles: [AVAudioFile] = []
+    private var gaplessSegmentStartedAt = Date()
 
     func configureMediaCommands() {
         guard !mediaCommandsConfigured else { return }
@@ -288,6 +297,11 @@ final class AnalogPlayer: ObservableObject {
         }
         restoreState()
         applyEqualizer()
+        outputDeviceName = outputDeviceMonitor.deviceName
+        outputDeviceCancellable = outputDeviceMonitor.$deviceName.removeDuplicates().sink { [weak self] name in
+            Task { @MainActor in self?.handleOutputDeviceChange(name) }
+        }
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }
 
     var filteredTracks: [MusicTrack] {
@@ -317,6 +331,9 @@ final class AnalogPlayer: ObservableObject {
         peakGuardThresholdDB = defaults.object(forKey: "peakGuardThresholdDB") as? Float ?? -1
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
+        if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
+        autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
+        gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
         if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
@@ -327,6 +344,9 @@ final class AnalogPlayer: ObservableObject {
     private func persistListeningState() {
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
+        if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
+        defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
+        defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
     }
 
     func persistState() {
@@ -519,28 +539,96 @@ final class AnalogPlayer: ObservableObject {
         playbackToken = UUID()
         let token = playbackToken
         playerNode.stop()
+        gaplessFiles.removeAll()
         do {
-            let file = try AVAudioFile(forReading: track.url)
-            audioFile = file
-            if recordPlay {
-                playHistory.removeAll { $0 == track.id }
-                playHistory.insert(track.id, at: 0)
-                if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
-                playCounts[track.id, default: 0] += 1
-                persistListeningState()
-            }
+            let firstFile = try AVAudioFile(forReading: track.url)
+            audioFile = firstFile
+            if recordPlay { recordGaplessPlay(track) }
             currentTrack = track
             currentTime = min(max(0, seconds), max(0, track.duration))
             segmentStart = currentTime
+            gaplessSegmentStartedAt = Date()
             if !audioEngine.isRunning { try audioEngine.start() }
-            let startFrame = AVAudioFramePosition(currentTime * file.processingFormat.sampleRate)
-            let remaining = max(0, file.length - startFrame)
-            let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
-            guard frameCount > 0 else { advance(); return }
-            playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                DispatchQueue.main.async {
-                    guard let self, self.playbackToken == token else { return }
-                    self.advance()
+
+            if gaplessPlaybackEnabled {
+                var sequence: [(track: MusicTrack, index: Int)] = []
+                if queue.indices.contains(queueIndex) {
+                    sequence.append((queue[queueIndex], queueIndex))
+                    var remaining = Array(queue.indices.filter { $0 != queueIndex })
+                    if shuffleQueue { remaining.shuffle() }
+                    sequence.append(contentsOf: remaining.map { (queue[$0], $0) })
+                    if repeatCurrentTrack { sequence.append((queue[queueIndex], queueIndex)) }
+                    else if repeatQueue && queue.count > 1 {
+                        let prefix = Array(queue.indices.filter { $0 < queueIndex })
+                        sequence.append(contentsOf: prefix.map { (queue[$0], $0) })
+                    }
+                } else {
+                    sequence = [(track, 0)]
+                }
+
+                var files: [AVAudioFile] = []
+                var scheduled: [(track: MusicTrack, index: Int, file: AVAudioFile, startFrame: AVAudioFramePosition, frameCount: AVAudioFrameCount)] = []
+                for (position, item) in sequence.enumerated() {
+                    let file: AVAudioFile
+                    if position == 0 { file = firstFile }
+                    else {
+                        do { file = try AVAudioFile(forReading: item.track.url) }
+                        catch { continue }
+                    }
+                    let startFrame = position == 0 ? AVAudioFramePosition(currentTime * file.processingFormat.sampleRate) : 0
+                    let remaining = max(0, file.length - startFrame)
+                    let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
+                    guard frameCount > 0 else { continue }
+                    files.append(file)
+                    scheduled.append((item.track, item.index, file, startFrame, frameCount))
+                }
+                guard !scheduled.isEmpty else { throw NSError(domain: "AnalogPlayback", code: 1) }
+                gaplessFiles = files
+                for (position, item) in scheduled.enumerated() {
+                    playerNode.scheduleSegment(
+                        item.file,
+                        startingFrame: item.startFrame,
+                        frameCount: item.frameCount,
+                        at: nil,
+                        completionCallbackType: .dataPlayedBack
+                    ) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            guard let self, self.playbackToken == token else { return }
+                            if position + 1 < scheduled.count {
+                                let next = scheduled[position + 1]
+                                self.queueIndex = next.index
+                                self.currentTrack = next.track
+                                self.currentTime = 0
+                                self.segmentStart = 0
+                                self.gaplessSegmentStartedAt = Date()
+                                self.recordGaplessPlay(next.track)
+                                self.updateSystemNowPlayingInfo()
+                            } else {
+                                self.currentTime = self.currentTrack?.duration ?? 0
+                                self.isPlaying = false
+                                self.timer?.invalidate()
+                                self.gaplessFiles.removeAll()
+                                self.updateSystemNowPlayingInfo()
+                                if self.repeatCurrentTrack, let current = self.currentTrack {
+                                    self.startTrack(current, at: 0, recordPlay: false)
+                                } else if self.repeatQueue, let first = self.queue.first {
+                                    self.queueIndex = 0
+                                    self.startTrack(first, at: 0)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                let startFrame = AVAudioFramePosition(currentTime * firstFile.processingFormat.sampleRate)
+                let remaining = max(0, firstFile.length - startFrame)
+                let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
+                guard frameCount > 0 else { advance(); return }
+                playerNode.scheduleSegment(firstFile, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self, self.playbackToken == token else { return }
+                        self.advance()
+                    }
                 }
             }
             playerNode.play()
@@ -550,9 +638,18 @@ final class AnalogPlayer: ObservableObject {
         } catch {
             isPlaying = false
             currentTrack = track
+            gaplessFiles.removeAll()
             updateSystemNowPlayingInfo()
             print("Analog playback error: \(error.localizedDescription)")
         }
+    }
+
+    private func recordGaplessPlay(_ track: MusicTrack) {
+        playHistory.removeAll { $0 == track.id }
+        playHistory.insert(track.id, at: 0)
+        if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
+        playCounts[track.id, default: 0] += 1
+        persistListeningState()
     }
 
     func togglePlayback() {
@@ -612,7 +709,12 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func updateClock() {
-        guard isPlaying, let nodeTime = playerNode.lastRenderTime, let playerTime = playerNode.playerTime(forNodeTime: nodeTime), playerTime.sampleRate > 0 else { return }
+        guard isPlaying else { return }
+        if gaplessPlaybackEnabled {
+            currentTime = min(currentTrack?.duration ?? .greatestFiniteMagnitude, Date().timeIntervalSince(gaplessSegmentStartedAt))
+            return
+        }
+        guard let nodeTime = playerNode.lastRenderTime, let playerTime = playerNode.playerTime(forNodeTime: nodeTime), playerTime.sampleRate > 0 else { return }
         currentTime = min(currentTrack?.duration ?? .greatestFiniteMagnitude, segmentStart + Double(playerTime.sampleTime) / playerTime.sampleRate)
     }
 
@@ -722,6 +824,107 @@ final class AnalogPlayer: ObservableObject {
             AnalogSmartMix(name: "Quick Listen", subtitle: "Tracks under three minutes", tracks: shortTracks),
             AnalogSmartMix(name: "Favourites", subtitle: "Your saved favourite tracks", tracks: tracks.filter { favorites.contains($0.id) })
         ]
+    }
+
+
+    private func normalizedDeviceName(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private func handleOutputDeviceChange(_ name: String) {
+        outputDeviceName = name
+        guard autoMatchOutputDevice else { return }
+        applyMatchingDevicePreset(for: name)
+    }
+
+    private func applyMatchingDevicePreset(for name: String) {
+        let key = normalizedDeviceName(name)
+        guard !key.isEmpty,
+              let preset = devicePresets.first(where: { normalizedDeviceName($0.name) == key }) else {
+            activeDevicePresetName = nil
+            eqGains = Array(repeating: 0, count: 10)
+            eqBandwidths = Array(repeating: 1, count: 10)
+            preampDB = 0
+            eqEnabled = true
+            applyEqualizer()
+            persistState()
+            return
+        }
+        applyDevicePreset(preset)
+    }
+
+    func setAutomaticDeviceMatching(_ enabled: Bool) {
+        autoMatchOutputDevice = enabled
+        if enabled { applyMatchingDevicePreset(for: outputDeviceName) }
+        persistState()
+    }
+
+    func saveDevicePreset(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, eqGains.count == 10, eqBandwidths.count == 10 else { return }
+        let preset = EQDevicePreset(name: name, gains: eqGains, bandwidths: eqBandwidths, preampDB: preampDB, eqEnabled: eqEnabled)
+        if let index = devicePresets.firstIndex(where: { normalizedDeviceName($0.name) == normalizedDeviceName(name) }) {
+            devicePresets[index] = preset
+        } else {
+            devicePresets.append(preset)
+        }
+        activeDevicePresetName = name
+        persistState()
+    }
+
+    func applyDevicePreset(_ preset: EQDevicePreset) {
+        guard preset.gains.count == 10, preset.bandwidths.count == 10 else { return }
+        eqGains = preset.gains.map { min(12, max(-12, $0)) }
+        eqBandwidths = preset.bandwidths.map { min(4, max(0.1, $0)) }
+        preampDB = min(12, max(-12, preset.preampDB))
+        eqEnabled = preset.eqEnabled
+        activeDevicePresetName = preset.name
+        applyEqualizer()
+        persistState()
+    }
+
+    func renameDevicePreset(_ preset: EQDevicePreset, to rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              !devicePresets.contains(where: { $0.id != preset.id && normalizedDeviceName($0.name) == normalizedDeviceName(name) }),
+              let index = devicePresets.firstIndex(where: { $0.id == preset.id }) else { return }
+        devicePresets[index].name = name
+        if activeDevicePresetName == preset.name { activeDevicePresetName = name }
+        persistState()
+    }
+
+    func deleteDevicePreset(_ preset: EQDevicePreset) {
+        devicePresets.removeAll { $0.id == preset.id }
+        if activeDevicePresetName == preset.name { activeDevicePresetName = nil }
+        persistState()
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
+    }
+
+    func exportDevicePresets() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Analog-Device-EQ-Presets.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? JSONEncoder().encode(devicePresets) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func importDevicePresets() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url),
+              let imported = try? JSONDecoder().decode([EQDevicePreset].self, from: data) else { return }
+        for preset in imported where preset.gains.count == 10 && preset.bandwidths.count == 10 {
+            if let index = devicePresets.firstIndex(where: { normalizedDeviceName($0.name) == normalizedDeviceName(preset.name) }) {
+                devicePresets[index] = preset
+            } else {
+                devicePresets.append(preset)
+            }
+        }
+        persistState()
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }
 
     func setOutputVolume(_ value: Float) {

@@ -14,6 +14,7 @@ private enum AnalogPalette {
 struct ContentView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @EnvironmentObject private var recorder: AnalogRecorder
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +36,10 @@ struct ContentView: View {
             TransportBar()
         }
         .background(AnalogPalette.ink)
+        .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
+        .background(MainWindowVisibilityProbe { visible in
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
+        }.frame(width: 0, height: 0))
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -70,6 +75,12 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+            Button { openWindow(id: "mini-player") } label: {
+                Label("MINI PLAYER", systemImage: "pip")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1)
+            }
+            .buttonStyle(AnalogOutlineButton())
             Button { player.importMusicFolder() } label: {
                 Label("ADD MUSIC", systemImage: "folder.badge.plus")
                     .font(.system(size: 10, weight: .bold))
@@ -568,6 +579,10 @@ struct JournalView: View {
 struct EqualizerView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @State private var selectedBandwidthBand = 4
+    @State private var newDevicePresetName = ""
+    @State private var renameDevicePresetTarget: EQDevicePreset?
+    @State private var renameDevicePresetText = ""
+    @State private var showingDevicePresetRename = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -578,6 +593,69 @@ struct EqualizerView: View {
                 Spacer()
                 Toggle("EQ ACTIVE", isOn: Binding(get: { player.eqEnabled }, set: { player.setEQEnabled($0) }))
                     .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 10, weight: .bold))
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("HEADPHONE / DAC PROFILES").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
+                        Text("Detected output: \(player.outputDeviceName)").font(.system(size: 10, weight: .medium)).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                        Text(player.activeDevicePresetName.map { "ACTIVE • \($0)" } ?? "ACTIVE • FLAT / NO MATCH")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Toggle("AUTO MATCH", isOn: Binding(get: { player.autoMatchOutputDevice }, set: { player.setAutomaticDeviceMatching($0) }))
+                        .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+                }
+                HStack(spacing: 8) {
+                    TextField("Use exact macOS output name", text: $newDevicePresetName)
+                        .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                    Button("SAVE PROFILE") {
+                        player.saveDevicePreset(named: newDevicePresetName.isEmpty ? player.outputDeviceName : newDevicePresetName)
+                        newDevicePresetName = ""
+                    }.buttonStyle(AnalogOutlineButton())
+                    Button("EXPORT") { player.exportDevicePresets() }.buttonStyle(AnalogOutlineButton())
+                    Button("IMPORT") { player.importDevicePresets() }.buttonStyle(AnalogOutlineButton())
+                }
+                if !player.devicePresets.isEmpty {
+                    VStack(spacing: 5) {
+                        ForEach(player.devicePresets) { preset in
+                            HStack {
+                                Button { player.applyDevicePreset(preset) } label: {
+                                    HStack {
+                                        Image(systemName: player.activeDevicePresetName == preset.name ? "checkmark.circle.fill" : "headphones")
+                                            .foregroundStyle(player.activeDevicePresetName == preset.name ? AnalogPalette.green : AnalogPalette.muted)
+                                        Text(preset.name).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                                        Spacer()
+                                        Text("APPLY").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.amber)
+                                    }
+                                }.buttonStyle(.plain)
+                                Menu {
+                                    Button("Rename") {
+                                        renameDevicePresetTarget = preset
+                                        renameDevicePresetText = preset.name
+                                        showingDevicePresetRename = true
+                                    }
+                                    Button("Delete", role: .destructive) { player.deleteDevicePreset(preset) }
+                                } label: {
+                                    Image(systemName: "ellipsis").foregroundStyle(AnalogPalette.muted).padding(5)
+                                }.menuStyle(.borderlessButton)
+                            }
+                            .padding(8).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                    }
+                }
+            }
+            .padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
+            .alert("Rename output profile", isPresented: $showingDevicePresetRename) {
+                TextField("Profile name", text: $renameDevicePresetText)
+                Button("Save") {
+                    if let preset = renameDevicePresetTarget { player.renameDevicePreset(preset, to: renameDevicePresetText) }
+                    renameDevicePresetTarget = nil
+                }
+                Button("Cancel", role: .cancel) { renameDevicePresetTarget = nil }
+            } message: {
+                Text("The profile name is matched against the detected macOS output device name.")
             }
             HStack(spacing: 8) {
                 ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones"], id: \.self) { preset in
@@ -790,6 +868,16 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $player.repeatCurrentTrack).labelsHidden().tint(AnalogPalette.green)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gapless playback").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+                    Text("Pre-queues upcoming tracks in the native audio engine to minimise transition silence").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(get: { player.gaplessPlaybackEnabled }, set: { player.gaplessPlaybackEnabled = $0; player.persistState() }))
+                    .labelsHidden().tint(AnalogPalette.green)
+            }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Dynamic peak guard").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
@@ -920,7 +1008,7 @@ struct TransportBar: View {
                         .foregroundStyle(AnalogPalette.ink)
                         .frame(width: 36, height: 36)
                         .background(AnalogPalette.amber, in: Circle())
-                }.keyboardShortcut(.space, modifiers: []).help("Play / pause (Space)")
+                }.help("Play / pause (Space)")
                 Button { player.next() } label: { Image(systemName: "forward.end.fill") }.keyboardShortcut(.rightArrow, modifiers: [.command]).help("Next track (⌘→)")
             }.buttonStyle(.plain).foregroundStyle(AnalogPalette.cream)
             Text(formatTime(player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
