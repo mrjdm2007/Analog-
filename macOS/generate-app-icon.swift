@@ -9,8 +9,19 @@ let iconset = output.deletingLastPathComponent().appendingPathComponent("Analog.
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 
-let sizes = [16, 32, 64, 128, 256, 512, 1024]
-for size in sizes {
+let variants: [(Int, String)] = [
+    (16, "icon_16x16.png"),
+    (32, "icon_16x16@2x.png"),
+    (32, "icon_32x32.png"),
+    (64, "icon_32x32@2x.png"),
+    (128, "icon_128x128.png"),
+    (256, "icon_128x128@2x.png"),
+    (256, "icon_256x256.png"),
+    (512, "icon_256x256@2x.png"),
+    (512, "icon_512x512.png"),
+    (1024, "icon_512x512@2x.png")
+]
+for (size, filename) in variants {
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
     let rect = NSRect(x: 0, y: 0, width: size, height: size)
@@ -62,19 +73,7 @@ for size in sizes {
           let png = bitmap.representation(using: .png, properties: [:]) else {
         fatalError("Could not render icon at \(size)px")
     }
-    let baseName: String
-    switch size {
-    case 16: baseName = "icon_16x16"
-    case 32: baseName = "icon_32x32"
-    case 128: baseName = "icon_128x128"
-    case 256: baseName = "icon_256x256"
-    case 512: baseName = "icon_512x512"
-    default: baseName = "icon_1024x1024"
-    }
-    try png.write(to: iconset.appendingPathComponent(baseName + ".png"), options: .atomic)
-    if [16, 32, 128, 256, 512].contains(size) {
-        try png.write(to: iconset.appendingPathComponent(baseName + "@2x.png"), options: .atomic)
-    }
+    try png.write(to: iconset.appendingPathComponent(filename), options: .atomic)
 }
 let process = Process()
 process.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
