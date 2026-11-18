@@ -38,6 +38,28 @@ class TenBandEqualizerProcessorTest {
     }
 
     @Test
+    fun lowFrequencyBandUsesLowShelfResponse() {
+        val flat = renderTone(gains = FloatArray(10), enabled = true, frequencyHz = 32.0)
+        val boosted = renderTone(gains = FloatArray(10).also { it[0] = 10f }, enabled = true, frequencyHz = 32.0)
+        assertTrue("The first band should behave as a low shelf at its corner frequency", boosted > flat * 2.0)
+    }
+
+    @Test
+    fun preampRemainsActiveWhenEqualizerBandsAreBypassed() {
+        val unity = renderTone(gains = FloatArray(10), enabled = false, preampDb = 0f)
+        val trimmed = renderTone(gains = FloatArray(10), enabled = false, preampDb = -6f)
+        assertTrue("Master preamp must remain active when the EQ bands are bypassed", trimmed < unity * 0.6)
+    }
+
+    @Test
+    fun peakGuardReducesSignalsAboveItsConfiguredThreshold() {
+        val unguarded = renderTone(gains = FloatArray(10).also { it[5] = 10f }, enabled = true, preampDb = 12f, amplitude = 0.7)
+        val guarded = renderTone(gains = FloatArray(10).also { it[5] = 10f }, enabled = true, preampDb = 12f, amplitude = 0.7, peakGuard = true, thresholdDb = -6f)
+        assertTrue("Peak guard should reduce an over-ceiling signal", guarded < unguarded)
+        assertTrue("Peak-guarded output must remain finite", guarded.isFinite())
+    }
+
+    @Test
     fun extremeBandValuesAreClampedAndOutputRemainsFinite() {
         val gains = FloatArray(10) { if (it % 2 == 0) 100f else -100f }
         val rms = renderTone(gains = gains, enabled = true, preampDb = -12f)
@@ -47,7 +69,11 @@ class TenBandEqualizerProcessorTest {
     private fun renderTone(
         gains: FloatArray,
         enabled: Boolean,
-        preampDb: Float = 0f
+        preampDb: Float = 0f,
+        frequencyHz: Double = 1000.0,
+        amplitude: Double = 0.04,
+        peakGuard: Boolean = false,
+        thresholdDb: Float = -1f
     ): Double {
         val sampleRate = 48_000
         val channels = 2
@@ -56,12 +82,13 @@ class TenBandEqualizerProcessorTest {
         processor.setBands(gains)
         processor.setEnabled(enabled)
         processor.setPreamp(preampDb)
+        processor.setPeakGuard(peakGuard, thresholdDb)
         processor.configure(AudioProcessor.AudioFormat(sampleRate, channels, C.ENCODING_PCM_16BIT))
         processor.flush()
 
         val input = ByteBuffer.allocateDirect(frames * channels * 2).order(ByteOrder.nativeOrder())
         for (frame in 0 until frames) {
-            val value = (0.04 * sin(2.0 * PI * 1000.0 * frame / sampleRate) * 32767.0).toInt()
+            val value = (amplitude * sin(2.0 * PI * frequencyHz * frame / sampleRate) * 32767.0).toInt()
                 .coerceIn(-32768, 32767).toShort()
             repeat(channels) { input.putShort(value) }
         }
