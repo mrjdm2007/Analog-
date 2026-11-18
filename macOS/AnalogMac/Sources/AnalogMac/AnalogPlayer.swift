@@ -100,8 +100,8 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-private let analogVisualizerGate = OSAllocatedUnfairLock(
-    initialState: (enabled: false, lastUpdate: UInt64(0))
+private let analogAudioAnalysisGate = OSAllocatedUnfairLock(
+    initialState: (visualizerEnabled: false, meterEnabled: false, lastUpdate: UInt64(0))
 )
 
 @MainActor
@@ -236,32 +236,40 @@ final class AnalogPlayer: ObservableObject {
             let count = Int(buffer.frameLength)
             guard count > 0 else { return }
 
-            var peak: Float = 0
-            var sumSquares: Double = 0
-            for index in 0..<count {
-                let sample = channel[index]
-                let magnitude = abs(sample)
-                if magnitude > peak { peak = magnitude }
-                sumSquares += Double(sample) * Double(sample)
-            }
-            let rms = Float(sqrt(sumSquares / Double(count)))
-
-            let shouldAnalyse = analogVisualizerGate.withLock { state -> Bool in
+            let work = analogAudioAnalysisGate.withLock { state -> (meter: Bool, visualizer: Bool) in
                 let now = DispatchTime.now().uptimeNanoseconds
-                guard state.enabled, now &- state.lastUpdate >= 100_000_000 else { return false }
+                guard (state.meterEnabled || state.visualizerEnabled),
+                      now &- state.lastUpdate >= 100_000_000 else { return (false, false) }
                 state.lastUpdate = now
-                return true
+                return (state.meterEnabled, state.visualizerEnabled)
             }
-            let samples = shouldAnalyse
+            guard work.meter || work.visualizer else { return }
+
+            var peak: Float = 0
+            var rms: Float = 0
+            if work.meter {
+                var sumSquares: Double = 0
+                for index in 0..<count {
+                    let sample = channel[index]
+                    let magnitude = abs(sample)
+                    if magnitude > peak { peak = magnitude }
+                    sumSquares += Double(sample) * Double(sample)
+                }
+                rms = Float(sqrt(sumSquares / Double(count)))
+            }
+
+            let samples = work.visualizer
                 ? Array(UnsafeBufferPointer(start: channel, count: count))
                 : []
             let sampleRate = buffer.format.sampleRate
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.eqOutputPeak = peak
-                self.eqOutputRMS = rms
-                if shouldAnalyse {
+                if work.meter {
+                    self.eqOutputPeak = peak
+                    self.eqOutputRMS = rms
+                }
+                if work.visualizer {
                     self.visualizerBins = analogSpectrum(
                         samples: samples,
                         sampleRate: sampleRate,
@@ -314,6 +322,11 @@ final class AnalogPlayer: ObservableObject {
         if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
         if let values = defaults.array(forKey: "eqSnapshotA") as? [Float], values.count == 10 { eqSnapshotA = values }
         if let values = defaults.array(forKey: "eqSnapshotB") as? [Float], values.count == 10 { eqSnapshotB = values }
+    }
+
+    private func persistListeningState() {
+        defaults.set(playHistory, forKey: "playHistory")
+        defaults.set(playCounts, forKey: "playCounts")
     }
 
     func persistState() {
@@ -437,9 +450,11 @@ final class AnalogPlayer: ObservableObject {
 
     func setVisualizerEnabled(_ enabled: Bool) {
         visualizerEnabled = enabled
-        analogVisualizerGate.withLock { state in
-            state.enabled = enabled
-            if !enabled { state.lastUpdate = 0 }
+        let meterEnabled = selectedTab == "Equalizer"
+        analogAudioAnalysisGate.withLock { state in
+            state.visualizerEnabled = enabled
+            state.meterEnabled = meterEnabled
+            state.lastUpdate = 0
         }
     }
 
@@ -512,7 +527,7 @@ final class AnalogPlayer: ObservableObject {
                 playHistory.insert(track.id, at: 0)
                 if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
                 playCounts[track.id, default: 0] += 1
-                persistState()
+                persistListeningState()
             }
             currentTrack = track
             currentTime = min(max(0, seconds), max(0, track.duration))
