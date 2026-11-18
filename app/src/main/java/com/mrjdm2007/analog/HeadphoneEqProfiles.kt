@@ -13,7 +13,10 @@ data class HeadphoneEqProfile(
     val preampDb: Float,
     val eqEnabled: Boolean,
     val crossfeedEnabled: Boolean,
-    val crossfeedAmount: Float
+    val crossfeedAmount: Float,
+    val peakGuardEnabled: Boolean = false,
+    val peakGuardThresholdDb: Float = -1f,
+    val stereoBalance: Float = 0f
 )
 
 object HeadphoneEqProfiles {
@@ -42,7 +45,10 @@ object HeadphoneEqProfiles {
                         preampDb = item.optDouble("preampDb", 0.0).toFloat().coerceIn(-12f, 12f),
                         eqEnabled = item.optBoolean("eqEnabled", true),
                         crossfeedEnabled = item.optBoolean("crossfeedEnabled", false),
-                        crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).toFloat().coerceIn(0f, 0.35f)
+                        crossfeedAmount = item.optDouble("crossfeedAmount", 0.12).toFloat().coerceIn(0f, 0.35f),
+                        peakGuardEnabled = item.optBoolean("peakGuardEnabled", false),
+                        peakGuardThresholdDb = item.optDouble("peakGuardThresholdDb", -1.0).toFloat().coerceIn(-12f, -0.1f),
+                        stereoBalance = item.optDouble("stereoBalance", 0.0).toFloat().coerceIn(-1f, 1f)
                     ))
                 }
             }
@@ -60,6 +66,9 @@ object HeadphoneEqProfiles {
                 put("eqEnabled", profile.eqEnabled)
                 put("crossfeedEnabled", profile.crossfeedEnabled)
                 put("crossfeedAmount", profile.crossfeedAmount)
+                put("peakGuardEnabled", profile.peakGuardEnabled)
+                put("peakGuardThresholdDb", profile.peakGuardThresholdDb)
+                put("stereoBalance", profile.stereoBalance)
             })
         }
         return array.toString(2)
@@ -80,7 +89,10 @@ object HeadphoneEqProfiles {
                     item.optDouble("preampDb", 0.0).toFloat().coerceIn(-12f, 12f),
                     item.optBoolean("eqEnabled", true),
                     item.optBoolean("crossfeedEnabled", false),
-                    item.optDouble("crossfeedAmount", .12).toFloat().coerceIn(0f, .35f)
+                    item.optDouble("crossfeedAmount", .12).toFloat().coerceIn(0f, .35f),
+                    item.optBoolean("peakGuardEnabled", false),
+                    item.optDouble("peakGuardThresholdDb", -1.0).toFloat().coerceIn(-12f, -.1f),
+                    item.optDouble("stereoBalance", 0.0).toFloat().coerceIn(-1f, 1f)
                 ))
             }
         }
