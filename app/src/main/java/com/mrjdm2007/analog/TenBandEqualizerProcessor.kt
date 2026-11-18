@@ -35,6 +35,7 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     private var encoding = C.ENCODING_PCM_16BIT
     private var previousGains = FloatArray(10) { Float.NaN }
     private var previousBandwidths = FloatArray(10) { Float.NaN }
+    private var previousEnabled = true
     private var coefficients = Array(10) { Biquad() }
     private var z1 = Array(10) { FloatArray(2) }
     private var z2 = Array(10) { FloatArray(2) }
@@ -67,6 +68,10 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     override fun queueInput(inputBuffer: ByteBuffer) {
         val bytes = inputBuffer.remaining()
         if (bytes <= 0) return
+        if (enabled != previousEnabled) {
+            for (band in 0 until 10) { z1[band].fill(0f); z2[band].fill(0f) }
+            previousEnabled = enabled
+        }
         updateCoefficients()
         val output = replaceOutputBuffer(bytes).order(ByteOrder.nativeOrder())
         val input = inputBuffer.order(ByteOrder.nativeOrder())
@@ -210,6 +215,7 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
         z2 = Array(10) { FloatArray(channelCount) }
         previousGains = FloatArray(10) { Float.NaN }
         previousBandwidths = FloatArray(10) { Float.NaN }
+        previousEnabled = enabled
     }
 
     private data class Biquad(
