@@ -8,6 +8,9 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
@@ -44,6 +47,26 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var activeProfile by remember { mutableStateOf(prefs.getString("eq_active_device_profile", null)) }
     var showSaveProfile by remember { mutableStateOf(false) }
     var newProfileName by remember { mutableStateOf("") }
+    val exportProfilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(HeadphoneEqProfiles.exportJson(profiles)) }
+                ?: throw IllegalStateException("Could not write profile file")
+        }.onSuccess { Toast.makeText(context, "EQ profiles exported", Toast.LENGTH_SHORT).show() }
+            .onFailure { Toast.makeText(context, "Profile export failed", Toast.LENGTH_SHORT).show() }
+    }
+    val importProfilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: throw IllegalStateException("Could not read profile file")
+        }.onSuccess { raw ->
+            val imported = HeadphoneEqProfiles.importJson(raw)
+            if (imported.isNotEmpty()) {
+                profiles = (profiles.filterNot { existing -> imported.any { it.name.equals(existing.name, true) } } + imported).sortedBy { it.name.lowercase() }
+                HeadphoneEqProfiles.write(context, profiles)
+                Toast.makeText(context, "Imported " + imported.size + " EQ profiles", Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(context, "No valid EQ profiles found", Toast.LENGTH_SHORT).show()
+        }.onFailure { Toast.makeText(context, "Profile import failed", Toast.LENGTH_SHORT).show() }
+    }
     var bassLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_bass", 0f)) }
     var spaceLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_space", 0f)) }
     var preampDb by remember { mutableFloatStateOf(prefs.getFloat("eq_preamp_db", 0f)) }
@@ -346,6 +369,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Spacer(Modifier.height(14.dp))
             Text("HEADPHONE / DAC PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             OutlinedButton(onClick = { newProfileName = detectedOutput.takeUnless { it == "No active output detected" || it == "Detecting output…" } ?: ""; showSaveProfile = true }, modifier = Modifier.fillMaxWidth()) { Text("SAVE CURRENT EQ AS DEVICE PROFILE", fontSize = 9.sp) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { exportProfilesLauncher.launch("Analog-Headphone-EQ-Profiles.json") }, modifier = Modifier.weight(1f)) { Text("EXPORT", fontSize = 9.sp) }
+                OutlinedButton(onClick = { importProfilesLauncher.launch(arrayOf("application/json", "text/json")) }, modifier = Modifier.weight(1f)) { Text("IMPORT", fontSize = 9.sp) }
+            }
             profiles.forEach { profile ->
                 Row(Modifier.fillMaxWidth().background(panel, RoundedCornerShape(8.dp)).clickable { applyDeviceProfile(profile) }.padding(9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(profile.name, color = text, fontSize = 10.sp, modifier = Modifier.weight(1f))
