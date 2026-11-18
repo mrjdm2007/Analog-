@@ -558,9 +558,14 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         } else {
-            if (secondary.playerError != null) {
+            val targetStillMatches = crossfadeTargetIndex in 0 until primary.mediaItemCount &&
+                primary.getMediaItemAt(crossfadeTargetIndex).mediaId == secondary.currentMediaItem?.mediaId
+            if (!targetStillMatches || secondary.playerError != null) {
+                // The queue may have been edited while the second decoder prepared.
+                // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
                 primary.volume = 1f
+                crossfadeForIndex = -1
                 return
             }
             if (!secondary.isPlaying) {
