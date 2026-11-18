@@ -256,7 +256,8 @@ struct LibraryView: View {
     @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
-        player.filteredTracks.sorted { left, right in
+        let shufflePositions = Dictionary(uniqueKeysWithValues: player.libraryShuffleOrder.enumerated().map { ($1, $0) })
+        return player.filteredTracks.sorted { left, right in
             switch sortMode {
             case "Artist":
                 let order = left.artist.localizedCaseInsensitiveCompare(right.artist)
@@ -271,8 +272,7 @@ struct LibraryView: View {
                 let rightDate = right.dateAdded ?? .distantPast
                 return sortAscending ? leftDate < rightDate : leftDate > rightDate
             case "Shuffle":
-                let positions = Dictionary(uniqueKeysWithValues: player.libraryShuffleOrder.enumerated().map { ($1, $0) })
-                return (positions[left.id] ?? Int.max) < (positions[right.id] ?? Int.max)
+                return (shufflePositions[left.id] ?? Int.max) < (shufflePositions[right.id] ?? Int.max)
             case "Play Count":
                 let leftCount = player.playCounts[left.id] ?? 0
                 let rightCount = player.playCounts[right.id] ?? 0
