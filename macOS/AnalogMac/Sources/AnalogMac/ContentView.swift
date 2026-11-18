@@ -863,7 +863,8 @@ struct NowPlayingPanel: View {
             }.aspectRatio(1, contentMode: .fit)
             VStack(alignment: .leading, spacing: 5) {
                 Text(player.currentTrack?.title ?? "Nothing playing").font(.system(size: 16, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(2)
-                Text(player.currentTrack.map { "\($0.album)  •  \($0.artist)" } ?? "Choose a song from your library").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                Text("ALBUM  •  " + (player.currentTrack?.album ?? "—")).font(.system(size: 9, weight: .medium)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                Text("ARTIST  •  " + (player.currentTrack?.artist ?? "—")).font(.system(size: 9, weight: .medium)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("FILE DETAILS").font(.system(size: 8, weight: .black)).tracking(1.4).foregroundStyle(AnalogPalette.muted)
