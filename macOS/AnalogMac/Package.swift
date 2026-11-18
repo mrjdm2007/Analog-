@@ -4,9 +4,13 @@ import PackageDescription
 let package = Package(
     name: "AnalogMac",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "AnalogMac", targets: ["AnalogMac"])],
+    products: [
+        .library(name: "AnalogCore", targets: ["AnalogCore"]),
+        .executable(name: "AnalogMac", targets: ["AnalogMac"])
+    ],
     targets: [
-        .executableTarget(name: "AnalogMac", path: "Sources/AnalogMac"),
-        .testTarget(name: "AnalogAudioTests", path: "Tests/AnalogAudioTests")
+        .target(name: "AnalogCore", path: "Sources/AnalogCore"),
+        .executableTarget(name: "AnalogMac", dependencies: ["AnalogCore"], path: "Sources/AnalogMac"),
+        .testTarget(name: "AnalogAudioTests", dependencies: ["AnalogCore"], path: "Tests/AnalogAudioTests")
     ]
 )

@@ -1,4 +1,5 @@
 import AVFoundation
+import AnalogCore
 import AudioToolbox
 import AppKit
 import Combine
@@ -18,13 +19,15 @@ struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var sampleRateHz: Double? = nil
     var averageBitrateKbps: Int? = nil
     var audioChannels: Int? = nil
+    var dateAdded: Date? = nil
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
 }
 
 private let analogSupportedAudioExtensions: Set<String> = [
     "mp3", "m4a", "m4b", "aac", "adts", "wav", "wave",
-    "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd"
+    "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd",
+    "ogg", "oga", "opus", "wma", "ape", "wv", "dsf", "dff", "mka"
 ]
 
 private func makeMusicTrack(from url: URL) -> MusicTrack? {
@@ -93,7 +96,9 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         fileSizeBytes: fileSize,
         sampleRateHz: sampleRate > 0 ? sampleRate : nil,
         averageBitrateKbps: averageBitrate,
-        audioChannels: Int(file.processingFormat.channelCount)
+        audioChannels: Int(file.processingFormat.channelCount),
+        // This is the first-import timestamp, not the file's filesystem creation date.
+        dateAdded: Date()
     )
 }
 private extension String {
@@ -116,8 +121,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var searchText = ""
     @Published var favorites: Set<String> = []
     @Published var moods: [String: String] = [:]
-    @Published var journal: [String: String] = [:]
-    @Published var ratings: [String: Int] = [:]
+    @Published var libraryShuffleOrder: [String] = []
+    @Published var skippedAudioFiles: [String] = []
     @Published var customPlaylists: [String: [String]] = [:]
     @Published var eqEnabled = true
     @Published var eqOutputPeak: Float = 0
@@ -140,6 +145,14 @@ final class AnalogPlayer: ObservableObject {
     @Published var peakGuardThresholdDB: Float = -1
     @Published var playHistory: [String] = []
     @Published var playCounts: [String: Int] = [:]
+    @Published var devicePresets: [EQDevicePreset] = []
+    @Published var outputDeviceName = "Detecting output…"
+    @Published var activeDevicePresetName: String?
+    @Published var autoMatchOutputDevice = true
+    @Published var gaplessPlaybackEnabled = true
+    @Published var crossfeedEnabled = false
+    @Published var crossfeedAmount: Float = 0.12
+    @Published private(set) var crossfeedAvailable = false
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -163,6 +176,11 @@ final class AnalogPlayer: ObservableObject {
     private var playbackToken = UUID()
     private let defaults = UserDefaults.standard
     private var mediaCommandsConfigured = false
+    private let outputDeviceMonitor = OutputDeviceMonitor()
+    private var outputDeviceCancellable: AnyCancellable?
+    private var gaplessFiles: [AVAudioFile] = []
+    private var gaplessSegmentStartedAt = Date()
+    private var crossfeedUnit: AVAudioUnit?
 
     func configureMediaCommands() {
         guard !mediaCommandsConfigured else { return }
@@ -288,12 +306,30 @@ final class AnalogPlayer: ObservableObject {
         }
         restoreState()
         applyEqualizer()
+        configureCrossfeedUnit()
+        outputDeviceName = outputDeviceMonitor.deviceName
+        outputDeviceCancellable = outputDeviceMonitor.$deviceName.removeDuplicates().sink { [weak self] name in
+            Task { @MainActor in self?.handleOutputDeviceChange(name) }
+        }
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }
 
     var filteredTracks: [MusicTrack] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return tracks }
-        return tracks.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return libraryOrderedTracks }
+        return libraryOrderedTracks.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) }
+    }
+
+    var libraryOrderedTracks: [MusicTrack] {
+        // Old library snapshots can contain duplicate paths after repeated imports.
+        // De-duplicate before building the lookup to avoid Dictionary's duplicate-key trap.
+        var seen = Set<String>()
+        let uniqueTracks = tracks.filter { seen.insert($0.id).inserted }
+        guard !libraryShuffleOrder.isEmpty else { return uniqueTracks }
+        let byID = Dictionary(uniqueTracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ordered = libraryShuffleOrder.compactMap { byID[$0] }
+        let orderedIDs = Set(ordered.map(\.id))
+        return ordered + uniqueTracks.filter { !orderedIDs.contains($0.id) }
     }
 
     var moodNames: [String] { ["Calm", "Energy", "Focus", "Nostalgia"] }
@@ -306,8 +342,7 @@ final class AnalogPlayer: ObservableObject {
         favorites = Set(defaults.stringArray(forKey: "favorites") ?? [])
         if let data = defaults.data(forKey: "libraryTracks"), let saved = try? JSONDecoder().decode([MusicTrack].self, from: data) { tracks = saved.filter { FileManager.default.fileExists(atPath: $0.path) } }
         moods = defaults.dictionary(forKey: "moods") as? [String: String] ?? [:]
-        journal = defaults.dictionary(forKey: "journal") as? [String: String] ?? [:]
-        ratings = defaults.dictionary(forKey: "ratings") as? [String: Int] ?? [:]
+        libraryShuffleOrder = defaults.stringArray(forKey: "libraryShuffleOrder") ?? []
         customPlaylists = defaults.dictionary(forKey: "customPlaylists") as? [String: [String]] ?? [:]
         eqEnabled = defaults.object(forKey: "eqEnabled") as? Bool ?? true
         preampDB = defaults.object(forKey: "preampDB") as? Float ?? 0
@@ -317,6 +352,11 @@ final class AnalogPlayer: ObservableObject {
         peakGuardThresholdDB = defaults.object(forKey: "peakGuardThresholdDB") as? Float ?? -1
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
+        if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
+        autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
+        gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
+        crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
+        crossfeedAmount = min(0.35, max(0, defaults.object(forKey: "crossfeedAmount") as? Float ?? 0.12))
         audioEngine.mainMixerNode.outputVolume = outputVolume
         if let values = defaults.array(forKey: "eqGains") as? [Float], values.count == 10 { eqGains = values }
         if let values = defaults.array(forKey: "eqBandwidths") as? [Float], values.count == 10 { eqBandwidths = values.map { min(4, max(0.1, $0)) } }
@@ -333,8 +373,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(Array(favorites), forKey: "favorites")
         if let data = try? JSONEncoder().encode(tracks) { defaults.set(data, forKey: "libraryTracks") }
         defaults.set(moods, forKey: "moods")
-        defaults.set(journal, forKey: "journal")
-        defaults.set(ratings, forKey: "ratings")
+        defaults.set(libraryShuffleOrder, forKey: "libraryShuffleOrder")
         defaults.set(customPlaylists, forKey: "customPlaylists")
         defaults.set(eqEnabled, forKey: "eqEnabled")
         defaults.set(preampDB, forKey: "preampDB")
@@ -344,6 +383,11 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(peakGuardThresholdDB, forKey: "peakGuardThresholdDB")
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
+        if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
+        defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
+        defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
+        defaults.set(crossfeedEnabled, forKey: "crossfeedEnabled")
+        defaults.set(crossfeedAmount, forKey: "crossfeedAmount")
         defaults.set(eqGains, forKey: "eqGains")
         defaults.set(eqBandwidths, forKey: "eqBandwidths")
         defaults.set(eqSnapshotA, forKey: "eqSnapshotA")
@@ -387,7 +431,7 @@ final class AnalogPlayer: ObservableObject {
                 options: [.skipsHiddenFiles]
             )
             var found: [MusicTrack] = []
-            var audioFilesSkipped = 0
+            var skippedFiles: [String] = []
             while let url = enumerator?.nextObject() as? URL {
                 let isAudio = analogSupportedAudioExtensions.contains(url.pathExtension.lowercased())
                     || (UTType(filenameExtension: url.pathExtension)?.conforms(to: .audio) ?? false)
@@ -395,20 +439,24 @@ final class AnalogPlayer: ObservableObject {
                 if let track = makeMusicTrack(from: url) {
                     found.append(track)
                 } else {
-                    audioFilesSkipped += 1
+                    skippedFiles.append(url.path)
                 }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
-                for track in found { merged[track.id] = track }
+                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for var track in found {
+                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
+                    merged[track.id] = track
+                }
+                self.skippedAudioFiles = skippedFiles.sorted()
                 self.tracks = merged.values.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
                 self.defaults.set(folder.path, forKey: "musicFolder")
                 self.persistState()
                 self.isScanning = false
-                self.scanSummary = "Library: \(self.tracks.count) tracks • \(audioFilesSkipped) unsupported/unreadable audio files skipped"
+                self.scanSummary = "Library: \(self.tracks.count) tracks • \(skippedFiles.count) unsupported/unreadable audio files"
             }
         }
     }
@@ -419,7 +467,7 @@ final class AnalogPlayer: ObservableObject {
         scanSummary = "Scanning audio files…"
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found: [MusicTrack] = []
-            var skipped = 0
+            var skippedFiles: [String] = []
             for url in urls {
                 let extensionName = url.pathExtension.lowercased()
                 let isAudio = analogSupportedAudioExtensions.contains(extensionName)
@@ -428,13 +476,17 @@ final class AnalogPlayer: ObservableObject {
                 if let track = makeMusicTrack(from: url) {
                     found.append(track)
                 } else {
-                    skipped += 1
+                    skippedFiles.append(url.path)
                 }
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(uniqueKeysWithValues: self.tracks.map { ($0.id, $0) })
-                for track in found { merged[track.id] = track }
+                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                for var track in found {
+                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
+                    merged[track.id] = track
+                }
+                self.skippedAudioFiles = skippedFiles.sorted()
                 self.tracks = merged.values.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
@@ -443,7 +495,7 @@ final class AnalogPlayer: ObservableObject {
                 }
                 self.persistState()
                 self.isScanning = false
-                self.scanSummary = "Added/updated \(found.count) playable tracks • \(skipped) unreadable files skipped"
+                self.scanSummary = "Added/updated \(found.count) playable tracks • \(skippedFiles.count) unreadable files"
             }
         }
     }
@@ -459,7 +511,7 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
-        let source = list ?? tracks
+        let source = list ?? libraryOrderedTracks
         queue = source
         queueIndex = queue.firstIndex(where: { $0.id == track.id }) ?? 0
         startTrack(track, at: 0)
@@ -470,6 +522,20 @@ final class AnalogPlayer: ObservableObject {
         queue = items
         queueIndex = min(max(0, index), items.count - 1)
         startTrack(items[queueIndex], at: 0)
+    }
+
+    func shuffleLibrary() {
+        libraryShuffleOrder = Array(Set(tracks.map(\.id))).shuffled()
+        persistState()
+    }
+
+    func playRandomLibraryTrack() {
+        let source = libraryOrderedTracks
+        guard !source.isEmpty else { return }
+        let shuffled = source.shuffled()
+        queue = shuffled
+        queueIndex = 0
+        startTrack(shuffled[0], at: 0)
     }
 
     func addNext(_ track: MusicTrack) {
@@ -519,28 +585,99 @@ final class AnalogPlayer: ObservableObject {
         playbackToken = UUID()
         let token = playbackToken
         playerNode.stop()
+        gaplessFiles.removeAll()
         do {
-            let file = try AVAudioFile(forReading: track.url)
-            audioFile = file
-            if recordPlay {
-                playHistory.removeAll { $0 == track.id }
-                playHistory.insert(track.id, at: 0)
-                if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
-                playCounts[track.id, default: 0] += 1
-                persistListeningState()
-            }
+            let firstFile = try AVAudioFile(forReading: track.url)
+            audioFile = firstFile
+            if recordPlay { recordGaplessPlay(track) }
             currentTrack = track
             currentTime = min(max(0, seconds), max(0, track.duration))
             segmentStart = currentTime
+            gaplessSegmentStartedAt = Date().addingTimeInterval(-currentTime)
             if !audioEngine.isRunning { try audioEngine.start() }
-            let startFrame = AVAudioFramePosition(currentTime * file.processingFormat.sampleRate)
-            let remaining = max(0, file.length - startFrame)
-            let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
-            guard frameCount > 0 else { advance(); return }
-            playerNode.scheduleSegment(file, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                DispatchQueue.main.async {
-                    guard let self, self.playbackToken == token else { return }
-                    self.advance()
+
+            if gaplessPlaybackEnabled {
+                var sequence: [(track: MusicTrack, index: Int)] = []
+                if queue.indices.contains(queueIndex) {
+                    sequence.append((queue[queueIndex], queueIndex))
+                    if repeatCurrentTrack {
+                        sequence.append((queue[queueIndex], queueIndex))
+                    } else {
+                        let following = gaplessQueueIndices(
+                            count: queue.count,
+                            currentIndex: queueIndex,
+                            repeatQueue: repeatQueue,
+                            shuffleQueue: shuffleQueue
+                        )
+                        sequence.append(contentsOf: following.map { (queue[$0], $0) })
+                    }
+                } else {
+                    sequence = [(track, 0)]
+                }
+
+                var files: [AVAudioFile] = []
+                var scheduled: [(track: MusicTrack, index: Int, file: AVAudioFile, startFrame: AVAudioFramePosition, frameCount: AVAudioFrameCount)] = []
+                for (position, item) in sequence.enumerated() {
+                    let file: AVAudioFile
+                    if position == 0 { file = firstFile }
+                    else {
+                        do { file = try AVAudioFile(forReading: item.track.url) }
+                        catch { continue }
+                    }
+                    let startFrame = position == 0 ? AVAudioFramePosition(currentTime * file.processingFormat.sampleRate) : 0
+                    let remaining = max(0, file.length - startFrame)
+                    let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
+                    guard frameCount > 0 else { continue }
+                    files.append(file)
+                    scheduled.append((item.track, item.index, file, startFrame, frameCount))
+                }
+                guard !scheduled.isEmpty else { throw NSError(domain: "AnalogPlayback", code: 1) }
+                gaplessFiles = files
+                for (position, item) in scheduled.enumerated() {
+                    playerNode.scheduleSegment(
+                        item.file,
+                        startingFrame: item.startFrame,
+                        frameCount: item.frameCount,
+                        at: nil,
+                        completionCallbackType: .dataPlayedBack
+                    ) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            guard let self, self.playbackToken == token else { return }
+                            if position + 1 < scheduled.count {
+                                let next = scheduled[position + 1]
+                                self.queueIndex = next.index
+                                self.currentTrack = next.track
+                                self.currentTime = 0
+                                self.segmentStart = 0
+                                self.gaplessSegmentStartedAt = Date()
+                                self.recordGaplessPlay(next.track)
+                                self.updateSystemNowPlayingInfo()
+                            } else {
+                                self.currentTime = self.currentTrack?.duration ?? 0
+                                self.isPlaying = false
+                                self.timer?.invalidate()
+                                self.gaplessFiles.removeAll()
+                                self.updateSystemNowPlayingInfo()
+                                if self.repeatCurrentTrack, let current = self.currentTrack {
+                                    self.startTrack(current, at: 0, recordPlay: false)
+                                } else if self.repeatQueue, let first = self.queue.first {
+                                    self.queueIndex = 0
+                                    self.startTrack(first, at: 0)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                let startFrame = AVAudioFramePosition(currentTime * firstFile.processingFormat.sampleRate)
+                let remaining = max(0, firstFile.length - startFrame)
+                let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
+                guard frameCount > 0 else { advance(); return }
+                playerNode.scheduleSegment(firstFile, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self, self.playbackToken == token else { return }
+                        self.advance()
+                    }
                 }
             }
             playerNode.play()
@@ -550,9 +687,18 @@ final class AnalogPlayer: ObservableObject {
         } catch {
             isPlaying = false
             currentTrack = track
+            gaplessFiles.removeAll()
             updateSystemNowPlayingInfo()
             print("Analog playback error: \(error.localizedDescription)")
         }
+    }
+
+    private func recordGaplessPlay(_ track: MusicTrack) {
+        playHistory.removeAll { $0 == track.id }
+        playHistory.insert(track.id, at: 0)
+        if playHistory.count > 500 { playHistory = Array(playHistory.prefix(500)) }
+        playCounts[track.id, default: 0] += 1
+        persistListeningState()
     }
 
     func togglePlayback() {
@@ -562,9 +708,10 @@ final class AnalogPlayer: ObservableObject {
             isPlaying = false
             timer?.invalidate()
         } else if let track = currentTrack {
-            startTrack(track, at: currentTime, recordPlay: false)
-        } else if let first = tracks.first {
-            play(first)
+            let restartTime = currentTime >= track.duration ? 0 : currentTime
+            startTrack(track, at: restartTime, recordPlay: false)
+        } else {
+            playRandomLibraryTrack()
         }
         updateSystemNowPlayingInfo()
     }
@@ -572,7 +719,17 @@ final class AnalogPlayer: ObservableObject {
     func seek(to seconds: Double) {
         guard let track = currentTrack else { return }
         let wasPlaying = isPlaying
-        startTrack(track, at: min(max(0, seconds), track.duration), recordPlay: false)
+        let target = min(max(0, seconds), max(0, track.duration))
+        if target >= track.duration {
+            if wasPlaying {
+                advance()
+            } else {
+                currentTime = track.duration
+                updateSystemNowPlayingInfo()
+            }
+            return
+        }
+        startTrack(track, at: target, recordPlay: false)
         if !wasPlaying {
             playerNode.pause()
             isPlaying = false
@@ -584,8 +741,8 @@ final class AnalogPlayer: ObservableObject {
         if currentTime > 3 { seek(to: 0); return }
         guard !queue.isEmpty else { return }
         let index = queueIndex > 0 ? queueIndex - 1 : (repeatQueue ? queue.count - 1 : 0)
-        startTrack(queue[index], at: 0)
         queueIndex = index
+        startTrack(queue[index], at: 0)
     }
 
     func next() { advance() }
@@ -612,7 +769,12 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func updateClock() {
-        guard isPlaying, let nodeTime = playerNode.lastRenderTime, let playerTime = playerNode.playerTime(forNodeTime: nodeTime), playerTime.sampleRate > 0 else { return }
+        guard isPlaying else { return }
+        if gaplessPlaybackEnabled {
+            currentTime = min(currentTrack?.duration ?? .greatestFiniteMagnitude, Date().timeIntervalSince(gaplessSegmentStartedAt))
+            return
+        }
+        guard let nodeTime = playerNode.lastRenderTime, let playerTime = playerNode.playerTime(forNodeTime: nodeTime), playerTime.sampleRate > 0 else { return }
         currentTime = min(currentTrack?.duration ?? .greatestFiniteMagnitude, segmentStart + Double(playerTime.sampleTime) / playerTime.sampleRate)
     }
 
@@ -623,12 +785,6 @@ final class AnalogPlayer: ObservableObject {
 
     func assignMood(_ mood: String, to track: MusicTrack) {
         moods[track.id] = mood
-        persistState()
-    }
-
-    func saveJournal(_ note: String, rating: Int, for track: MusicTrack) {
-        journal[track.id] = note
-        ratings[track.id] = rating
         persistState()
     }
 
@@ -647,9 +803,26 @@ final class AnalogPlayer: ObservableObject {
         catch { print("Analog playlist export error: \(error.localizedDescription)") }
     }
 
+    private func uniquePlaylistName(_ rawName: String, excluding: String? = nil) -> String? {
+        let base = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return nil }
+        func isTaken(_ candidate: String) -> Bool {
+            moodNames.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+                || customPlaylists.keys.contains {
+                    $0 != excluding && $0.caseInsensitiveCompare(candidate) == .orderedSame
+                }
+        }
+        if !isTaken(base) { return base }
+        var suffix = 2
+        while isTaken("\(base) (\(suffix))") { suffix += 1 }
+        return "\(base) (\(suffix))"
+    }
+
     func renamePlaylist(_ oldName: String, to newName: String) {
-        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, oldName != clean, let items = customPlaylists.removeValue(forKey: oldName) else { return }
+        guard let items = customPlaylists[oldName],
+              let clean = uniquePlaylistName(newName, excluding: oldName),
+              clean != oldName else { return }
+        customPlaylists.removeValue(forKey: oldName)
         customPlaylists[clean] = items
         persistState()
     }
@@ -662,7 +835,8 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func createPlaylist(_ name: String, tracks: [MusicTrack]) {
-        customPlaylists[name] = tracks.map(\.id)
+        guard let clean = uniquePlaylistName(name) else { return }
+        customPlaylists[clean] = tracks.map(\.id)
         persistState()
     }
 
@@ -684,8 +858,6 @@ final class AnalogPlayer: ObservableObject {
         tracks.removeAll { $0.id == track.id }
         favorites.remove(track.id)
         moods.removeValue(forKey: track.id)
-        journal.removeValue(forKey: track.id)
-        ratings.removeValue(forKey: track.id)
         playHistory.removeAll { $0 == track.id }
         playCounts.removeValue(forKey: track.id)
         for name in Array(customPlaylists.keys) { customPlaylists[name]?.removeAll { $0 == track.id } }
@@ -696,6 +868,7 @@ final class AnalogPlayer: ObservableObject {
         if removesCurrentTrack {
             playbackToken = UUID()
             playerNode.stop()
+            gaplessFiles.removeAll()
             isPlaying = false
             self.currentTrack = nil
             currentTime = 0
@@ -709,19 +882,286 @@ final class AnalogPlayer: ObservableObject {
 
     var smartMixes: [AnalogSmartMix] {
         let recent = historyTracks
-        let rated = tracks.filter { (ratings[$0.id] ?? 0) >= 4 }
-        let unrated = tracks.filter { ratings[$0.id] == nil }
         let longTracks = tracks.filter { $0.duration >= 300 }
         let shortTracks = tracks.filter { $0.duration > 0 && $0.duration <= 180 }
         return [
             AnalogSmartMix(name: "Recently Played", subtitle: "Your latest listening rotation", tracks: recent),
             AnalogSmartMix(name: "Most Played", subtitle: "Tracks you return to most", tracks: mostPlayedTracks),
-            AnalogSmartMix(name: "Top Rated", subtitle: "Songs rated four stars or higher", tracks: rated),
-            AnalogSmartMix(name: "Never Rated", subtitle: "Discover tracks you have not rated", tracks: unrated),
             AnalogSmartMix(name: "Long Sessions", subtitle: "Tracks longer than five minutes", tracks: longTracks),
             AnalogSmartMix(name: "Quick Listen", subtitle: "Tracks under three minutes", tracks: shortTracks),
             AnalogSmartMix(name: "Favourites", subtitle: "Your saved favourite tracks", tracks: tracks.filter { favorites.contains($0.id) })
         ]
+    }
+
+
+
+    private func configureCrossfeedUnit() {
+        let description = AudioComponentDescription(
+            componentType: kAudioUnitType_Mixer,
+            componentSubType: kAudioUnitSubType_MatrixMixer,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        AVAudioUnit.instantiate(with: description, options: []) { [weak self] unit, error in
+            guard let unit else {
+                if let error { print("Analog crossfeed unavailable: \(error.localizedDescription)") }
+                return
+            }
+            Task { @MainActor in self?.installCrossfeedUnit(unit) }
+        }
+    }
+
+    private func installCrossfeedUnit(_ unit: AVAudioUnit) {
+        var inputBusCount: UInt32 = 1
+        var outputBusCount: UInt32 = 1
+        let elementCountSize = UInt32(MemoryLayout<UInt32>.size)
+        let inputStatus = AudioUnitSetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_ElementCount,
+            kAudioUnitScope_Input,
+            0,
+            &inputBusCount,
+            elementCountSize
+        )
+        let outputStatus = AudioUnitSetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_ElementCount,
+            kAudioUnitScope_Output,
+            0,
+            &outputBusCount,
+            elementCountSize
+        )
+        guard inputStatus == noErr, outputStatus == noErr else {
+            crossfeedAvailable = false
+            crossfeedEnabled = false
+            print("Analog crossfeed bus configuration failed: input=\(inputStatus), output=\(outputStatus)")
+            return
+        }
+
+        let wasRunning = audioEngine.isRunning
+        let wasPlaying = isPlaying
+        if wasPlaying { updateClock() }
+        let resumeTrack = currentTrack
+        let resumeTime = currentTime
+        if wasRunning { audioEngine.stop() }
+        audioEngine.disconnectNodeOutput(playerNode)
+        audioEngine.attach(unit)
+        audioEngine.connect(playerNode, to: unit, format: nil)
+        audioEngine.connect(unit, to: equalizer, format: nil)
+        audioEngine.prepare()
+        crossfeedUnit = unit
+        crossfeedAvailable = true
+        applyCrossfeedMatrix()
+        if wasRunning {
+            do {
+                try audioEngine.start()
+                if let resumeTrack {
+                    startTrack(resumeTrack, at: resumeTime, recordPlay: false)
+                    if !wasPlaying {
+                        playerNode.pause()
+                        isPlaying = false
+                        timer?.invalidate()
+                    }
+                }
+            } catch {
+                crossfeedAvailable = false
+                crossfeedEnabled = false
+                print("Analog audio graph update failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func bypassCrossfeedUnit() {
+        guard let unit = crossfeedUnit else { return }
+        let wasRunning = audioEngine.isRunning
+        let wasPlaying = isPlaying
+        if wasPlaying { updateClock() }
+        let resumeTrack = currentTrack
+        let resumeTime = currentTime
+        if wasRunning { audioEngine.stop() }
+        audioEngine.disconnectNodeOutput(playerNode)
+        audioEngine.disconnectNodeOutput(unit)
+        audioEngine.detach(unit)
+        audioEngine.connect(playerNode, to: equalizer, format: nil)
+        crossfeedUnit = nil
+        crossfeedEnabled = false
+        crossfeedAvailable = false
+        if wasRunning {
+            do {
+                try audioEngine.start()
+                if let resumeTrack {
+                    startTrack(resumeTrack, at: resumeTime, recordPlay: false)
+                    if !wasPlaying {
+                        playerNode.pause()
+                        isPlaying = false
+                        timer?.invalidate()
+                    }
+                }
+            } catch {
+                isPlaying = false
+                timer?.invalidate()
+                print("Analog crossfeed bypass recovery failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func applyCrossfeedMatrix() {
+        guard let unit = crossfeedUnit else { return }
+        var dimensions = [UInt32](repeating: 0, count: 2)
+        var size = UInt32(MemoryLayout<UInt32>.size * dimensions.count)
+        guard AudioUnitGetProperty(
+            unit.audioUnit,
+            kAudioUnitProperty_MatrixDimensions,
+            kAudioUnitScope_Global,
+            0,
+            &dimensions,
+            &size
+        ) == noErr, dimensions == [2, 2] else {
+            bypassCrossfeedUnit()
+            return
+        }
+        let amount = crossfeedEnabled ? min(0.35, max(0, crossfeedAmount)) : 0
+        var levels = stereoCrossfeedMatrix(amount: amount)
+        let status = levels.withUnsafeMutableBufferPointer { buffer in
+            AudioUnitSetProperty(
+                unit.audioUnit,
+                kAudioUnitProperty_MatrixLevels,
+                kAudioUnitScope_Global,
+                0,
+                buffer.baseAddress!,
+                UInt32(buffer.count * MemoryLayout<Float32>.size)
+            )
+        }
+        if status != noErr {
+            print("Analog crossfeed matrix update failed: \(status)")
+            bypassCrossfeedUnit()
+        }
+    }
+
+    func setCrossfeed(enabled: Bool, amount: Float? = nil) {
+        crossfeedEnabled = enabled
+        if let amount { crossfeedAmount = min(0.35, max(0, amount)) }
+        applyCrossfeedMatrix()
+        persistState()
+    }
+
+    private func normalizedDeviceName(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private func handleOutputDeviceChange(_ name: String) {
+        outputDeviceName = name
+        guard autoMatchOutputDevice else { return }
+        applyMatchingDevicePreset(for: name)
+    }
+
+    private func applyMatchingDevicePreset(for name: String) {
+        let key = normalizedDeviceName(name)
+        guard !key.isEmpty,
+              let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
+            activeDevicePresetName = nil
+            eqGains = Array(repeating: 0, count: 10)
+            eqBandwidths = Array(repeating: 1, count: 10)
+            preampDB = 0
+            eqEnabled = true
+            crossfeedEnabled = false
+            crossfeedAmount = 0.12
+            peakGuardEnabled = false
+            peakGuardThresholdDB = -1
+            stereoPan = 0
+            applyEqualizer()
+            applyCrossfeedMatrix()
+            persistState()
+            return
+        }
+        applyDevicePreset(preset)
+    }
+
+    func setAutomaticDeviceMatching(_ enabled: Bool) {
+        autoMatchOutputDevice = enabled
+        if enabled { applyMatchingDevicePreset(for: outputDeviceName) }
+        persistState()
+    }
+
+    func saveDevicePreset(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, eqGains.count == 10, eqBandwidths.count == 10 else { return }
+        let preset = EQDevicePreset(
+            name: name, gains: eqGains, bandwidths: eqBandwidths,
+            preampDB: preampDB, eqEnabled: eqEnabled,
+            crossfeedEnabled: crossfeedEnabled, crossfeedAmount: crossfeedAmount,
+            peakGuardEnabled: peakGuardEnabled, peakGuardThresholdDB: peakGuardThresholdDB,
+            stereoPan: stereoPan
+        )
+        if let index = devicePresets.firstIndex(where: { normalizedDeviceName($0.name) == normalizedDeviceName(name) }) {
+            devicePresets[index] = preset
+        } else {
+            devicePresets.append(preset)
+        }
+        activeDevicePresetName = name
+        persistState()
+    }
+
+    func applyDevicePreset(_ preset: EQDevicePreset) {
+        guard preset.gains.count == 10, preset.bandwidths.count == 10 else { return }
+        eqGains = preset.gains.map { min(12, max(-12, $0)) }
+        eqBandwidths = preset.bandwidths.map { min(4, max(0.1, $0)) }
+        preampDB = min(12, max(-12, preset.preampDB))
+        eqEnabled = preset.eqEnabled
+        if let value = preset.crossfeedEnabled { crossfeedEnabled = value }
+        if let value = preset.crossfeedAmount { crossfeedAmount = min(0.35, max(0, value)) }
+        if let value = preset.peakGuardEnabled { peakGuardEnabled = value }
+        if let value = preset.peakGuardThresholdDB { peakGuardThresholdDB = min(-0.1, max(-12, value)) }
+        if let value = preset.stereoPan { stereoPan = min(1, max(-1, value)) }
+        activeDevicePresetName = preset.name
+        applyEqualizer()
+        applyCrossfeedMatrix()
+        persistState()
+    }
+
+    func renameDevicePreset(_ preset: EQDevicePreset, to rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              !devicePresets.contains(where: { $0.id != preset.id && normalizedDeviceName($0.name) == normalizedDeviceName(name) }),
+              let index = devicePresets.firstIndex(where: { $0.id == preset.id }) else { return }
+        devicePresets[index].name = name
+        if activeDevicePresetName == preset.name { activeDevicePresetName = name }
+        persistState()
+    }
+
+    func deleteDevicePreset(_ preset: EQDevicePreset) {
+        devicePresets.removeAll { $0.id == preset.id }
+        if activeDevicePresetName == preset.name { activeDevicePresetName = nil }
+        persistState()
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
+    }
+
+    func exportDevicePresets() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Analog-Device-EQ-Presets.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? JSONEncoder().encode(devicePresets) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func importDevicePresets() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url),
+              let imported = try? JSONDecoder().decode([EQDevicePreset].self, from: data) else { return }
+        for preset in imported where preset.gains.count == 10 && preset.bandwidths.count == 10 {
+            if let index = devicePresets.firstIndex(where: { normalizedDeviceName($0.name) == normalizedDeviceName(preset.name) }) {
+                devicePresets[index] = preset
+            } else {
+                devicePresets.append(preset)
+            }
+        }
+        persistState()
+        if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }
 
     func setOutputVolume(_ value: Float) {
@@ -771,12 +1211,40 @@ final class AnalogPlayer: ObservableObject {
 
     private func configurePeakGuard() {
         let threshold = min(-0.1, max(-12, peakGuardThresholdDB))
+        // Configure the Dynamics Processor as a fast peak-control stage.
+        // Headroom is the maximum level allowed above threshold; keeping it
+        // close to zero prevents the default, softer compressor behavior from
+        // allowing large overshoots after EQ/preamp boosts.
         _ = AudioUnitSetParameter(
             peakGuard.audioUnit,
             AudioUnitParameterID(kDynamicsProcessorParam_Threshold),
             kAudioUnitScope_Global,
             0,
             threshold,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_HeadRoom),
+            kAudioUnitScope_Global,
+            0,
+            0.1,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_AttackTime),
+            kAudioUnitScope_Global,
+            0,
+            0.001,
+            0
+        )
+        _ = AudioUnitSetParameter(
+            peakGuard.audioUnit,
+            AudioUnitParameterID(kDynamicsProcessorParam_ReleaseTime),
+            kAudioUnitScope_Global,
+            0,
+            0.05,
             0
         )
         peakGuard.auAudioUnit.shouldBypassEffect = !peakGuardEnabled

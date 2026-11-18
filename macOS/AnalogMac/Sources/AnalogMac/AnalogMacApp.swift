@@ -6,7 +6,7 @@ struct AnalogMacApp: App {
     @StateObject private var recorder = AnalogRecorder()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main-window") {
             ContentView()
                 .environmentObject(player)
                 .environmentObject(recorder)
@@ -39,7 +39,6 @@ struct AnalogMacApp: App {
                 Button(player.isPlaying ? "Pause" : "Play") {
                     player.togglePlayback()
                 }
-                .keyboardShortcut(.space, modifiers: [])
 
                 Divider()
 
@@ -115,5 +114,11 @@ struct AnalogMacApp: App {
                     .keyboardShortcut(",", modifiers: [.command])
             }
         }
+        Window("Analog Mini Player", id: "mini-player") {
+            MiniPlayerView().environmentObject(player)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 360, height: 84)
+        .windowResizability(.contentSize)
     }
 }

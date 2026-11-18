@@ -1,4 +1,5 @@
 import AppKit
+import AnalogCore
 import SwiftUI
 
 private enum AnalogPalette {
@@ -14,6 +15,8 @@ private enum AnalogPalette {
 struct ContentView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @EnvironmentObject private var recorder: AnalogRecorder
+    @Environment(\.openWindow) private var openWindow
+    @State private var mainWindowVisible = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,18 +38,27 @@ struct ContentView: View {
             TransportBar()
         }
         .background(AnalogPalette.ink)
+        .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
+        .background(MainWindowVisibilityProbe { visible in
+            mainWindowVisible = visible
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
+        }.frame(width: 0, height: 0))
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
         .onAppear {
             player.configureMediaCommands()
-            player.setVisualizerEnabled(player.selectedTab == "Visualiser")
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && mainWindowVisible)
             if let folder = UserDefaults.standard.string(forKey: "musicFolder") {
                 player.scan(URL(fileURLWithPath: folder))
             }
         }
         .onChange(of: player.selectedTab) { tab in
-            player.setVisualizerEnabled(tab == "Visualiser")
+            player.setVisualizerEnabled(tab == "Visualiser" && mainWindowVisible)
         }
+        .onChange(of: player.shuffleQueue) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.repeatQueue) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.repeatCurrentTrack) { _ in player.refreshPlaybackSchedule() }
+        .onChange(of: player.gaplessPlaybackEnabled) { _ in player.refreshPlaybackSchedule(force: true) }
     }
 
     private var topBar: some View {
@@ -70,6 +82,12 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+            Button { openWindow(id: "mini-player") } label: {
+                Label("MINI PLAYER", systemImage: "pip")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1)
+            }
+            .buttonStyle(AnalogOutlineButton())
             Button { player.importMusicFolder() } label: {
                 Label("ADD MUSIC", systemImage: "folder.badge.plus")
                     .font(.system(size: 10, weight: .bold))
@@ -89,7 +107,6 @@ struct ContentView: View {
         case "Equalizer": return "10-BAND PARAMETRIC TONE CONTROL"
         case "Visualiser": return "LIVE SPECTRUM ANALYSIS • MAC ONLY"
         case "Recorder": return "LOCAL RECORDING • PCM CAPTURE"
-        case "Journal": return "YOUR TRACK NOTES AND RATINGS"
         default: return "ANALOG MUSIC SYSTEM"
         }
     }
@@ -102,7 +119,6 @@ struct ContentView: View {
         case "Smart Mixes": SmartMixesView()
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
-        case "Journal": JournalView()
         case "Equalizer": EqualizerView()
         case "Visualiser": VisualiserView()
         case "Recorder": RecorderView()
@@ -121,7 +137,6 @@ struct SidebarView: View {
         ("Smart Mixes", "sparkles"),
         ("Moods", "circle.lefthalf.filled"),
         ("Playlists", "music.note.list"),
-        ("Journal", "book.closed.fill"),
         ("Equalizer", "slider.horizontal.3"),
         ("Visualiser", "waveform.path"),
         ("Recorder", "waveform.badge.mic"),
@@ -238,9 +253,11 @@ struct LibraryView: View {
     @State private var libraryMode = "Songs"
     @State private var sortMode = "Title"
     @State private var sortAscending = true
+    @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
-        player.filteredTracks.sorted { left, right in
+        let shufflePositions = Dictionary(player.libraryShuffleOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return player.filteredTracks.sorted { left, right in
             switch sortMode {
             case "Artist":
                 let order = left.artist.localizedCaseInsensitiveCompare(right.artist)
@@ -250,6 +267,12 @@ struct LibraryView: View {
                 return sortAscending ? order == .orderedAscending : order == .orderedDescending
             case "Duration":
                 return sortAscending ? left.duration < right.duration : left.duration > right.duration
+            case "Date Added":
+                let leftDate = left.dateAdded ?? .distantPast
+                let rightDate = right.dateAdded ?? .distantPast
+                return sortAscending ? leftDate < rightDate : leftDate > rightDate
+            case "Shuffle":
+                return (shufflePositions[left.id] ?? Int.max) < (shufflePositions[right.id] ?? Int.max)
             case "Play Count":
                 let leftCount = player.playCounts[left.id] ?? 0
                 let rightCount = player.playCounts[right.id] ?? 0
@@ -281,6 +304,9 @@ struct LibraryView: View {
                 Spacer()
                 Button { player.importAudioFiles() } label: { Label("ADD FILES", systemImage: "plus.square.on.square") }.buttonStyle(AnalogOutlineButton())
                 Button { player.importMusicFolder() } label: { Label("SCAN FOLDER", systemImage: "folder.badge.plus") }.buttonStyle(AnalogOutlineButton())
+                if !player.skippedAudioFiles.isEmpty {
+                    Button { showSkippedFiles = true } label: { Label("SKIPPED (\(player.skippedAudioFiles.count))", systemImage: "exclamationmark.triangle") }.buttonStyle(AnalogOutlineButton())
+                }
                 Button { showCreate = true } label: { Label("NEW PLAYLIST", systemImage: "plus") }.buttonStyle(AnalogOutlineButton())
                     .alert("Create playlist", isPresented: $showCreate) {
                         TextField("Playlist name", text: $playlistName)
@@ -306,10 +332,14 @@ struct LibraryView: View {
             }
             HStack(spacing: 8) {
                 Menu {
-                    ForEach(["Title", "Artist", "Album", "Duration", "Play Count"], id: \.self) { option in
-                        Button { sortMode = option } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
+                    ForEach(["Title", "Artist", "Album", "Duration", "Date Added", "Shuffle", "Play Count"], id: \.self) { option in
+                        Button {
+                            if option == "Shuffle" { player.shuffleLibrary(); sortMode = "Shuffle" }
+                            else { sortMode = option; if option == "Date Added" { sortAscending = false } }
+                        } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
                     }
                 } label: { Label("SORT: \(sortMode.uppercased())", systemImage: "arrow.up.arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.cream).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }
+                Button { player.shuffleLibrary(); sortMode = "Shuffle" } label: { Label("SHUFFLE LIBRARY", systemImage: "shuffle").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Randomise the order of songs in your library")
                 Button { sortAscending.toggle() } label: { Image(systemName: sortAscending ? "arrow.up" : "arrow.down").foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Reverse sort order")
                 Spacer()
                 Text("\(player.filteredTracks.count) MATCHING TRACKS").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
@@ -362,6 +392,21 @@ struct LibraryView: View {
             }
         }
         .padding(22)
+        .sheet(isPresented: $showSkippedFiles) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("SKIPPED AUDIO FILES").font(.system(size: 16, weight: .black)).foregroundStyle(AnalogPalette.cream)
+                Text("These files were recognised as audio but Analog could not open them with its current audio decoder. The list includes their full paths so you can identify the missing tracks.")
+                    .font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
+                List(player.skippedAudioFiles, id: \.self) { path in
+                    Text(path).font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.cream).textSelection(.enabled)
+                }.listStyle(.plain)
+                HStack {
+                    Text("\(player.skippedAudioFiles.count) files").foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Button("Done") { showSkippedFiles = false }.buttonStyle(AnalogActionButton())
+                }
+            }.padding(18).frame(minWidth: 620, minHeight: 420).background(AnalogPalette.ink)
+        }
     }
 }
 
@@ -397,7 +442,6 @@ struct TrackRow: View {
                     ForEach(player.customPlaylists.keys.sorted(), id: \.self) { name in
                         Button("Add to \(name)") { player.add(track, toPlaylist: name) }
                     }
-                    Button("Open journal") { player.selectedTab = "Journal" }
                 } label: {
                     Image(systemName: "ellipsis").foregroundStyle(AnalogPalette.cream.opacity(0.7)).frame(width: 26, height: 26)
                 }.menuStyle(.borderlessButton)
@@ -508,66 +552,13 @@ struct PlaylistCard: View {
     }
 }
 
-struct JournalView: View {
-    @EnvironmentObject private var player: AnalogPlayer
-    @State private var selectedID: String?
-    @State private var note = ""
-    @State private var rating = 0
-    var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("SONG JOURNAL").font(.system(size: 21, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
-                Text("Keep a note about the songs that matter to you.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(player.tracks) { track in
-                            Button {
-                                selectedID = track.id
-                                note = player.journal[track.id] ?? ""
-                                rating = player.ratings[track.id] ?? 0
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(track.title).font(.system(size: 10, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
-                                        Text(track.artist).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
-                                    }
-                                    Spacer()
-                                    if player.journal[track.id]?.isEmpty == false { Image(systemName: "note.text").foregroundStyle(AnalogPalette.green) }
-                                }.padding(9).background(selectedID == track.id ? AnalogPalette.amber.opacity(0.12) : AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 8))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }.frame(width: 250)
-            Rectangle().fill(AnalogPalette.cream.opacity(0.1)).frame(width: 1)
-            VStack(alignment: .leading, spacing: 14) {
-                Text("LISTENING NOTES").font(.system(size: 10, weight: .black)).tracking(1.8).foregroundStyle(AnalogPalette.amber)
-                Text(player.tracks.first(where: { $0.id == selectedID })?.title ?? "Choose a song")
-                    .font(.system(size: 18, weight: .bold)).foregroundStyle(AnalogPalette.cream)
-                HStack {
-                    ForEach(1...5, id: \.self) { value in
-                        Button { rating = value } label: {
-                            Image(systemName: value <= rating ? "star.fill" : "star").foregroundStyle(value <= rating ? AnalogPalette.amber : AnalogPalette.muted)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                TextEditor(text: $note).font(.system(size: 12)).scrollContentBackground(.hidden)
-                    .padding(10).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-                HStack {
-                    Spacer()
-                    Button("SAVE JOURNAL ENTRY") {
-                        if let track = player.tracks.first(where: { $0.id == selectedID }) { player.saveJournal(note, rating: rating, for: track) }
-                    }.buttonStyle(AnalogActionButton()).disabled(selectedID == nil)
-                }
-                Spacer()
-            }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.padding(22)
-    }
-}
-
 struct EqualizerView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @State private var selectedBandwidthBand = 4
+    @State private var newDevicePresetName = ""
+    @State private var renameDevicePresetTarget: EQDevicePreset?
+    @State private var renameDevicePresetText = ""
+    @State private var showingDevicePresetRename = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -579,6 +570,95 @@ struct EqualizerView: View {
                 Toggle("EQ ACTIVE", isOn: Binding(get: { player.eqEnabled }, set: { player.setEQEnabled($0) }))
                     .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 10, weight: .bold))
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("HEADPHONE / DAC PROFILES").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
+                        Text("Detected output: \(player.outputDeviceName)").font(.system(size: 10, weight: .medium)).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                        Text(player.activeDevicePresetName.map { "ACTIVE • \($0)" } ?? "ACTIVE • FLAT / NO MATCH")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Toggle("AUTO MATCH", isOn: Binding(get: { player.autoMatchOutputDevice }, set: { player.setAutomaticDeviceMatching($0) }))
+                        .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+                }
+                HStack(spacing: 8) {
+                    TextField("Use exact macOS output name", text: $newDevicePresetName)
+                        .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                    Button("SAVE PROFILE") {
+                        player.saveDevicePreset(named: newDevicePresetName.isEmpty ? player.outputDeviceName : newDevicePresetName)
+                        newDevicePresetName = ""
+                    }.buttonStyle(AnalogOutlineButton())
+                    Button("EXPORT") { player.exportDevicePresets() }.buttonStyle(AnalogOutlineButton())
+                    Button("IMPORT") { player.importDevicePresets() }.buttonStyle(AnalogOutlineButton())
+                }
+                if !player.devicePresets.isEmpty {
+                    VStack(spacing: 5) {
+                        ForEach(player.devicePresets) { preset in
+                            HStack {
+                                Button { player.applyDevicePreset(preset) } label: {
+                                    HStack {
+                                        Image(systemName: player.activeDevicePresetName == preset.name ? "checkmark.circle.fill" : "headphones")
+                                            .foregroundStyle(player.activeDevicePresetName == preset.name ? AnalogPalette.green : AnalogPalette.muted)
+                                        Text(preset.name).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                                        Spacer()
+                                        Text("APPLY").font(.system(size: 8, weight: .black)).foregroundStyle(AnalogPalette.amber)
+                                    }
+                                }.buttonStyle(.plain)
+                                Menu {
+                                    Button("Rename") {
+                                        renameDevicePresetTarget = preset
+                                        renameDevicePresetText = preset.name
+                                        showingDevicePresetRename = true
+                                    }
+                                    Button("Delete", role: .destructive) { player.deleteDevicePreset(preset) }
+                                } label: {
+                                    Image(systemName: "ellipsis").foregroundStyle(AnalogPalette.muted).padding(5)
+                                }.menuStyle(.borderlessButton)
+                            }
+                            .padding(8).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                    }
+                }
+            }
+            .padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
+            .alert("Rename output profile", isPresented: $showingDevicePresetRename) {
+                TextField("Profile name", text: $renameDevicePresetText)
+                Button("Save") {
+                    if let preset = renameDevicePresetTarget { player.renameDevicePreset(preset, to: renameDevicePresetText) }
+                    renameDevicePresetTarget = nil
+                }
+                Button("Cancel", role: .cancel) { renameDevicePresetTarget = nil }
+            } message: {
+                Text("The profile name is matched against the detected macOS output device name.")
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("HEADPHONE CROSSFEED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
+                        Text(player.crossfeedAvailable ? "Subtle L/R channel blending in the playback DSP" : "Preparing native stereo matrix processor…")
+                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                    }
+                    Spacer()
+                    Toggle("ON", isOn: Binding(get: { player.crossfeedEnabled }, set: { player.setCrossfeed(enabled: $0) }))
+                        .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+                        .disabled(!player.crossfeedAvailable)
+                }
+                HStack(spacing: 8) {
+                    ForEach([("LOW", Float(0.08)), ("MED", Float(0.16)), ("HIGH", Float(0.25))], id: \.0) { item in
+                        Button(item.0) { player.setCrossfeed(enabled: true, amount: item.1) }
+                            .buttonStyle(AnalogOutlineButton()).disabled(!player.crossfeedAvailable)
+                    }
+                    Spacer()
+                    Text(String(format: "%.0f%% blend", player.crossfeedAmount * 100))
+                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                }
+                Slider(value: Binding(get: { Double(player.crossfeedAmount) }, set: { player.setCrossfeed(enabled: player.crossfeedEnabled, amount: Float($0)) }), in: 0...0.35)
+                    .tint(AnalogPalette.amber).disabled(!player.crossfeedAvailable)
+            }
+            .padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
             HStack(spacing: 8) {
                 ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones"], id: \.self) { preset in
                     Button(preset.uppercased()) { player.applyPreset(preset) }.buttonStyle(AnalogOutlineButton())
@@ -790,6 +870,16 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $player.repeatCurrentTrack).labelsHidden().tint(AnalogPalette.green)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gapless playback").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+                    Text("Pre-queues upcoming tracks in the native audio engine to minimise transition silence").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(get: { player.gaplessPlaybackEnabled }, set: { player.gaplessPlaybackEnabled = $0; player.persistState() }))
+                    .labelsHidden().tint(AnalogPalette.green)
+            }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Dynamic peak guard").font(.system(size: 12, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
@@ -920,7 +1010,7 @@ struct TransportBar: View {
                         .foregroundStyle(AnalogPalette.ink)
                         .frame(width: 36, height: 36)
                         .background(AnalogPalette.amber, in: Circle())
-                }.keyboardShortcut(.space, modifiers: []).help("Play / pause (Space)")
+                }.help("Play / pause (Space)")
                 Button { player.next() } label: { Image(systemName: "forward.end.fill") }.keyboardShortcut(.rightArrow, modifiers: [.command]).help("Next track (⌘→)")
             }.buttonStyle(.plain).foregroundStyle(AnalogPalette.cream)
             Text(formatTime(player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
@@ -1174,7 +1264,7 @@ struct SmartMixesView: View {
                     HStack(spacing: 12) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10).fill(LinearGradient(colors: [AnalogPalette.raised, AnalogPalette.panel], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            Image(systemName: mix.name == "Recently Played" ? "clock" : mix.name == "Most Played" ? "chart.bar.fill" : mix.name == "Top Rated" ? "star.fill" : mix.name == "Favourites" ? "heart.fill" : "sparkles").font(.system(size: 20)).foregroundStyle(AnalogPalette.amber)
+                            Image(systemName: mix.name == "Recently Played" ? "clock" : mix.name == "Most Played" ? "chart.bar.fill" : mix.name == "Favourites" ? "heart.fill" : "sparkles").font(.system(size: 20)).foregroundStyle(AnalogPalette.amber)
                         }.frame(width: 48, height: 48)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(mix.name).font(.system(size: 12, weight: .bold)).foregroundStyle(AnalogPalette.cream)
