@@ -27,7 +27,7 @@ struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
 private let analogSupportedAudioExtensions: Set<String> = [
     "mp3", "m4a", "m4b", "aac", "adts", "wav", "wave",
     "aif", "aiff", "caf", "flac", "alac", "ac3", "au", "snd",
-    "ogg", "oga", "opus", "wma", "ape", "wv", "dsf", "dff", "mka", "mp4", "3gp"
+    "ogg", "oga", "opus", "wma", "ape", "wv", "dsf", "dff", "mka"
 ]
 
 private func makeMusicTrack(from url: URL) -> MusicTrack? {

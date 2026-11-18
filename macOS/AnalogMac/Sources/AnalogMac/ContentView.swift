@@ -333,7 +333,7 @@ struct LibraryView: View {
             HStack(spacing: 8) {
                 Menu {
                     ForEach(["Title", "Artist", "Album", "Duration", "Date Added", "Play Count"], id: \.self) { option in
-                        Button { sortMode = option } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
+                        Button { sortMode = option; if option == "Date Added" { sortAscending = false } } label: { if sortMode == option { Label(option, systemImage: "checkmark") } else { Text(option) } }
                     }
                 } label: { Label("SORT: \(sortMode.uppercased())", systemImage: "arrow.up.arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.cream).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }
                 Button { player.shuffleLibrary(); sortMode = "Shuffle" } label: { Label("SHUFFLE LIBRARY", systemImage: "shuffle").font(.system(size: 9, weight: .bold)).foregroundStyle(AnalogPalette.amber).padding(8).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Randomise the order of songs in your library")
