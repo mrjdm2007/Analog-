@@ -282,7 +282,7 @@ class PlaybackService : MediaSessionService() {
             }
             ACTION_TILE_PLAY -> startLastPlayedFromTile()
             ACTION_WIDGET_PLAY_PAUSE -> mediaSession?.player?.let { player ->
-                if (player.isPlaying) player.pause() else if (player.mediaItemCount == 0) startRandomLibraryTrack() else player.play()
+                if (player.isPlaying) player.pause() else if (player.currentMediaItem == null) startRandomLibraryTrack() else player.play()
             }
             ACTION_WIDGET_NEXT -> mediaSession?.player?.seekToNext()
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
@@ -433,8 +433,8 @@ class PlaybackService : MediaSessionService() {
 
     private fun startRandomLibraryTrack() {
         val player = mediaSession?.player as? ExoPlayer ?: return
-        if (player.mediaItemCount > 0) { player.play(); return }
-        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID)
+        if (player.currentMediaItem != null && player.mediaItemCount > 0) { player.play(); return }
+        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATA)
         val items = mutableListOf<androidx.media3.common.MediaItem>()
         runCatching {
             contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns, null, null, null)?.use { cursor ->
@@ -443,8 +443,12 @@ class PlaybackService : MediaSessionService() {
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
                 val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
+                    val path = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
+                    val folder = path.substringBeforeLast("/", "Music").substringAfterLast("/")
+                    if (folder.equals("Ringtones", true) || folder.equals("Notifications", true) || folder.equals("Alarms", true)) continue
                     val albumId = cursor.getLong(albumIdCol)
                     val art = if (albumId > 0L) Uri.withAppendedPath(Uri.parse("content://media/external/audio/albumart"), albumId.toString()) else null
                     val metadata = androidx.media3.common.MediaMetadata.Builder()
