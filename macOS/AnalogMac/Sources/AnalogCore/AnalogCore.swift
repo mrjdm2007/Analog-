@@ -104,3 +104,18 @@ public func shouldClearAutoAppliedDevicePreset(activePresetName: String?, output
     }
     return true
 }
+
+
+/// Returns queue positions not yet played in the current shuffle cycle.
+/// The current item is always excluded, and repeated track IDs are treated as
+/// the same item so duplicate queue entries cannot cause accidental replay loops.
+public func shuffleQueueCandidateIndices(
+    trackIDs: [String],
+    playedTrackIDs: Set<String>,
+    currentIndex: Int
+) -> [Int] {
+    guard currentIndex >= 0, currentIndex < trackIDs.count else { return [] }
+    return trackIDs.indices.filter {
+        $0 != currentIndex && !playedTrackIDs.contains(trackIDs[$0])
+    }
+}
