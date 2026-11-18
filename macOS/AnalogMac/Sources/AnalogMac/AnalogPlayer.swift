@@ -814,8 +814,8 @@ final class AnalogPlayer: ObservableObject {
         }
         if !isTaken(base) { return base }
         var suffix = 2
-        while isTaken("\\(base) (\\(suffix))") { suffix += 1 }
-        return "\\(base) (\\(suffix))"
+        while isTaken("\(base) (\(suffix))") { suffix += 1 }
+        return "\(base) (\(suffix))"
     }
 
     func renamePlaylist(_ oldName: String, to newName: String) {
@@ -836,7 +836,7 @@ final class AnalogPlayer: ObservableObject {
 
     func createPlaylist(_ name: String, tracks: [MusicTrack]) {
         guard let clean = uniquePlaylistName(name) else { return }
-        customPlaylists[clean] = tracks.map(\\.id)
+        customPlaylists[clean] = tracks.map(\.id)
         persistState()
     }
 
@@ -905,7 +905,7 @@ final class AnalogPlayer: ObservableObject {
         )
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] unit, error in
             guard let unit else {
-                if let error { print("Analog crossfeed unavailable: \\(error.localizedDescription)") }
+                if let error { print("Analog crossfeed unavailable: \(error.localizedDescription)") }
                 return
             }
             Task { @MainActor in self?.installCrossfeedUnit(unit) }
@@ -935,7 +935,7 @@ final class AnalogPlayer: ObservableObject {
         guard inputStatus == noErr, outputStatus == noErr else {
             crossfeedAvailable = false
             crossfeedEnabled = false
-            print("Analog crossfeed bus configuration failed: input=\\(inputStatus), output=\\(outputStatus)")
+            print("Analog crossfeed bus configuration failed: input=\(inputStatus), output=\(outputStatus)")
             return
         }
 
@@ -967,7 +967,7 @@ final class AnalogPlayer: ObservableObject {
             } catch {
                 crossfeedAvailable = false
                 crossfeedEnabled = false
-                print("Analog audio graph update failed: \\(error.localizedDescription)")
+                print("Analog audio graph update failed: \(error.localizedDescription)")
             }
         }
     }
@@ -1001,7 +1001,7 @@ final class AnalogPlayer: ObservableObject {
             } catch {
                 isPlaying = false
                 timer?.invalidate()
-                print("Analog crossfeed bypass recovery failed: \\(error.localizedDescription)")
+                print("Analog crossfeed bypass recovery failed: \(error.localizedDescription)")
             }
         }
     }
@@ -1034,7 +1034,7 @@ final class AnalogPlayer: ObservableObject {
             )
         }
         if status != noErr {
-            print("Analog crossfeed matrix update failed: \\(status)")
+            print("Analog crossfeed matrix update failed: \(status)")
             bypassCrossfeedUnit()
         }
     }
