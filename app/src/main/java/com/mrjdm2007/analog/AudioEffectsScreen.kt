@@ -82,6 +82,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var enabled by remember { mutableStateOf(prefs.getBoolean("eq_enabled", true)) }
     var available by remember { mutableStateOf(prefs.getBoolean("eq_available", false)) }
     var error by remember { mutableStateOf(prefs.getString("eq_error", "").orEmpty()) }
+    var outputPeak by remember { mutableFloatStateOf(prefs.getFloat("eq_output_peak", 0f)) }
+    var outputRms by remember { mutableFloatStateOf(prefs.getFloat("eq_output_rms", 0f)) }
 
     fun send(action: String, build: Intent.() -> Unit = {}) {
         val intent = Intent(context, PlaybackService::class.java).setAction(action).apply(build)
@@ -107,6 +109,8 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
+        outputPeak = prefs.getFloat("eq_output_peak", 0f).coerceIn(0f, 1f)
+        outputRms = prefs.getFloat("eq_output_rms", 0f).coerceAtLeast(0f)
         activeProfile = prefs.getString("eq_active_device_profile", null)
     }
     fun applyDeviceProfile(profile: HeadphoneEqProfile) {
@@ -234,6 +238,17 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                     colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
             }
             Text("Negative preamp creates headroom when boosted bands would otherwise clip.", color = text.copy(alpha = .5f), fontSize = 9.sp)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().background(panel, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("POST-DSP SIGNAL MONITOR", color = green, fontSize = 9.sp, letterSpacing = 1.sp)
+                    Text("PEAK %.1f dBFS".format(java.util.Locale.US, 20.0 * kotlin.math.log10(outputPeak.coerceAtLeast(0.00001f).toDouble())), color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("RMS", color = text.copy(alpha = .5f), fontSize = 8.sp)
+                    Text("%.4f".format(java.util.Locale.US, outputRms), color = green, fontSize = 10.sp)
+                }
+            }
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().background(panel).padding(16.dp)) {
                 Text("ESTIMATED FREQUENCY RESPONSE", color = green, fontSize = 9.sp, letterSpacing = 1.4.sp)
