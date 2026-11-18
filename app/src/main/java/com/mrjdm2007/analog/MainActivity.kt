@@ -119,6 +119,23 @@ class MainActivity : ComponentActivity() {
             val askLibrary = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { libraryAllowed = it }
             var audioAllowed by remember { mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
             val askAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { audioAllowed = it }
+            val coroutineScope = rememberCoroutineScope()
+            var safMusicFolders by remember {
+                mutableStateOf(prefs().getStringSet("saf_music_trees", emptySet())?.toSet() ?: emptySet())
+            }
+            val chooseMusicFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    val granted = runCatching {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }.isSuccess
+                    if (granted) {
+                        safMusicFolders = safMusicFolders + uri.toString()
+                        prefs().edit().putStringSet("saf_music_trees", safMusicFolders + uri.toString()).apply()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Folder permission could not be saved", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
             var tracks by remember { mutableStateOf(emptyList<Track>()) }
             var tab by remember { mutableStateOf("Songs") }
             var search by remember { mutableStateOf("") }
@@ -202,7 +219,9 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
-            LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
+            LaunchedEffect(libraryAllowed, safMusicFolders) {
+                if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() }
+            }
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
                 val refreshHandler = Handler(Looper.getMainLooper())
@@ -282,7 +301,20 @@ class MainActivity : ComponentActivity() {
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
                         sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
-                        onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
+                        onMonthlyRecap = { settings = false; recap = true },
+                        safMusicFolders = safMusicFolders.toList(),
+                        onAddSafMusicFolder = { chooseMusicFolder.launch(null) },
+                        onRemoveSafMusicFolder = { rawUri ->
+                            val updated = safMusicFolders - rawUri
+                            safMusicFolders = updated
+                            prefs().edit().putStringSet("saf_music_trees", updated).apply()
+                        },
+                        onRescan = {
+                            coroutineScope.launch {
+                                tracks = withContext(Dispatchers.IO) { scanLibrary() }
+                            }
+                        },
+                        onBack = { settings = false })
 
                     nowPlaying -> PlayerPage(controller, tracks, favorites, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }, onArtistRadio = { id ->
                         tracks.firstOrNull { it.id == id }?.let { seed ->
@@ -596,7 +628,15 @@ class MainActivity : ComponentActivity() {
                     c.getLong(duration), folderName, c.getLong(albumId), path, c.getLong(dateAdded), c.getInt(isMusic) != 0)
             }
         }
-        return found
+        // Supplement MediaStore with user-authorized SAF folders. This discovers
+        // audio files Android has not indexed, without requesting broad storage access.
+        val safTrees = prefs().getStringSet("saf_music_trees", emptySet())?.toSet() ?: emptySet()
+        if (safTrees.isNotEmpty()) {
+            val safTracks = SafAudioLibrary.scan(this, safTrees)
+            val existingUris = found.asSequence().map { it.uri.toString() }.toHashSet()
+            found += safTracks.filter { it.uri.toString() !in existingUris }
+        }
+        return found.distinctBy { it.id }
     }
 
     private fun prefs() = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
