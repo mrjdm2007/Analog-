@@ -873,13 +873,11 @@ struct NowPlayingPanel: View {
                 }
                 HStack(spacing: 6) {
                     technicalValue("AVG. BITRATE", player.currentTrack.map { $0.averageBitrateKbps.map { "\($0) kbps" } ?? "—" } ?? "—")
-                    technicalValue("SAMPLE RATE", player.currentTrack.map { $0.sampleRateHz.map { "\(Int($0 / 1000)) kHz" } ?? "—" } ?? "—")
+                    technicalValue("SAMPLE RATE", player.currentTrack.map { $0.sampleRateHz.map { String(format: "%.1f kHz", $0 / 1000) } ?? "—" } ?? "—")
                 }
                 HStack(spacing: 6) {
                     technicalValue("DURATION", player.currentTrack.map { formatTime($0.duration) } ?? "—")
-                    technicalValue("CHANNELS", player.currentTrack.map { _ in
-                        player.currentTrack.flatMap { try? AVAudioFile(forReading: $0.url).processingFormat.channelCount }.map { "\($0) ch" } ?? "—"
-                    } ?? "—")
+                    technicalValue("CHANNELS", player.currentTrack?.audioChannels.map { "\($0) ch" } ?? "—")
                 }
                 Text("Bitrate is an estimated average from file size and duration; lossless and VBR files can vary throughout playback.")
                     .font(.system(size: 8)).foregroundStyle(AnalogPalette.muted).fixedSize(horizontal: false, vertical: true)
