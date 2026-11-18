@@ -233,6 +233,14 @@ class MainActivity : ComponentActivity() {
                     onDispose { }
                 }
             }
+            LaunchedEffect(headphoneDetectionEnabled) {
+                if (headphoneDetectionEnabled) {
+                    while (true) {
+                        outputRoute = currentAudioRoute()
+                        delay(1000L)
+                    }
+                }
+            }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
             BackHandler(enabled = settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
