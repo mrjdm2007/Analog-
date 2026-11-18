@@ -127,10 +127,14 @@ struct MiniPlayerView: View {
     }
 }
 
+private final class WindowDragArea: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+}
+
 private struct WindowLevelConfigurator: NSViewRepresentable {
     let isFloating: Bool
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = WindowDragArea()
         DispatchQueue.main.async { view.window?.level = isFloating ? .floating : .normal }
         return view
     }
