@@ -177,7 +177,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 Slider(value = preampDb, onValueChange = { value ->
                     preampDb = value
                     send(PlaybackService.ACTION_EQ_PREAMP) { putExtra(PlaybackService.EXTRA_STRENGTH, value) }
-                }, valueRange = -12f..6f, enabled = enabled && available,
+                }, valueRange = -12f..12f, enabled = enabled && available,
                     modifier = Modifier.weight(1f),
                     colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
             }
@@ -252,7 +252,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             Spacer(Modifier.height(14.dp))
             Text("QUICK PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             Spacer(Modifier.height(8.dp))
-            val profileNames = listOf("Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "Metal")
+            val profileNames = listOf("Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones")
             profileNames.chunked(3).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     row.forEach { name ->
@@ -271,6 +271,10 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                                     "Podcast" -> when { x < .18f -> -.4f; x < .42f -> .12f; x < .7f -> .35f; else -> .12f }
                                     "Night" -> when { x < .2f -> -.22f; x < .5f -> .08f; else -> -.3f }
                                     "Metal" -> when { x < .2f -> .48f; x < .42f -> -.08f; x < .65f -> .22f; else -> .55f }
+                                    "R&B" -> when { x < .2f -> .33f; x < .42f -> .08f; x < .65f -> -.08f; else -> .33f }
+                                    "Hip-Hop" -> when { x < .2f -> .5f; x < .42f -> .17f; x < .65f -> -.08f; else -> .25f }
+                                    "Small Speakers" -> when { x < .2f -> .58f; x < .42f -> .08f; x < .65f -> .17f; else -> 0f }
+                                    "Headphones" -> when { x < .2f -> .17f; x < .42f -> .08f; x < .65f -> .08f; else -> .08f }
                                     else -> 0f
                                 }
                             }
