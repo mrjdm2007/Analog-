@@ -525,7 +525,7 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func shuffleLibrary() {
-        libraryShuffleOrder = tracks.map(\.id).shuffled()
+        libraryShuffleOrder = Array(Set(tracks.map(\.id))).shuffled()
         persistState()
     }
 
