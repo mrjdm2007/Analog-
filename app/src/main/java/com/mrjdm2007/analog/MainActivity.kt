@@ -95,6 +95,12 @@ private var Amber by mutableStateOf(DefaultAmber)
 private val Green = Color(0xFFB5D69B)
 
 data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long, val path: String = "", val dateAdded: Long = 0L, val isMusic: Boolean = true)
+
+private fun resumeOrRestart(player: Player?) {
+    if (player == null) return
+    if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
+    player.play()
+}
 fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
@@ -733,7 +739,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else resumeOrRestart(player) }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
         }
     }
@@ -962,7 +968,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = themedText, modifier = Modifier.size(36.dp)) }
-            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0) onRandomPlay() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
+            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else resumeOrRestart(player) }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
