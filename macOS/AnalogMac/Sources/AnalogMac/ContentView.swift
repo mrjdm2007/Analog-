@@ -38,9 +38,13 @@ struct ContentView: View {
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
         .onAppear {
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser")
             if let folder = UserDefaults.standard.string(forKey: "musicFolder") {
                 player.scan(URL(fileURLWithPath: folder))
             }
+        }
+        .onChange(of: player.selectedTab) { tab in
+            player.setVisualizerEnabled(tab == "Visualiser")
         }
     }
 
@@ -193,6 +197,38 @@ struct TrackGroup: Identifiable {
     var id: String { title }
 }
 
+struct TrackArtwork: View {
+    let track: MusicTrack
+    let size: CGFloat
+    @State private var artwork: NSImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(AnalogPalette.raised.gradient)
+            if let artwork {
+                Image(nsImage: artwork)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: max(13, size * 0.36), weight: .bold))
+                    .foregroundStyle(AnalogPalette.amber)
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
+        .task(id: track.artworkPath) {
+            guard let path = track.artworkPath else { artwork = nil; return }
+            artwork = await Task.detached(priority: .utility) {
+                NSImage(contentsOfFile: path)
+            }.value
+        }
+    }
+}
+
 struct LibraryView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @State private var showCreate = false
@@ -238,7 +274,7 @@ struct LibraryView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("YOUR COLLECTION").font(.system(size: 21, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
-                    Text("Browse, queue and organise your local audio files").font(.system(size: 11)).foregroundStyle(AnalogPalette.muted)
+                    Text(player.isScanning ? "Scanning your music collection…" : (player.scanSummary.isEmpty ? "Browse, queue and organise your local audio files" : player.scanSummary)).font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
                 }
                 Spacer()
                 Button { player.importAudioFiles() } label: { Label("ADD FILES", systemImage: "plus.square.on.square") }.buttonStyle(AnalogOutlineButton())
@@ -336,14 +372,10 @@ struct TrackRow: View {
         HStack(spacing: 10) {
             Button { player.play(track) } label: {
                 HStack(spacing: 10) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 7).fill(AnalogPalette.raised)
-                        Image(systemName: player.currentTrack?.id == track.id && player.isPlaying ? "waveform" : "music.note")
-                            .font(.system(size: 13, weight: .bold)).foregroundStyle(player.currentTrack?.id == track.id ? AnalogPalette.amber : AnalogPalette.muted)
-                    }.frame(width: 34, height: 34)
+                    TrackArtwork(track: track, size: 38)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(track.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(player.currentTrack?.id == track.id ? AnalogPalette.amber : AnalogPalette.cream).lineLimit(1)
-                        Text(track.artist).font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                        Text("\(track.album)  •  \(track.artist)").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -797,13 +829,20 @@ struct NowPlayingPanel: View {
             Spacer(minLength: 8)
             ZStack {
                 RoundedRectangle(cornerRadius: 17).fill(LinearGradient(colors: [AnalogPalette.raised, AnalogPalette.panel, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Circle().fill(Color.black.opacity(0.55)).frame(width: 168, height: 168)
-                Circle().stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1).frame(width: 150, height: 150)
-                Circle().stroke(AnalogPalette.cream.opacity(0.10), lineWidth: 1).frame(width: 118, height: 118)
-                Circle().stroke(AnalogPalette.cream.opacity(0.10), lineWidth: 1).frame(width: 86, height: 86)
-                Circle().fill(AnalogPalette.amber.gradient).frame(width: 25, height: 25)
-                Circle().fill(AnalogPalette.ink).frame(width: 6, height: 6)
-                Image(systemName: "waveform").font(.system(size: 20, weight: .light)).foregroundStyle(AnalogPalette.amber.opacity(0.8)).offset(y: 106)
+                if let track = player.currentTrack, track.artworkPath != nil {
+                    TrackArtwork(track: track, size: 184)
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(AnalogPalette.amber.opacity(0.35), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+                } else {
+                    Circle().fill(Color.black.opacity(0.55)).frame(width: 168, height: 168)
+                    Circle().stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1).frame(width: 150, height: 150)
+                    Circle().stroke(AnalogPalette.cream.opacity(0.10), lineWidth: 1).frame(width: 118, height: 118)
+                    Circle().stroke(AnalogPalette.cream.opacity(0.10), lineWidth: 1).frame(width: 86, height: 86)
+                    Circle().fill(AnalogPalette.amber.gradient).frame(width: 25, height: 25)
+                    Circle().fill(AnalogPalette.ink).frame(width: 6, height: 6)
+                    Image(systemName: "waveform").font(.system(size: 20, weight: .light)).foregroundStyle(AnalogPalette.amber.opacity(0.8)).offset(y: 106)
+                }
             }.aspectRatio(1, contentMode: .fit)
             VStack(alignment: .leading, spacing: 5) {
                 Text(player.currentTrack?.title ?? "Nothing playing").font(.system(size: 16, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(2)
