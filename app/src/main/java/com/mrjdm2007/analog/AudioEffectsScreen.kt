@@ -2,6 +2,11 @@ package com.mrjdm2007.analog
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
@@ -30,6 +35,15 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
     var bandCount by remember { mutableIntStateOf(prefs.getInt("eq_band_count", 0)) }
     var centers by remember { mutableStateOf(emptyList<Int>()) }
     var bands by remember { mutableStateOf(emptyList<Float>()) }
+    var bandwidths by remember { mutableStateOf(prefs.getString("eq_band_bandwidths", null)?.split(",")?.mapNotNull { it.toFloatOrNull() } ?: List(10) { 1f }) }
+    var crossfeedEnabled by remember { mutableStateOf(prefs.getBoolean("eq_crossfeed_enabled", false)) }
+    var crossfeedAmount by remember { mutableFloatStateOf(prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)) }
+    var autoMatch by remember { mutableStateOf(prefs.getBoolean("eq_auto_match_device", true)) }
+    var detectedOutput by remember { mutableStateOf("Detecting output…") }
+    var profiles by remember { mutableStateOf(HeadphoneEqProfiles.read(context)) }
+    var activeProfile by remember { mutableStateOf(prefs.getString("eq_active_device_profile", null)) }
+    var showSaveProfile by remember { mutableStateOf(false) }
+    var newProfileName by remember { mutableStateOf("") }
     var bassLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_bass", 0f)) }
     var spaceLevel by remember { mutableFloatStateOf(prefs.getFloat("eq_space", 0f)) }
     var preampDb by remember { mutableFloatStateOf(prefs.getFloat("eq_preamp_db", 0f)) }
@@ -52,10 +66,64 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
         bands = List(bandCount) { i -> saved?.getOrNull(i)?.coerceIn(-1f, 1f) ?: 0f }
         bassLevel = prefs.getFloat("eq_bass", 0f)
         spaceLevel = prefs.getFloat("eq_space", 0f)
-        preampDb = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 6f)
+        preampDb = prefs.getFloat("eq_preamp_db", 0f).coerceIn(-12f, 12f)
+        val widths = prefs.getString("eq_band_bandwidths", null)?.split(",")?.mapNotNull { it.toFloatOrNull() }
+        bandwidths = List(10) { i -> widths?.getOrNull(i)?.coerceIn(0.1f, 4f) ?: 1f }
+        crossfeedEnabled = prefs.getBoolean("eq_crossfeed_enabled", false)
+        crossfeedAmount = prefs.getFloat("eq_crossfeed_amount", 0.12f).coerceIn(0f, 0.35f)
+        autoMatch = prefs.getBoolean("eq_auto_match_device", true)
+        profiles = HeadphoneEqProfiles.read(context)
+        activeProfile = prefs.getString("eq_active_device_profile", null)
         enabled = prefs.getBoolean("eq_enabled", true)
         available = prefs.getBoolean("eq_available", false) && prefs.getInt("eq_session_id", 0) == prefs.getInt("audio_session_id", 0)
         error = prefs.getString("eq_error", "").orEmpty()
+    }
+    fun applyDeviceProfile(profile: HeadphoneEqProfile) {
+        bands = profile.gainsDb.map { (it / 12f).coerceIn(-1f, 1f) }
+        bandwidths = profile.bandwidths
+        preampDb = profile.preampDb
+        enabled = profile.eqEnabled
+        crossfeedEnabled = profile.crossfeedEnabled
+        crossfeedAmount = profile.crossfeedAmount
+        activeProfile = profile.name
+        prefs.edit().putString("eq_band_levels", bands.joinToString(","))
+            .putString("eq_band_bandwidths", bandwidths.joinToString(","))
+            .putFloat("eq_preamp_db", preampDb).putBoolean("eq_enabled", enabled)
+            .putBoolean("eq_crossfeed_enabled", crossfeedEnabled).putFloat("eq_crossfeed_amount", crossfeedAmount)
+            .putString("eq_active_device_profile", profile.name).apply()
+        send(PlaybackService.ACTION_EQ_PROFILE) { putExtra(PlaybackService.EXTRA_PROFILE, bands.joinToString(",")) }
+        bandwidths.forEachIndexed { index, value -> send(PlaybackService.ACTION_EQ_BANDWIDTH) {
+            putExtra(PlaybackService.EXTRA_BAND_INDEX, index); putExtra(PlaybackService.EXTRA_BANDWIDTH, value)
+        } }
+        send(PlaybackService.ACTION_EQ_PREAMP) { putExtra(PlaybackService.EXTRA_STRENGTH, preampDb) }
+        send(PlaybackService.ACTION_EQ_ENABLED) { putExtra(PlaybackService.EXTRA_ENABLED, enabled) }
+        send(PlaybackService.ACTION_EQ_CROSSFEED) {
+            putExtra(PlaybackService.EXTRA_CROSSFEED_ENABLED, crossfeedEnabled)
+            putExtra(PlaybackService.EXTRA_CROSSFEED_AMOUNT, crossfeedAmount)
+        }
+    }
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    DisposableEffect(audioManager) {
+        fun refreshOutput() {
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+            val device = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE }
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET }
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_HDMI || it.type == AudioDeviceInfo.TYPE_HDMI_ARC }
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            val name = device?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "No active output detected"
+            detectedOutput = name
+            if (autoMatch) HeadphoneEqProfiles.findExact(profiles, name)?.let { profile ->
+                if (activeProfile != profile.name) applyDeviceProfile(profile)
+            }
+        }
+        refreshOutput()
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = refreshOutput()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = refreshOutput()
+        }
+        audioManager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        onDispose { audioManager.unregisterAudioDeviceCallback(callback) }
     }
     LaunchedEffect(Unit) {
         send(PlaybackService.ACTION_EQ_RETRY)
@@ -82,7 +150,15 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 send(PlaybackService.ACTION_EQ_ENABLED) { putExtra(PlaybackService.EXTRA_ENABLED, value) }
             })
         }
-        Text("OUTPUT • " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
+        Text("OUTPUT • " + detectedOutput + "  /  " + outputRoute, color = text.copy(alpha = .65f), fontSize = 9.sp, maxLines = 1)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("AUTOMATIC DAC / HEADPHONE MATCHING", color = green, fontSize = 9.sp, letterSpacing = 1.sp)
+                Text("Uses exact output-name matching for saved profiles", color = text.copy(alpha = .5f), fontSize = 8.sp)
+            }
+            Switch(checked = autoMatch, onCheckedChange = { autoMatch = it; prefs.edit().putBoolean("eq_auto_match_device", it).apply() })
+        }
+        Text(if (activeProfile == null) "NO DEVICE PROFILE ACTIVE" else "ACTIVE PROFILE • " + activeProfile, color = if (activeProfile == null) accent else green, fontSize = 8.sp)
         if (!available || bandCount <= 0) {
             Text(
                 if (liveSession <= 0) "Start a song. The equaliser will attach to the active player session automatically."
@@ -146,6 +222,7 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 bands.forEachIndexed { index, value ->
                     val hz = centers.getOrNull(index)?.div(1000f) ?: 0f
                     val label = if (hz >= 1000f) "%.1f kHz".format(java.util.Locale.US, hz / 1000f) else hz.toInt().toString() + " Hz"
+                    Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(label, color = text, fontSize = 10.sp, modifier = Modifier.width(62.dp))
                         Slider(value = value, onValueChange = { v ->
@@ -158,6 +235,17 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
                         Text("%+.1f".format(java.util.Locale.US, value * 12f), color = green, fontSize = 9.sp, modifier = Modifier.width(34.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("BW", color = text.copy(alpha = .5f), fontSize = 8.sp, modifier = Modifier.width(62.dp))
+                        Slider(value = bandwidths.getOrElse(index) { 1f }, onValueChange = { v ->
+                            bandwidths = bandwidths.toMutableList().also { while (it.size < 10) it.add(1f); it[index] = v }
+                            prefs.edit().putString("eq_band_bandwidths", bandwidths.joinToString(",")).apply()
+                            send(PlaybackService.ACTION_EQ_BANDWIDTH) { putExtra(PlaybackService.EXTRA_BAND_INDEX, index); putExtra(PlaybackService.EXTRA_BANDWIDTH, v) }
+                        }, valueRange = 0.1f..4f, enabled = enabled && available, modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(thumbColor = green, activeTrackColor = green))
+                        Text("%.1f".format(java.util.Locale.US, bandwidths.getOrElse(index) { 1f }), color = green, fontSize = 8.sp, modifier = Modifier.width(30.dp))
+                    }
                     }
                 }
             }
@@ -228,6 +316,41 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
                 }, enabled = enabled && available, modifier = Modifier.weight(1f)) { Text("RESET FLAT", fontSize = 9.sp) }
                 Text("A/B snapshots are saved locally on this device.", color = text.copy(alpha = .5f), fontSize = 9.sp, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
             }
+            Spacer(Modifier.height(14.dp))
+            Text("STEREO CROSSFEED DSP", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Headphone crossfeed", color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Blends a controlled amount of the opposite stereo channel in the PCM chain", color = text.copy(alpha = .5f), fontSize = 8.sp)
+                }
+                Switch(checked = crossfeedEnabled, onCheckedChange = { value ->
+                    crossfeedEnabled = value
+                    prefs.edit().putBoolean("eq_crossfeed_enabled", value).apply()
+                    send(PlaybackService.ACTION_EQ_CROSSFEED) { putExtra(PlaybackService.EXTRA_CROSSFEED_ENABLED, value); putExtra(PlaybackService.EXTRA_CROSSFEED_AMOUNT, crossfeedAmount) }
+                })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("BLEND", color = text.copy(alpha = .6f), fontSize = 8.sp, modifier = Modifier.width(42.dp))
+                Slider(value = crossfeedAmount, onValueChange = { value ->
+                    crossfeedAmount = value
+                    prefs.edit().putFloat("eq_crossfeed_amount", value).apply()
+                    send(PlaybackService.ACTION_EQ_CROSSFEED) { putExtra(PlaybackService.EXTRA_CROSSFEED_ENABLED, crossfeedEnabled); putExtra(PlaybackService.EXTRA_CROSSFEED_AMOUNT, value) }
+                }, valueRange = 0f..0.35f, enabled = enabled, modifier = Modifier.weight(1f),
+                    colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
+                Text("%.0f%%".format(java.util.Locale.US, crossfeedAmount * 100), color = green, fontSize = 9.sp)
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("HEADPHONE / DAC PROFILES", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
+            OutlinedButton(onClick = { newProfileName = detectedOutput.takeUnless { it == "No active output detected" || it == "Detecting output…" } ?: ""; showSaveProfile = true }, modifier = Modifier.fillMaxWidth()) { Text("SAVE CURRENT EQ AS DEVICE PROFILE", fontSize = 9.sp) }
+            profiles.forEach { profile ->
+                Row(Modifier.fillMaxWidth().background(panel, RoundedCornerShape(8.dp)).clickable { applyDeviceProfile(profile) }.padding(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(profile.name, color = text, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Text(if (activeProfile == profile.name) "ACTIVE" else "APPLY", color = green, fontSize = 8.sp)
+                    IconButton(onClick = { profiles = profiles.filterNot { it.name == profile.name }; HeadphoneEqProfiles.write(context, profiles) }) {
+                        Icon(Icons.Default.Delete, null, tint = text.copy(alpha = .6f))
+                    }
+                }
+            }
             Spacer(Modifier.height(18.dp))
             Text("BASS BOOST", color = green, fontSize = 10.sp, letterSpacing = 2.sp)
             Slider(value = bassLevel, onValueChange = { value ->
@@ -242,6 +365,27 @@ fun AudioEffectsScreen(outputRoute: String, audioSessionId: Int, onBack: () -> U
             }, valueRange = 0f..100f, enabled = enabled && available,
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent))
         }
-        Text("The 10-band EQ is processed inside the player's PCM audio pipeline and stays active when you leave this screen. Bass boost and stereo width are optional device effects.", color = text.copy(alpha = .55f), fontSize = 10.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
+        Text("The 10-band EQ, preamp, bandwidth and stereo crossfeed are processed in Analog's PCM playback pipeline. Device profiles are stored locally and matched by exact output name.", color = text.copy(alpha = .55f), fontSize = 9.sp, modifier = Modifier.padding(top = 18.dp, bottom = 28.dp))
+    }
+    if (showSaveProfile) {
+        AlertDialog(
+            onDismissRequest = { showSaveProfile = false },
+            title = { Text("Save headphone / DAC profile") },
+            text = { OutlinedTextField(value = newProfileName, onValueChange = { newProfileName = it }, label = { Text("Exact output name") }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = newProfileName.trim()
+                    if (name.isNotEmpty()) {
+                        val profile = HeadphoneEqProfile(name, bands.map { it * 12f }, List(10) { bandwidths.getOrElse(it) { 1f } }, preampDb, enabled, crossfeedEnabled, crossfeedAmount)
+                        profiles = (profiles.filterNot { it.name.equals(name, true) } + profile).sortedBy { it.name.lowercase() }
+                        HeadphoneEqProfiles.write(context, profiles)
+                        activeProfile = name
+                        prefs.edit().putString("eq_active_device_profile", name).apply()
+                    }
+                    showSaveProfile = false
+                }) { Text("SAVE") }
+            },
+            dismissButton = { TextButton(onClick = { showSaveProfile = false }) { Text("CANCEL") } }
+        )
     }
 }
