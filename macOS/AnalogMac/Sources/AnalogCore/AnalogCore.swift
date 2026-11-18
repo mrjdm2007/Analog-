@@ -50,6 +50,26 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
         self.stereoPan = stereoPan
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, gains, bandwidths, preampDB, eqEnabled
+        case crossfeedEnabled, crossfeedAmount, peakGuardEnabled, peakGuardThresholdDB, stereoPan
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try values.decode(String.self, forKey: .name)
+        gains = try values.decode([Float].self, forKey: .gains)
+        bandwidths = try values.decode([Float].self, forKey: .bandwidths)
+        preampDB = try values.decodeIfPresent(Float.self, forKey: .preampDB) ?? 0
+        eqEnabled = try values.decodeIfPresent(Bool.self, forKey: .eqEnabled) ?? true
+        crossfeedEnabled = try values.decodeIfPresent(Bool.self, forKey: .crossfeedEnabled)
+        crossfeedAmount = try values.decodeIfPresent(Float.self, forKey: .crossfeedAmount)
+        peakGuardEnabled = try values.decodeIfPresent(Bool.self, forKey: .peakGuardEnabled)
+        peakGuardThresholdDB = try values.decodeIfPresent(Float.self, forKey: .peakGuardThresholdDB)
+        stereoPan = try values.decodeIfPresent(Float.self, forKey: .stereoPan)
+    }
+
     public func matchesOutput(named outputName: String) -> Bool {
         let normalize: (String) -> String = {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
