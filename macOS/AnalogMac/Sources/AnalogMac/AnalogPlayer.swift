@@ -17,6 +17,7 @@ struct MusicTrack: Identifiable, Hashable, Codable, Sendable {
     var fileSizeBytes: Int64? = nil
     var sampleRateHz: Double? = nil
     var averageBitrateKbps: Int? = nil
+    var audioChannels: Int? = nil
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
 }
@@ -91,7 +92,8 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         artworkPath: artworkPath,
         fileSizeBytes: fileSize,
         sampleRateHz: sampleRate > 0 ? sampleRate : nil,
-        averageBitrateKbps: averageBitrate
+        averageBitrateKbps: averageBitrate,
+        audioChannels: Int(file.processingFormat.channelCount)
     )
 }
 private extension String {
