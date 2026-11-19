@@ -141,7 +141,7 @@ fun SettingsPage(
                 Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Vibration-only notifications", color = SettingsCream, fontSize = 12.sp)
-                        Text("When a selected external audio device connects, switch calls and notifications to vibration. Media audio and media volume are not changed.", color = SettingsCream.copy(alpha = .58f), fontSize = 10.sp)
+                        Text("When a selected external audio device connects, switch the phone's ringer mode to vibration. Media audio and media volume are unchanged; each app's notification-channel vibration settings still apply.", color = SettingsCream.copy(alpha = .58f), fontSize = 10.sp)
                     }
                     Switch(checked = audioFocusEnabled, onCheckedChange = onAudioFocusEnabledChanged)
                 }
