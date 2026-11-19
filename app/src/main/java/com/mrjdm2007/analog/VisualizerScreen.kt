@@ -123,7 +123,7 @@ fun VisualizerScreen(
                                 }
                             }
                         }
-                    }, 50_000, true, true)
+                    }, 20_000, true, true)
                     enabled = resumed
                 }
             }
@@ -163,7 +163,7 @@ fun VisualizerScreen(
             Text(if (captureAvailable) "LIVE" else "IDLE", color = if (captureAvailable) VizGreen else VizMuted, fontSize = 10.sp, letterSpacing = 1.4.sp)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            VisualMode.entries.forEach { item ->
+            VisualMode.values().forEach { item ->
                 FilterChip(selected = mode == item, onClick = { mode = item }, label = { Text(item.label, fontSize = 11.sp) })
             }
         }
