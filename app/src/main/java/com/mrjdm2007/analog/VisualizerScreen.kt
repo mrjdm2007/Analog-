@@ -101,8 +101,13 @@ fun VisualizerScreen(
                         override fun onWaveFormDataCapture(effect: Visualizer?, bytes: ByteArray?, samplingRate: Int) {
                             if (!resumed || bytes == null) return
                             val values = FloatArray(bytes.size) { i -> ((bytes[i].toInt() and 0xFF) - 128) / 128f }
-                            val rms = if (values.isNotEmpty()) kotlin.math.sqrt(values.map { it * it }.average()).toFloat() else 0f
-                            val peak = values.maxOfOrNull { abs(it) } ?: 0f
+                            var sumSquares = 0.0
+                            var peak = 0f
+                            for (sample in values) {
+                                sumSquares += sample * sample
+                                peak = max(peak, abs(sample))
+                            }
+                            val rms = if (values.isNotEmpty()) kotlin.math.sqrt(sumSquares / values.size).toFloat() else 0f
                             val level = (rms * 2.8f + peak * 0.12f).coerceIn(0f, 1f)
                             mainHandler.post {
                                 if (resumed) { waveform = values; vuLevel = level }
