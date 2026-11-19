@@ -71,6 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -104,6 +106,15 @@ fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
+    private fun setVisualizerImmersive(enabled: Boolean) {
+        val bars = WindowInsetsControllerCompat(window, window.decorView)
+        if (enabled) {
+            bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bars.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            bars.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
     private var visualizerPreviousOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var future: ListenableFuture<MediaController>? = null
     private var controller by mutableStateOf<MediaController?>(null)
@@ -150,8 +161,8 @@ class MainActivity : ComponentActivity() {
             var recap by remember { mutableStateOf(false) }
             var studio by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
-            val openVisualizer = { visualizerPreviousOrientation = requestedOrientation; requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; visualizer = true }
-            val closeVisualizer = { visualizer = false; requestedOrientation = visualizerPreviousOrientation }
+            val openVisualizer = { visualizerPreviousOrientation = requestedOrientation; requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; setVisualizerImmersive(true); visualizer = true }
+            val closeVisualizer = { visualizer = false; setVisualizerImmersive(false); requestedOrientation = visualizerPreviousOrientation }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
