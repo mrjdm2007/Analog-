@@ -213,7 +213,7 @@ fun VisualizerScreen(
                             val peakFrame = held.copyOf()
                             handler.post { if (active) { levels = next; peaks = peakFrame; captureReady = true; captureError = null } }
                         }
-                    }, 50_000, false, true)
+                    }, min(20_000, Visualizer.getMaxCaptureRate()), false, true)
                     enabled = true
                 }
             }
