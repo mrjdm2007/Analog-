@@ -307,11 +307,11 @@ fun VisualizerScreen(
                         else Text("A", color = VisualAmber, fontSize = 38.sp, fontWeight = FontWeight.Black)
                     }
                     Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, color = VisualCream, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-                        Text(artist, color = VisualMuted, fontSize = 10.sp, maxLines = 1)
-                        Text("ALBUM  •  $album", color = VisualMuted, fontSize = 9.sp, maxLines = 1)
-                        Spacer(Modifier.height(3.dp))
-                        Text("FILE DETAILS", color = VisualMuted, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+                        Text(title, color = VisualCream, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                        Text(artist, color = VisualMuted, fontSize = 9.sp, maxLines = 1)
+                        Text("ALBUM  •  $album", color = VisualMuted, fontSize = 8.sp, maxLines = 1)
+                        Spacer(Modifier.height(1.dp))
+                        Text("FILE DETAILS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             VisualDetail("FORMAT", details.format, Modifier.weight(1f))
                             VisualDetail("SIZE", details.size, Modifier.weight(1f))
