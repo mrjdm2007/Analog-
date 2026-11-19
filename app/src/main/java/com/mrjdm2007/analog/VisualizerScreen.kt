@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -245,7 +247,7 @@ fun VisualizerScreen(
         }
         Spacer(Modifier.height(4.dp))
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Column(Modifier.weight(1.48f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(7.dp)) {
+            Column(Modifier.weight(1.48f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("LIVE AUDIO ANALYSER", color = VisualCream, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = .7.sp)
@@ -289,13 +291,13 @@ fun VisualizerScreen(
                     Spacer(Modifier.weight(1f))
                     Text("16 kHz", color = VisualMuted, fontSize = 8.sp)
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 1.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     VisualMetric("SOURCE", "POST-EQ", Modifier.weight(1f))
                     VisualMetric("BANDS", "36", Modifier.weight(1f))
                     VisualMetric("RANGE", "35 Hz–16 kHz", Modifier.weight(1f))
                 }
             }
-            Column(Modifier.weight(1f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.weight(1f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(horizontal = 6.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("NOW PLAYING", color = VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.7.sp)
                     Spacer(Modifier.weight(1f))
@@ -306,13 +308,13 @@ fun VisualizerScreen(
                         if (currentTrack != null && currentTrack.albumId > 0L) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize().padding(3.dp), contentScale = ContentScale.Crop)
                         else Text("A", color = VisualAmber, fontSize = 38.sp, fontWeight = FontWeight.Black)
                     }
-                    Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1.2f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(title, color = VisualCream, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                         Text(artist, color = VisualMuted, fontSize = 9.sp, maxLines = 1)
                         Text("ALBUM  •  $album", color = VisualMuted, fontSize = 8.sp, maxLines = 1)
                         Spacer(Modifier.height(1.dp))
                         Text("FILE DETAILS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             VisualDetail("FORMAT", details.format, Modifier.weight(1f))
                             VisualDetail("SIZE", details.size, Modifier.weight(1f))
                         }
@@ -341,7 +343,7 @@ fun VisualizerScreen(
 
 @Composable
 private fun VisualMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.heightIn(min = 27.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+    Column(modifier.heightIn(min = 22.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(7.dp)).padding(horizontal = 5.dp, vertical = 1.dp)) {
         Text(value, color = VisualCream, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(label, color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
     }
@@ -349,7 +351,7 @@ private fun VisualMetric(label: String, value: String, modifier: Modifier = Modi
 
 @Composable
 private fun VisualDetail(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.heightIn(min = 30.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) {
+    Column(modifier.heightIn(min = 25.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 2.dp)) {
         Text(label, color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp, maxLines = 1)
         Text(value, color = VisualCream, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
