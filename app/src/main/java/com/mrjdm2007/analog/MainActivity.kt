@@ -174,6 +174,10 @@ class MainActivity : ComponentActivity() {
             val closeVisualizer = { visualizer = false; setVisualizerImmersive(false); requestedOrientation = visualizerPreviousOrientation }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
+            var audioFocusEnabled by remember { mutableStateOf(prefs().getBoolean("audio_focus_auto_vibrate", false)) }
+            var audioFocusWired by remember { mutableStateOf(prefs().getBoolean("audio_focus_wired", true)) }
+            var audioFocusUsb by remember { mutableStateOf(prefs().getBoolean("audio_focus_usb", true)) }
+            var audioFocusBluetooth by remember { mutableStateOf(prefs().getBoolean("audio_focus_bluetooth", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
             var sleepFadeSeconds by remember { mutableIntStateOf(prefs().getInt("sleep_fade_seconds", 15).coerceIn(0, 30)) }
@@ -324,6 +328,30 @@ class MainActivity : ComponentActivity() {
                         visibleSections = visibleSections, onVisibleSectionsChanged = { visibleSections = it; prefs().edit().putStringSet("visible_sections", it).apply() },
                         outputRoute = if (headphoneDetectionEnabled) outputRoute else "Automatic detection disabled",
                         headphoneDetectionEnabled = headphoneDetectionEnabled, onHeadphoneDetectionChanged = { enabled -> headphoneDetectionEnabled = enabled; prefs().edit().putBoolean("headphone_detection_enabled", enabled).apply(); outputRoute = currentAudioRoute() },
+                        audioFocusEnabled = audioFocusEnabled,
+                        onAudioFocusEnabledChanged = { enabled ->
+                            audioFocusEnabled = enabled
+                            prefs().edit().putBoolean("audio_focus_auto_vibrate", enabled).apply()
+                            startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_AUDIO_FOCUS_MODE))
+                        },
+                        audioFocusWired = audioFocusWired,
+                        onAudioFocusWiredChanged = { enabled ->
+                            audioFocusWired = enabled
+                            prefs().edit().putBoolean("audio_focus_wired", enabled).apply()
+                            startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_AUDIO_FOCUS_MODE))
+                        },
+                        audioFocusUsb = audioFocusUsb,
+                        onAudioFocusUsbChanged = { enabled ->
+                            audioFocusUsb = enabled
+                            prefs().edit().putBoolean("audio_focus_usb", enabled).apply()
+                            startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_AUDIO_FOCUS_MODE))
+                        },
+                        audioFocusBluetooth = audioFocusBluetooth,
+                        onAudioFocusBluetoothChanged = { enabled ->
+                            audioFocusBluetooth = enabled
+                            prefs().edit().putBoolean("audio_focus_bluetooth", enabled).apply()
+                            startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_AUDIO_FOCUS_MODE))
+                        },
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
                         crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
                         onHeadsetSetting = { key, value -> prefs().edit().putString(key, value).apply(); when(key) { "headset_single" -> headsetSingle = value; "headset_double" -> headsetDouble = value; "headset_triple" -> headsetTriple = value } },
