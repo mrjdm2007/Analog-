@@ -7,6 +7,7 @@ Analog is an offline-first Android music player with a warm, vintage hi-fi ident
 - Kotlin + Jetpack Compose
 - Media3 / ExoPlayer playback service for background audio and system media controls
 - Local audio discovery through Android MediaStore (Android 8+ permission paths)
+- Optional Storage Access Framework folder grants for audio files not indexed by MediaStore; selected trees are persisted, scanned in the background, and removable from Settings
 - Search across song titles, artists, and albums
 - M3U playlist import/export with local-library matching
 - Pitch-preserving playback speed control from 0.5× to 2×
@@ -62,6 +63,7 @@ The CI workflow runs JVM tests for PCM frame alignment, 16/24-bit quantization, 
 ## Verification still required
 
 - Final CI compilation and release packaging on the latest commit
+- Physical-device tests for MediaStore and SAF folder discovery (including removable storage and cloud document providers)
 - Physical-device tests for each advertised sample rate, mono/stereo, wired/USB input routing, pause/resume, service interruption, long recordings and exported/shared WAV playback
 - Audio quality evaluation with calibrated test signals; the visual meters are useful monitoring tools but are not certified loudness or true-peak meters
 

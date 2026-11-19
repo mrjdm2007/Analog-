@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import android.provider.DocumentsContract
 
 private val SettingsInk = Color(0xFF10110F)
 private val SettingsCream = Color(0xFFE8E1CF)
@@ -48,6 +50,9 @@ fun SettingsPage(
     sleepFadeSeconds: Int,
     onSleepFadeSecondsChanged: (Int) -> Unit,
     onMonthlyRecap: () -> Unit,
+    safMusicFolders: List<String>,
+    onAddSafMusicFolder: () -> Unit,
+    onRemoveSafMusicFolder: (String) -> Unit,
     onRescan: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -75,6 +80,20 @@ fun SettingsPage(
                             val updated = if (checked) visibleSections + section else visibleSections - section
                             onVisibleSectionsChanged(updated.ifEmpty { setOf("Songs") })
                         }, colors = CheckboxDefaults.colors(checkedColor = SettingsAmber))
+                    }
+                }
+                Text("EXTRA MUSIC FOLDERS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.4.sp, modifier = Modifier.padding(top = 12.dp))
+                Text("Add folders containing audio that Android has not indexed. Access stays limited to the folders you choose.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp)
+                TextButton(onClick = onAddSafMusicFolder, modifier = Modifier.fillMaxWidth()) {
+                    Text("ADD MUSIC FOLDER", color = SettingsAmber)
+                }
+                safMusicFolders.forEach { rawUri ->
+                    val label = runCatching {
+                        DocumentsContract.getTreeDocumentId(Uri.parse(rawUri)).substringAfter(':')
+                    }.getOrDefault("Selected folder")
+                    Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, color = SettingsCream, modifier = Modifier.weight(1f), maxLines = 1)
+                        TextButton(onClick = { onRemoveSafMusicFolder(rawUri) }) { Text("REMOVE", color = SettingsAmber) }
                     }
                 }
                 TextButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) { Text("SCAN FOR NEW SONGS", color = SettingsAmber) }

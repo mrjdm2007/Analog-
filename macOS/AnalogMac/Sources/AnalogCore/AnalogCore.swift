@@ -92,3 +92,34 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
         return !normalize(name).isEmpty && normalize(name) == normalize(outputName)
     }
 }
+
+
+/// An unmatched or temporarily unknown route must not erase a user's manual EQ.
+/// Only clear settings when they came from a previously applied device preset.
+public func shouldClearAutoAppliedDevicePreset(activePresetName: String?, outputName: String) -> Bool {
+    guard let activePresetName,
+          !activePresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return false
+    }
+    let normalizedOutput = outputName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let unresolvedRouteLabels: Set<String> = [
+        "", "detecting output…", "detecting output...", "no output device",
+        "unknown output device", "no output device detected"
+    ]
+    return !unresolvedRouteLabels.contains(normalizedOutput)
+}
+
+
+/// Returns queue positions not yet played in the current shuffle cycle.
+/// The current item is always excluded, and repeated track IDs are treated as
+/// the same item so duplicate queue entries cannot cause accidental replay loops.
+public func shuffleQueueCandidateIndices(
+    trackIDs: [String],
+    playedTrackIDs: Set<String>,
+    currentIndex: Int
+) -> [Int] {
+    guard currentIndex >= 0, currentIndex < trackIDs.count else { return [] }
+    return trackIDs.indices.filter {
+        $0 != currentIndex && !playedTrackIDs.contains(trackIDs[$0])
+    }
+}

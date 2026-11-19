@@ -207,8 +207,15 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateWidget()
                 if (isPlaying) {
+                    // ExoPlayer may allocate its audio session after the listener is
+                    // attached. Do not rely only on onAudioSessionIdChanged: publish
+                    // the live ID when playback actually starts as well.
                     val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
-                    if (activeSessionId > 0 && optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    if (activeSessionId > 0) {
+                        getSharedPreferences("analog_library", MODE_PRIVATE)
+                            .edit().putInt("audio_session_id", activeSessionId).apply()
+                        if (optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    }
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
@@ -558,9 +565,14 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         } else {
-            if (secondary.playerError != null) {
+            val targetStillMatches = crossfadeTargetIndex in 0 until primary.mediaItemCount &&
+                primary.getMediaItemAt(crossfadeTargetIndex).mediaId == secondary.currentMediaItem?.mediaId
+            if (!targetStillMatches || secondary.playerError != null) {
+                // The queue may have been edited while the second decoder prepared.
+                // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
                 primary.volume = 1f
+                crossfadeForIndex = -1
                 return
             }
             if (!secondary.isPlaying) {

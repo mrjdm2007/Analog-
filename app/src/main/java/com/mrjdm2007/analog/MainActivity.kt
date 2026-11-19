@@ -9,10 +9,9 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.content.ContentUris
-import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadataRetriever
-import androidx.palette.graphics.Palette
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -72,6 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -105,11 +106,30 @@ fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
+    private fun setVisualizerImmersive(enabled: Boolean) {
+        // Keep Analog edge-to-edge in every screen. Android still permits a swipe
+        // gesture to temporarily reveal system bars and the notification shade.
+        val bars = WindowInsetsControllerCompat(window, window.decorView)
+        bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        bars.hide(WindowInsetsCompat.Type.systemBars())
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) setVisualizerImmersive(false)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setVisualizerImmersive(false)
+    }
+    private var visualizerPreviousOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var future: ListenableFuture<MediaController>? = null
     private var controller by mutableStateOf<MediaController?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setVisualizerImmersive(false)
         future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         future?.addListener({ runCatching { controller = future?.get() } }, ContextCompat.getMainExecutor(this))
 
@@ -119,6 +139,23 @@ class MainActivity : ComponentActivity() {
             val askLibrary = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { libraryAllowed = it }
             var audioAllowed by remember { mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
             val askAudio = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { audioAllowed = it }
+            val coroutineScope = rememberCoroutineScope()
+            var safMusicFolders by remember {
+                mutableStateOf(prefs().getStringSet("saf_music_trees", emptySet())?.toSet() ?: emptySet())
+            }
+            val chooseMusicFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    val granted = runCatching {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }.isSuccess
+                    if (granted) {
+                        safMusicFolders = safMusicFolders + uri.toString()
+                        prefs().edit().putStringSet("saf_music_trees", safMusicFolders + uri.toString()).apply()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Folder permission could not be saved", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
             var tracks by remember { mutableStateOf(emptyList<Track>()) }
             var tab by remember { mutableStateOf("Songs") }
             var search by remember { mutableStateOf("") }
@@ -132,6 +169,9 @@ class MainActivity : ComponentActivity() {
             var effects by remember { mutableStateOf(false) }
             var recap by remember { mutableStateOf(false) }
             var studio by remember { mutableStateOf(false) }
+            var visualizer by remember { mutableStateOf(false) }
+            val openVisualizer = { visualizerPreviousOrientation = requestedOrientation; requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; setVisualizerImmersive(true); visualizer = true }
+            val closeVisualizer = { visualizer = false; setVisualizerImmersive(false); requestedOrientation = visualizerPreviousOrientation }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
@@ -202,7 +242,9 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
-            LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
+            LaunchedEffect(libraryAllowed, safMusicFolders) {
+                if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() }
+            }
             DisposableEffect(libraryAllowed) {
                 if (!libraryAllowed) return@DisposableEffect onDispose { }
                 val refreshHandler = Handler(Looper.getMainLooper())
@@ -248,8 +290,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            BackHandler(enabled = settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+            BackHandler(enabled = visualizer || settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
+                    visualizer -> closeVisualizer()
                     studio -> studio = false
                     settings -> settings = false
                     effects -> effects = false
@@ -260,6 +303,13 @@ class MainActivity : ComponentActivity() {
             }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
+                    visualizer -> VisualizerScreen(
+                        player = controller,
+                        tracks = tracks,
+                        audioPermissionGranted = audioAllowed,
+                        onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onBack = { closeVisualizer() }
+                    )
                     studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
                     !libraryAllowed -> PermissionPage(
                         onAllow = { askLibrary.launch(readPermission) },
@@ -282,9 +332,22 @@ class MainActivity : ComponentActivity() {
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
                         sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
-                        onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
+                        onMonthlyRecap = { settings = false; recap = true },
+                        safMusicFolders = safMusicFolders.toList(),
+                        onAddSafMusicFolder = { chooseMusicFolder.launch(null) },
+                        onRemoveSafMusicFolder = { rawUri ->
+                            val updated = safMusicFolders - rawUri
+                            safMusicFolders = updated
+                            prefs().edit().putStringSet("saf_music_trees", updated).apply()
+                        },
+                        onRescan = {
+                            coroutineScope.launch {
+                                tracks = withContext(Dispatchers.IO) { scanLibrary() }
+                            }
+                        },
+                        onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }, onArtistRadio = { id ->
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, audioPermissionGranted = audioAllowed, onRequestAudioPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }, onArtistRadio = { id ->
                         tracks.firstOrNull { it.id == id }?.let { seed ->
                             val radio = tracks.filter { it.artist.equals(seed.artist, true) }.shuffled()
                             if (radio.isNotEmpty()) { play(radio, 0); playCountVersion++ }
@@ -295,7 +358,7 @@ class MainActivity : ComponentActivity() {
                             if (album.isNotEmpty()) { play(album, 0); playCountVersion++ }
                         }
                     }, onBack = { nowPlaying = false },
-                        
+                        onOpenVisualizer = { openVisualizer() },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
@@ -342,6 +405,11 @@ class MainActivity : ComponentActivity() {
                             SearchBox(search) { search = it }
                             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("MUSIC LIBRARY", color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { openVisualizer() }) {
+                                    Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Green)
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("VISUALIZER", color = Green, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                }
                                 TextButton(onClick = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }) {
                                     Icon(Icons.Default.Mic, contentDescription = null, tint = Amber)
                                     Spacer(Modifier.width(5.dp))
@@ -596,7 +664,26 @@ class MainActivity : ComponentActivity() {
                     c.getLong(duration), folderName, c.getLong(albumId), path, c.getLong(dateAdded), c.getInt(isMusic) != 0)
             }
         }
-        return found
+        // Supplement MediaStore with user-authorized SAF folders. This discovers
+        // audio files Android has not indexed, without requesting broad storage access.
+        val safTrees = prefs().getStringSet("saf_music_trees", emptySet())?.toSet() ?: emptySet()
+        if (safTrees.isNotEmpty()) {
+            val safTracks = SafAudioLibrary.scan(this, safTrees)
+            val existingUris = found.asSequence().map { it.uri.toString() }.toHashSet()
+            val existingPaths = found.asSequence()
+                .map { it.path.replace(92.toChar(), '/').trimEnd('/').lowercase(java.util.Locale.ROOT) }
+                .filter { it.isNotBlank() }
+                .toMutableSet()
+            found += safTracks.filter { track ->
+                val normalizedPath = track.path.replace(92.toChar(), '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
+                if (normalizedPath.startsWith("content://")) {
+                    track.uri.toString() !in existingUris
+                } else {
+                    existingPaths.add(normalizedPath)
+                }
+            }
+        }
+        return found.distinctBy { it.id }
     }
 
     private fun prefs() = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
@@ -744,7 +831,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onOpenVisualizer: () -> Unit, audioPermissionGranted: Boolean, onRequestAudioPermission: () -> Unit, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -759,24 +846,23 @@ class MainActivity : ComponentActivity() {
     var queueSetVersion by remember { mutableIntStateOf(0) }
     var customSleepMinutes by remember { mutableStateOf("90") }
     val libraryPrefs = remember(playerContext) { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
-    var artAccent by remember { mutableStateOf(DefaultAmber) }
-    var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
     val reflectionProgress by reflectionTransition.animateFloat(
         initialValue = -1.2f, targetValue = 1.8f,
         animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
         label = "reflection-progress"
     )
-    val themedBackground by animateColorAsState(dynamicBackground, tween(650), label = "album-background")
-    val themedAccent by animateColorAsState(artAccent, tween(500), label = "album-accent")
-    val themedPanel = androidx.compose.ui.graphics.lerp(themedBackground, Color.White, .055f)
+    val themedBackground = Ink
+    val themedAccent = DefaultAmber
+    val themedPanel = Panel
     val themedText = Cream
-    val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
+    val themedMuted = Color(0xFF85877E)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
+    var audioSessionId by remember { mutableIntStateOf(playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("audio_session_id", 0)) }
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
         fileInfo = if (uri == null) "LOCAL AUDIO" else withContext(Dispatchers.IO) {
@@ -805,10 +891,6 @@ class MainActivity : ComponentActivity() {
         shuffleEnabled = player?.shuffleModeEnabled ?: false
         repeatMode = player?.repeatMode ?: Player.REPEAT_MODE_OFF
     }
-    LaunchedEffect(trackId) {
-        artAccent = DefaultAmber
-        dynamicBackground = Color(0xFF151713)
-    }
     DisposableEffect(player, tracks) {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
@@ -825,22 +907,24 @@ class MainActivity : ComponentActivity() {
         while (player != null) {
             duration = player.duration.coerceAtLeast(1L).toFloat()
             position = player.currentPosition.toFloat().coerceIn(0f, duration)
+            audioSessionId = playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("audio_session_id", 0)
             delay(if (player.isPlaying) 250L else 1000L)
         }
     }
-    Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp), verticalArrangement = Arrangement.Top) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            IconButton(onClick = onOpenVisualizer) { Icon(Icons.Default.GraphicEq, "Open landscape visualiser", tint = themedAccent) }
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
             TextButton(onClick = { showQueueSets = true; queueSetVersion++ }) { Text("SETLISTS", color = themedAccent, fontSize = 9.sp, letterSpacing = .8.sp) }
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(8.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
         val previousTrack = if (player != null && player.previousMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.previousMediaItemIndex).mediaId.toLongOrNull() } else null
         val nextTrack = if (player != null && player.nextMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.nextMediaItemIndex).mediaId.toLongOrNull() } else null
         BoxWithConstraints(
-            Modifier.fillMaxWidth().aspectRatio(1f).clipToBounds()
+            Modifier.fillMaxWidth().heightIn(max = 300.dp).aspectRatio(1f).clipToBounds()
                 .pointerInput(trackId) {
                     detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> swipeDistance += amount }, onDragEnd = {
                         if (swipeDistance < -55f) player?.seekToNext()
@@ -907,15 +991,6 @@ class MainActivity : ComponentActivity() {
                             model = center.artUri(), contentDescription = center.album,
                             modifier = Modifier.fillMaxSize().padding(4.dp), contentScale = ContentScale.Fit,
                             onError = { centerArtFailed = true },
-                            onSuccess = { state ->
-                                val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
-                                if (bitmap != null) Palette.from(bitmap).generate { palette ->
-                                    val accent = palette?.vibrantSwatch?.rgb ?: palette?.lightVibrantSwatch?.rgb ?: palette?.mutedSwatch?.rgb
-                                    val background = palette?.darkMutedSwatch?.rgb ?: palette?.darkVibrantSwatch?.rgb
-                                    if (accent != null) artAccent = Color(accent)
-                                    if (background != null) dynamicBackground = androidx.compose.ui.graphics.lerp(Color(background), Ink, .22f)
-                                }
-                            }
                         ) else Icon(Icons.Default.Album, null, tint = themedAccent, modifier = Modifier.size(104.dp))
                         Box(
                             Modifier.fillMaxWidth(.46f).fillMaxHeight().align(Alignment.CenterStart)
@@ -946,7 +1021,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        Spacer(Modifier.height(26.dp))
+        MacSpectrumPanel(
+            audioSessionId = audioSessionId,
+            playbackActive = playing,
+            audioPermissionGranted = audioPermissionGranted,
+            onRequestPermission = onRequestAudioPermission,
+            modifier = Modifier.padding(top = 10.dp)
+        )
+        Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = themedText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = themedMuted, fontSize = 13.sp); Text(fileInfo, color = themedAccent.copy(alpha = .88f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = themedAccent) }

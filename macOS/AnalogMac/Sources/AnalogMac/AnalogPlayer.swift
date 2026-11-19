@@ -133,7 +133,13 @@ final class AnalogPlayer: ObservableObject {
     @Published var eqSnapshotB: [Float] = Array(repeating: 0, count: 10)
     @Published var repeatQueue = false
     @Published var repeatCurrentTrack = false
-    @Published var shuffleQueue = false
+    @Published var shuffleQueue = false {
+        didSet {
+            guard oldValue != shuffleQueue else { return }
+            shufflePlayedTrackIDs = shuffleQueue ? Set(currentTrack.map { [$0.id] } ?? []) : []
+        }
+    }
+    private var shufflePlayedTrackIDs = Set<String>()
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
@@ -353,6 +359,7 @@ final class AnalogPlayer: ObservableObject {
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
+        activeDevicePresetName = defaults.string(forKey: "activeDevicePresetName")
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
         crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
@@ -384,6 +391,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
+        defaults.set(activeDevicePresetName, forKey: "activeDevicePresetName")
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
         defaults.set(crossfeedEnabled, forKey: "crossfeedEnabled")
@@ -511,9 +519,13 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func play(_ track: MusicTrack, from list: [MusicTrack]? = nil) {
-        let source = list ?? libraryOrderedTracks
+        var source = list ?? libraryOrderedTracks
+        // A filtered/search result can outlive the source list. Ensure the selected
+        // track is actually represented in the queue before gapless scheduling.
+        if !source.contains(where: { $0.id == track.id }) { source.insert(track, at: 0) }
         queue = source
         queueIndex = queue.firstIndex(where: { $0.id == track.id }) ?? 0
+        shufflePlayedTrackIDs = shuffleQueue ? [track.id] : []
         startTrack(track, at: 0)
     }
 
@@ -521,6 +533,7 @@ final class AnalogPlayer: ObservableObject {
         guard !items.isEmpty else { return }
         queue = items
         queueIndex = min(max(0, index), items.count - 1)
+        shufflePlayedTrackIDs = shuffleQueue ? [items[queueIndex].id] : []
         startTrack(items[queueIndex], at: 0)
     }
 
@@ -535,6 +548,7 @@ final class AnalogPlayer: ObservableObject {
         let shuffled = source.shuffled()
         queue = shuffled
         queueIndex = 0
+        shufflePlayedTrackIDs = shuffleQueue ? [shuffled[0].id] : []
         startTrack(shuffled[0], at: 0)
     }
 
@@ -600,9 +614,7 @@ final class AnalogPlayer: ObservableObject {
                 var sequence: [(track: MusicTrack, index: Int)] = []
                 if queue.indices.contains(queueIndex) {
                     sequence.append((queue[queueIndex], queueIndex))
-                    if repeatCurrentTrack {
-                        sequence.append((queue[queueIndex], queueIndex))
-                    } else {
+                    if !repeatCurrentTrack {
                         let following = gaplessQueueIndices(
                             count: queue.count,
                             currentIndex: queueIndex,
@@ -647,6 +659,7 @@ final class AnalogPlayer: ObservableObject {
                                 let next = scheduled[position + 1]
                                 self.queueIndex = next.index
                                 self.currentTrack = next.track
+                                self.shufflePlayedTrackIDs.insert(next.track.id)
                                 self.currentTime = 0
                                 self.segmentStart = 0
                                 self.gaplessSegmentStartedAt = Date()
@@ -752,8 +765,38 @@ final class AnalogPlayer: ObservableObject {
         guard !queue.isEmpty else { isPlaying = false; timer?.invalidate(); return }
         var nextIndex = queueIndex + 1
         if shuffleQueue && queue.count > 1 {
-            nextIndex = Int.random(in: 0..<queue.count)
-            if nextIndex == queueIndex { nextIndex = (nextIndex + 1) % queue.count }
+            if !queue.indices.contains(queueIndex) {
+                isPlaying = false
+                timer?.invalidate()
+                return
+            }
+            var candidates = shuffleQueueCandidateIndices(
+                trackIDs: queue.map(\\.id),
+                playedTrackIDs: shufflePlayedTrackIDs,
+                currentIndex: queueIndex
+            )
+            if candidates.isEmpty {
+                guard repeatQueue else {
+                    isPlaying = false
+                    currentTime = 0
+                    timer?.invalidate()
+                    return
+                }
+                // Start a new shuffle cycle without immediately replaying the current item.
+                shufflePlayedTrackIDs = [queue[queueIndex].id]
+                candidates = shuffleQueueCandidateIndices(
+                    trackIDs: queue.map(\\.id),
+                    playedTrackIDs: shufflePlayedTrackIDs,
+                    currentIndex: queueIndex
+                )
+            }
+            guard let selected = candidates.randomElement() else {
+                isPlaying = false
+                timer?.invalidate()
+                return
+            }
+            nextIndex = selected
+            shufflePlayedTrackIDs.insert(queue[nextIndex].id)
         } else if nextIndex >= queue.count {
             if repeatQueue { nextIndex = 0 } else { isPlaying = false; currentTime = 0; timer?.invalidate(); return }
         }
@@ -1058,24 +1101,36 @@ final class AnalogPlayer: ObservableObject {
 
     private func applyMatchingDevicePreset(for name: String) {
         let key = normalizedDeviceName(name)
-        guard !key.isEmpty,
-              let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
-            activeDevicePresetName = nil
-            eqGains = Array(repeating: 0, count: 10)
-            eqBandwidths = Array(repeating: 1, count: 10)
-            preampDB = 0
-            eqEnabled = true
-            crossfeedEnabled = false
-            crossfeedAmount = 0.12
-            peakGuardEnabled = false
-            peakGuardThresholdDB = -1
-            stereoPan = 0
-            applyEqualizer()
-            applyCrossfeedMatrix()
-            persistState()
+        // A transient/unknown route is not evidence that the user's manual EQ
+        // should be replaced. Keep the current processing until a real route is known.
+        guard !key.isEmpty else { return }
+
+        if let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) {
+            applyDevicePreset(preset)
             return
         }
-        applyDevicePreset(preset)
+
+        // Only reset when leaving a device whose saved preset was actually applied.
+        // Previously this branch flattened manual EQ every time an unmatched output
+        // appeared, including on startup when no device preset had ever been active.
+        guard shouldClearAutoAppliedDevicePreset(
+            activePresetName: activeDevicePresetName,
+            outputName: name
+        ) else { return }
+
+        activeDevicePresetName = nil
+        eqGains = Array(repeating: 0, count: 10)
+        eqBandwidths = Array(repeating: 1, count: 10)
+        preampDB = 0
+        eqEnabled = true
+        crossfeedEnabled = false
+        crossfeedAmount = 0.12
+        peakGuardEnabled = false
+        peakGuardThresholdDB = -1
+        stereoPan = 0
+        applyEqualizer()
+        applyCrossfeedMatrix()
+        persistState()
     }
 
     func setAutomaticDeviceMatching(_ enabled: Bool) {
@@ -1099,7 +1154,9 @@ final class AnalogPlayer: ObservableObject {
         } else {
             devicePresets.append(preset)
         }
-        activeDevicePresetName = name
+        // Saving a profile is not the same as applying it. Mark it active only
+        // when its name actually matches the currently routed output.
+        activeDevicePresetName = preset.matchesOutput(named: outputDeviceName) ? name : nil
         persistState()
     }
 
@@ -1131,8 +1188,11 @@ final class AnalogPlayer: ObservableObject {
     }
 
     func deleteDevicePreset(_ preset: EQDevicePreset) {
+        let wasActive = activeDevicePresetName == preset.name
         devicePresets.removeAll { $0.id == preset.id }
-        if activeDevicePresetName == preset.name { activeDevicePresetName = nil }
+        // Keep the active marker until matching runs so it can safely clear only
+        // settings that came from the now-deleted automatic device preset.
+        if wasActive && !autoMatchOutputDevice { activeDevicePresetName = nil }
         persistState()
         if autoMatchOutputDevice { applyMatchingDevicePreset(for: outputDeviceName) }
     }

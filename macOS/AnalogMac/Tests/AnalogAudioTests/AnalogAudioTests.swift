@@ -158,3 +158,47 @@ extension AnalogAudioTests {
         XCTAssertEqual(gaplessQueueIndices(count: 0, currentIndex: 0, repeatQueue: true), [])
     }
 }
+
+
+extension AnalogAudioTests {
+    func testUnmatchedOutputDoesNotClearManualEQ() {
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: nil, outputName: "Built-in Output"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "   ", outputName: "Built-in Output"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: ""))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "No output device"))
+        XCTAssertFalse(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "Detecting output…"))
+        XCTAssertTrue(shouldClearAutoAppliedDevicePreset(activePresetName: "USB DAC", outputName: "Built-in Output"))
+    }
+}
+
+
+extension AnalogAudioTests {
+    func testShuffleCandidatesExcludePlayedTracksAndCurrentTrack() {
+        XCTAssertEqual(
+            shuffleQueueCandidateIndices(
+                trackIDs: ["a", "b", "c", "d"],
+                playedTrackIDs: ["a", "c"],
+                currentIndex: 2
+            ),
+            [1, 3]
+        )
+    }
+
+    func testShuffleCandidatesEndWhenEveryTrackHasPlayed() {
+        XCTAssertEqual(
+            shuffleQueueCandidateIndices(
+                trackIDs: ["a", "b", "c"],
+                playedTrackIDs: ["a", "b", "c"],
+                currentIndex: 1
+            ),
+            []
+        )
+    }
+
+    func testShuffleCandidatesHandleInvalidCurrentIndex() {
+        XCTAssertEqual(
+            shuffleQueueCandidateIndices(trackIDs: ["a"], playedTrackIDs: [], currentIndex: 4),
+            []
+        )
+    }
+}
