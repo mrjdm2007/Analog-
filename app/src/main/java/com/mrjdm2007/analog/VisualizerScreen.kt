@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.Lifecycle
@@ -77,6 +78,7 @@ fun VisualizerScreen(
     onBack: () -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     var resumed by remember { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var title by remember { mutableStateOf("Nothing playing") }
     var artist by remember { mutableStateOf("Choose a song from your library") }
@@ -101,7 +103,7 @@ fun VisualizerScreen(
         trackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         duration = player?.duration?.takeIf { it > 0L } ?: 0L
         position = (player?.currentPosition ?: 0L).coerceAtLeast(0L)
-        sessionId = player?.audioSessionId ?: 0
+        sessionId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE).getInt("audio_session_id", 0)
     }
 
     DisposableEffect(player) {
@@ -121,7 +123,7 @@ fun VisualizerScreen(
             position = player.currentPosition.coerceAtLeast(0L)
             duration = player.duration.takeIf { it > 0L } ?: 0L
             playing = player.isPlaying
-            sessionId = player.audioSessionId
+            sessionId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE).getInt("audio_session_id", 0)
             delay(if (player.isPlaying) 250L else 900L)
         }
     }
@@ -144,17 +146,16 @@ fun VisualizerScreen(
         details = withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(LocalContextHolder.context, track.uri)
+                retriever.setDataSource(context, track.uri)
                 val bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toIntOrNull()
                 val sampleRate = if (android.os.Build.VERSION.SDK_INT >= 31) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull() else null
-                val channels = if (android.os.Build.VERSION.SDK_INT >= 28) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)?.toIntOrNull() else null
                 val bytes = track.path.takeIf { it.isNotBlank() }?.let { runCatching { File(it).length() }.getOrNull() } ?: 0L
                 VisualFileDetails(
                     format = track.path.substringAfterLast('.', "").uppercase().ifBlank { "—" },
                     size = visualFileSize(bytes),
                     bitrate = bitrate?.let { if (it >= 1_000_000) "%.2f Mbps".format(it / 1_000_000.0) else "${it / 1000} kbps" } ?: "—",
                     sampleRate = sampleRate?.let { "%.1f kHz".format(it / 1000.0) } ?: "—",
-                    channels = if (channels != null && channels > 0) "${channels} ch" else "—"
+                    channels = "—"
                 )
             } catch (_: Exception) { VisualFileDetails(format = track.path.substringAfterLast('.', "").uppercase().ifBlank { "—" }) }
             finally { runCatching { retriever.release() } }
@@ -229,9 +230,6 @@ fun VisualizerScreen(
             }
         }
     }
-
-    val context = androidx.compose.ui.platform.LocalContext.current
-    SideEffect { LocalContextHolder.context = context }
 
     Column(Modifier.fillMaxSize().background(VisualInk).padding(horizontal = 18.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -362,6 +360,3 @@ private fun visualTime(milliseconds: Long): String {
     return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
 }
 
-private object LocalContextHolder {
-    lateinit var context: android.content.Context
-}
