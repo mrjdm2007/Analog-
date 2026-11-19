@@ -76,6 +76,7 @@ extension AnalogAudioTests {
         XCTAssertTrue(preset.matchesOutput(named: "  realtek usb audio  "))
         XCTAssertFalse(preset.matchesOutput(named: "Realtek USB"))
         XCTAssertFalse(preset.matchesOutput(named: "USB Audio Realtek"))
+        XCTAssertFalse(preset.matchesOutput(named: "Realtek ÚSB Audio"))
     }
 
     func testStereoCrossfeedMatrixIsAValidTwoByTwoMixerMatrix() {
