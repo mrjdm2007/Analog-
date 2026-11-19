@@ -207,8 +207,15 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateWidget()
                 if (isPlaying) {
+                    // ExoPlayer may allocate its audio session after the listener is
+                    // attached. Do not rely only on onAudioSessionIdChanged: publish
+                    // the live ID when playback actually starts as well.
                     val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
-                    if (activeSessionId > 0 && optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    if (activeSessionId > 0) {
+                        getSharedPreferences("analog_library", MODE_PRIVATE)
+                            .edit().putInt("audio_session_id", activeSessionId).apply()
+                        if (optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    }
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
