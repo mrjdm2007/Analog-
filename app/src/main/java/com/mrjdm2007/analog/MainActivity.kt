@@ -152,8 +152,6 @@ class MainActivity : ComponentActivity() {
             var visualizer by remember { mutableStateOf(false) }
             val openVisualizer = { visualizerPreviousOrientation = requestedOrientation; requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; visualizer = true }
             val closeVisualizer = { visualizer = false; requestedOrientation = visualizerPreviousOrientation }
-            var playbackActive by remember { mutableStateOf(controller?.isPlaying == true) }
-            var visualizerSessionId by remember { mutableIntStateOf(prefs().getInt("audio_session_id", 0)) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
@@ -272,17 +270,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            LaunchedEffect(visualizer, controller) {
-                if (visualizer) {
-                    while (true) {
-                        playbackActive = controller?.isPlaying == true
-                        visualizerSessionId = prefs().getInt("audio_session_id", 0)
-                        delay(300L)
-                    }
-                } else {
-                    playbackActive = controller?.isPlaying == true
-                }
-            }
             BackHandler(enabled = visualizer || settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
                     visualizer -> closeVisualizer()
