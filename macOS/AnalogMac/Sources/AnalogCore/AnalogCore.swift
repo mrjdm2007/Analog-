@@ -87,7 +87,7 @@ public struct EQDevicePreset: Identifiable, Codable, Equatable {
     public func matchesOutput(named outputName: String) -> Bool {
         let normalize: (String) -> String = {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .folding(options: [.caseInsensitive], locale: .current)
         }
         return !normalize(name).isEmpty && normalize(name) == normalize(outputName)
     }
