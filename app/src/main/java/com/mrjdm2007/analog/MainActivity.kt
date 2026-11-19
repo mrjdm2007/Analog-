@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.content.ContentUris
 import android.media.MediaMetadataRetriever
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -103,6 +104,7 @@ fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
 class MainActivity : ComponentActivity() {
+    private var visualizerPreviousOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var future: ListenableFuture<MediaController>? = null
     private var controller by mutableStateOf<MediaController?>(null)
 
@@ -148,6 +150,8 @@ class MainActivity : ComponentActivity() {
             var recap by remember { mutableStateOf(false) }
             var studio by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
+            val openVisualizer = { visualizerPreviousOrientation = requestedOrientation; requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; visualizer = true }
+            val closeVisualizer = { visualizer = false; requestedOrientation = visualizerPreviousOrientation }
             var playbackActive by remember { mutableStateOf(controller?.isPlaying == true) }
             var visualizerSessionId by remember { mutableIntStateOf(prefs().getInt("audio_session_id", 0)) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
@@ -281,7 +285,7 @@ class MainActivity : ComponentActivity() {
             }
             BackHandler(enabled = visualizer || settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
-                    visualizer -> visualizer = false
+                    visualizer -> closeVisualizer()
                     studio -> studio = false
                     settings -> settings = false
                     effects -> effects = false
@@ -293,11 +297,11 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     visualizer -> VisualizerScreen(
-                        audioSessionId = visualizerSessionId,
+                        player = controller,
+                        tracks = tracks,
                         audioPermissionGranted = audioAllowed,
-                        playbackActive = playbackActive,
                         onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) },
-                        onBack = { visualizer = false }
+                        onBack = { closeVisualizer() }
                     )
                     studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
                     !libraryAllowed -> PermissionPage(
@@ -347,7 +351,7 @@ class MainActivity : ComponentActivity() {
                             if (album.isNotEmpty()) { play(album, 0); playCountVersion++ }
                         }
                     }, onBack = { nowPlaying = false },
-                        
+                        onOpenVisualizer = { openVisualizer() },
                         onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
@@ -394,7 +398,7 @@ class MainActivity : ComponentActivity() {
                             SearchBox(search) { search = it }
                             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("MUSIC LIBRARY", color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { visualizer = true }) {
+                                TextButton(onClick = { openVisualizer() }) {
                                     Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Green)
                                     Spacer(Modifier.width(5.dp))
                                     Text("VISUALIZER", color = Green, fontSize = 10.sp, letterSpacing = 1.2.sp)
@@ -820,7 +824,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, audioPermissionGranted: Boolean, onRequestAudioPermission: () -> Unit, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onOpenVisualizer: () -> Unit, audioPermissionGranted: Boolean, onRequestAudioPermission: () -> Unit, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
     val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
@@ -904,6 +908,7 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            IconButton(onClick = onOpenVisualizer) { Icon(Icons.Default.GraphicEq, "Open landscape visualiser", tint = themedAccent) }
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
             TextButton(onClick = { showQueueSets = true; queueSetVersion++ }) { Text("SETLISTS", color = themedAccent, fontSize = 9.sp, letterSpacing = .8.sp) }
         }
