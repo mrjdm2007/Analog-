@@ -1,9 +1,5 @@
 name: Analog macOS
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 on:
   push:
     branches: [feature/pro-audio-studio]
@@ -19,6 +15,7 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Test native audio processing
