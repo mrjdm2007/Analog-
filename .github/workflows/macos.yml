@@ -2,7 +2,8 @@ name: Analog macOS
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Do not cancel the macOS validation job while another PR event is queued.
+  cancel-in-progress: false
 
 on:
   push:
@@ -19,6 +20,7 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Test native audio processing
