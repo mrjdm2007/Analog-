@@ -810,24 +810,23 @@ class MainActivity : ComponentActivity() {
     var queueSetVersion by remember { mutableIntStateOf(0) }
     var customSleepMinutes by remember { mutableStateOf("90") }
     val libraryPrefs = remember(playerContext) { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
-    var artAccent by remember { mutableStateOf(DefaultAmber) }
-    var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
     val reflectionProgress by reflectionTransition.animateFloat(
         initialValue = -1.2f, targetValue = 1.8f,
         animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
         label = "reflection-progress"
     )
-    val themedBackground by animateColorAsState(dynamicBackground, tween(650), label = "album-background")
-    val themedAccent by animateColorAsState(artAccent, tween(500), label = "album-accent")
-    val themedPanel = androidx.compose.ui.graphics.lerp(themedBackground, Color.White, .055f)
+    val themedBackground = Ink
+    val themedAccent = DefaultAmber
+    val themedPanel = Panel
     val themedText = Cream
-    val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
+    val themedMuted = Color(0xFF85877E)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
+    var audioSessionId by remember { mutableIntStateOf(playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("audio_session_id", 0)) }
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
         fileInfo = if (uri == null) "LOCAL AUDIO" else withContext(Dispatchers.IO) {
@@ -856,10 +855,6 @@ class MainActivity : ComponentActivity() {
         shuffleEnabled = player?.shuffleModeEnabled ?: false
         repeatMode = player?.repeatMode ?: Player.REPEAT_MODE_OFF
     }
-    LaunchedEffect(trackId) {
-        artAccent = DefaultAmber
-        dynamicBackground = Color(0xFF151713)
-    }
     DisposableEffect(player, tracks) {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
@@ -876,22 +871,23 @@ class MainActivity : ComponentActivity() {
         while (player != null) {
             duration = player.duration.coerceAtLeast(1L).toFloat()
             position = player.currentPosition.toFloat().coerceIn(0f, duration)
+            audioSessionId = playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getInt("audio_session_id", 0)
             delay(if (player.isPlaying) 250L else 1000L)
         }
     }
-    Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp), verticalArrangement = Arrangement.Top) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
             TextButton(onClick = { showQueueSets = true; queueSetVersion++ }) { Text("SETLISTS", color = themedAccent, fontSize = 9.sp, letterSpacing = .8.sp) }
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(8.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
         val previousTrack = if (player != null && player.previousMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.previousMediaItemIndex).mediaId.toLongOrNull() } else null
         val nextTrack = if (player != null && player.nextMediaItemIndex >= 0) tracks.firstOrNull { it.id == player.getMediaItemAt(player.nextMediaItemIndex).mediaId.toLongOrNull() } else null
         BoxWithConstraints(
-            Modifier.fillMaxWidth().aspectRatio(1f).clipToBounds()
+            Modifier.fillMaxWidth().heightIn(max = 300.dp).aspectRatio(1f).clipToBounds()
                 .pointerInput(trackId) {
                     detectHorizontalDragGestures(onHorizontalDrag = { _, amount -> swipeDistance += amount }, onDragEnd = {
                         if (swipeDistance < -55f) player?.seekToNext()
@@ -958,15 +954,6 @@ class MainActivity : ComponentActivity() {
                             model = center.artUri(), contentDescription = center.album,
                             modifier = Modifier.fillMaxSize().padding(4.dp), contentScale = ContentScale.Fit,
                             onError = { centerArtFailed = true },
-                            onSuccess = { state ->
-                                val bitmap = (state.result.drawable as? BitmapDrawable)?.bitmap
-                                if (bitmap != null) Palette.from(bitmap).generate { palette ->
-                                    val accent = palette?.vibrantSwatch?.rgb ?: palette?.lightVibrantSwatch?.rgb ?: palette?.mutedSwatch?.rgb
-                                    val background = palette?.darkMutedSwatch?.rgb ?: palette?.darkVibrantSwatch?.rgb
-                                    if (accent != null) artAccent = Color(accent)
-                                    if (background != null) dynamicBackground = androidx.compose.ui.graphics.lerp(Color(background), Ink, .22f)
-                                }
-                            }
                         ) else Icon(Icons.Default.Album, null, tint = themedAccent, modifier = Modifier.size(104.dp))
                         Box(
                             Modifier.fillMaxWidth(.46f).fillMaxHeight().align(Alignment.CenterStart)
@@ -997,7 +984,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        Spacer(Modifier.height(26.dp))
+        MacSpectrumPanel(
+            audioSessionId = audioSessionId,
+            playbackActive = playing,
+            audioPermissionGranted = audioPermissionGranted,
+            onRequestPermission = onRequestAudioPermission,
+            modifier = Modifier.padding(top = 10.dp)
+        )
+        Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = themedText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2); Text(artist, color = themedMuted, fontSize = 13.sp); Text(fileInfo, color = themedAccent.copy(alpha = .88f), fontSize = 9.sp, letterSpacing = .6.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); trackId?.let(onFavorite) }) { Icon(if (trackId in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = themedAccent) }
