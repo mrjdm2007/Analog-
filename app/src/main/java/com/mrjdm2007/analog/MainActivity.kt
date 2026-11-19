@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
             var studio by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var playbackActive by remember { mutableStateOf(controller?.isPlaying == true) }
+            var visualizerSessionId by remember { mutableIntStateOf(prefs().getInt("audio_session_id", 0)) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
@@ -271,6 +272,7 @@ class MainActivity : ComponentActivity() {
                 if (visualizer) {
                     while (true) {
                         playbackActive = controller?.isPlaying == true
+                        visualizerSessionId = prefs().getInt("audio_session_id", 0)
                         delay(300L)
                     }
                 } else {
@@ -291,7 +293,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
                     visualizer -> VisualizerScreen(
-                        audioSessionId = prefs().getInt("audio_session_id", 0),
+                        audioSessionId = visualizerSessionId,
                         audioPermissionGranted = audioAllowed,
                         playbackActive = playbackActive,
                         onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) },
