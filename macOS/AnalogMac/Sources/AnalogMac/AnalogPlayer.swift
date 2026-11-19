@@ -353,6 +353,7 @@ final class AnalogPlayer: ObservableObject {
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
+        activeDevicePresetName = defaults.string(forKey: "activeDevicePresetName")
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
         crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
@@ -384,6 +385,11 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
         syncActiveDevicePresetFromCurrentSettings()
+        if let activeDevicePresetName {
+            defaults.set(activeDevicePresetName, forKey: "activeDevicePresetName")
+        } else {
+            defaults.removeObject(forKey: "activeDevicePresetName")
+        }
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
@@ -1150,11 +1156,13 @@ final class AnalogPlayer: ObservableObject {
         eqBandwidths = preset.bandwidths.map { min(4, max(0.1, $0)) }
         preampDB = min(12, max(-12, preset.preampDB))
         eqEnabled = preset.eqEnabled
-        if let value = preset.crossfeedEnabled { crossfeedEnabled = value }
-        if let value = preset.crossfeedAmount { crossfeedAmount = min(0.35, max(0, value)) }
-        if let value = preset.peakGuardEnabled { peakGuardEnabled = value }
-        if let value = preset.peakGuardThresholdDB { peakGuardThresholdDB = min(-0.1, max(-12, value)) }
-        if let value = preset.stereoPan { stereoPan = min(1, max(-1, value)) }
+        // Older profile files omit these optional DSP values. Reset them to
+        // application defaults rather than inheriting the previous profile.
+        crossfeedEnabled = preset.crossfeedEnabled ?? false
+        crossfeedAmount = min(0.35, max(0, preset.crossfeedAmount ?? 0.12))
+        peakGuardEnabled = preset.peakGuardEnabled ?? false
+        peakGuardThresholdDB = min(-0.1, max(-12, preset.peakGuardThresholdDB ?? -1))
+        stereoPan = min(1, max(-1, preset.stereoPan ?? 0))
         activeDevicePresetName = preset.name
         applyEqualizer()
         applyCrossfeedMatrix()
