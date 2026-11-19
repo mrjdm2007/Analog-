@@ -151,9 +151,11 @@ class MainActivity : ComponentActivity() {
             var studio by remember { mutableStateOf(false) }
             var visualizer by remember { mutableStateOf(false) }
             var visualizerSessionId by remember { mutableIntStateOf(prefs().getInt("audio_session_id", 0)) }
+            var visualizerPlaybackActive by remember { mutableStateOf(controller?.isPlaying == true) }
             LaunchedEffect(visualizer) {
                 while (visualizer) {
                     visualizerSessionId = prefs().getInt("audio_session_id", 0)
+                    visualizerPlaybackActive = controller?.isPlaying == true
                     delay(500L)
                 }
             }
@@ -291,6 +293,7 @@ class MainActivity : ComponentActivity() {
                     visualizer -> VisualizerScreen(
                         audioSessionId = visualizerSessionId,
                         audioPermissionGranted = audioAllowed,
+                        playbackActive = visualizerPlaybackActive,
                         onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) },
                         onBack = { visualizer = false }
                     )
