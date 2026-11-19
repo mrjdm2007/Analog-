@@ -9,9 +9,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.content.ContentUris
-import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadataRetriever
-import androidx.palette.graphics.Palette
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
