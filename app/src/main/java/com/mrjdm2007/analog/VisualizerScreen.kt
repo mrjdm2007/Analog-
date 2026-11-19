@@ -94,7 +94,7 @@ fun VisualizerScreen(
             lifecycleOwner.lifecycle.addObserver(observer)
             val created = runCatching {
                 Visualizer(audioSessionId).apply {
-                    val range = captureSizeRange
+                    val range = Visualizer.getCaptureSizeRange()
                     captureSize = min(1024, range[1]).coerceAtLeast(range[0])
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                         override fun onWaveFormDataCapture(effect: Visualizer?, bytes: ByteArray?, samplingRate: Int) {
