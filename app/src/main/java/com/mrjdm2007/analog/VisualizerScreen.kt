@@ -231,7 +231,7 @@ fun VisualizerScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(VisualInk).padding(horizontal = 18.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxSize().background(VisualInk).padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) { Icon(Icons.Default.ArrowBack, null, tint = VisualCream) }
             Column(Modifier.weight(1f)) {
@@ -243,9 +243,9 @@ fun VisualizerScreen(
                 Text(if (captureReady && playing) "LIVE" else "STANDBY", color = if (captureReady && playing) VisualGreen else VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1.48f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(15.dp)).padding(12.dp)) {
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(Modifier.weight(1.48f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(7.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("LIVE AUDIO ANALYSER", color = VisualCream, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = .7.sp)
@@ -254,7 +254,7 @@ fun VisualizerScreen(
                     Text("36 BANDS", color = VisualAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 }
                 Spacer(Modifier.height(8.dp))
-                Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF070807), RoundedCornerShape(12.dp)).border(1.dp, VisualCream.copy(alpha = .10f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF070807), RoundedCornerShape(12.dp)).border(1.dp, VisualCream.copy(alpha = .10f), RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 4.dp)) {
                     Canvas(Modifier.fillMaxSize()) {
                         for (fraction in listOf(.25f, .5f, .75f)) {
                             val y = size.height * (1f - fraction)
@@ -282,20 +282,20 @@ fun VisualizerScreen(
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("35 Hz", color = VisualMuted, fontSize = 8.sp)
                     Spacer(Modifier.weight(1f))
                     Text("POST-EQ  •  LOGARITHMIC", color = VisualMuted, fontSize = 8.sp, letterSpacing = .7.sp)
                     Spacer(Modifier.weight(1f))
                     Text("16 kHz", color = VisualMuted, fontSize = 8.sp)
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     VisualMetric("SOURCE", "POST-EQ", Modifier.weight(1f))
                     VisualMetric("BANDS", "36", Modifier.weight(1f))
                     VisualMetric("RANGE", "35 Hz–16 kHz", Modifier.weight(1f))
                 }
             }
-            Column(Modifier.weight(1f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(15.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f).fillMaxHeight().background(VisualPanel.copy(alpha = .72f), RoundedCornerShape(12.dp)).padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("NOW PLAYING", color = VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.7.sp)
                     Spacer(Modifier.weight(1f))
@@ -328,7 +328,7 @@ fun VisualizerScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 3.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(visualTime(position), color = VisualMuted, fontSize = 9.sp)
             Slider(value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()), onValueChange = { position = it.toLong() }, onValueChangeFinished = { player?.seekTo(position) }, valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.weight(1f).height(26.dp), colors = SliderDefaults.colors(thumbColor = VisualCream, activeTrackColor = VisualAmber, inactiveTrackColor = VisualMuted.copy(alpha = .28f)))
             Text(visualTime(duration), color = VisualMuted, fontSize = 9.sp)
@@ -341,7 +341,7 @@ fun VisualizerScreen(
 
 @Composable
 private fun VisualMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.heightIn(min = 32.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+    Column(modifier.heightIn(min = 27.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
         Text(value, color = VisualCream, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(label, color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
     }
