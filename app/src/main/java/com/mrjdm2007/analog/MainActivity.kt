@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +29,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
@@ -91,7 +94,13 @@ private val Cream = Color(0xFFE8E1CF)
 private var Amber by mutableStateOf(DefaultAmber)
 private val Green = Color(0xFFB5D69B)
 
-data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long)
+data class Track(val id: Long, val title: String, val artist: String, val album: String, val uri: Uri, val duration: Long, val folder: String, val albumId: Long, val path: String = "", val dateAdded: Long = 0L, val isMusic: Boolean = true)
+
+private fun resumeOrRestart(player: Player?) {
+    if (player == null) return
+    if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
+    player.play()
+}
 fun Track.artUri(): Uri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
 private data class Group(val title: String, val subtitle: String, val tracks: List<Track>)
 
@@ -120,22 +129,77 @@ class MainActivity : ComponentActivity() {
             var playlistDialog by remember { mutableStateOf(false) }
             var playlistName by remember { mutableStateOf("") }
             var nowPlaying by remember { mutableStateOf(false) }
-            var visualizer by remember { mutableStateOf(false) }
             var effects by remember { mutableStateOf(false) }
             var recap by remember { mutableStateOf(false) }
+            var studio by remember { mutableStateOf(false) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
+            var sleepFadeSeconds by remember { mutableIntStateOf(prefs().getInt("sleep_fade_seconds", 15).coerceIn(0, 30)) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
+            var libraryShuffleOrder by remember { mutableStateOf<List<Long>>(prefs().getString("library_shuffle_order", null)?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()) }
             var playCountVersion by remember { mutableIntStateOf(0) }
             var headsetSingle by remember { mutableStateOf(prefs().getString("headset_single", "Play/Pause") ?: "Play/Pause") }
             var headsetDouble by remember { mutableStateOf(prefs().getString("headset_double", "Next track") ?: "Next track") }
             var headsetTriple by remember { mutableStateOf(prefs().getString("headset_triple", "Previous track") ?: "Previous track") }
             val librarySections = listOf("Songs", "Albums", "Artists", "Folders", "Favorites", "Playlists")
             var visibleSections by remember { mutableStateOf(prefs().getStringSet("visible_sections", librarySections.toSet())?.toSet() ?: librarySections.toSet()) }
+            var exportTracks by remember { mutableStateOf(emptyList<Track>()) }
+            var exportName by remember { mutableStateOf("Analog Playlist") }
+            val exportPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
+                if (uri != null) {
+                    val text = buildString {
+                        append("#EXTM3U\n")
+                        exportTracks.forEach { track ->
+                            append("#EXTINF:")
+                            append((track.duration / 1000L).coerceAtLeast(-1L))
+                            append(",")
+                            append((track.title + " - " + track.artist).replace("\n", " ").replace("\r", " "))
+                            append("\n")
+                            append(track.path.ifBlank { track.uri.toString() })
+                            append("\n")
+                        }
+                    }
+                    val saved = runCatching {
+                        contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
+                            ?: throw IllegalStateException("Could not open playlist destination.")
+                    }.isSuccess
+                    Toast.makeText(this@MainActivity, if (saved) "M3U playlist exported" else "Playlist export failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+            val importPlaylistLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    val importedLines = runCatching {
+                        contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readLines() }
+                            ?: throw IllegalStateException("Could not read playlist.")
+                    }.getOrNull()
+                    if (importedLines != null) {
+                        val entries = importedLines.map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
+                        val resolved = entries.mapNotNull { entry ->
+                            tracks.firstOrNull { it.path.equals(entry, true) || it.uri.toString() == entry }
+                                ?: run {
+                                    val fileName = entry.substringAfterLast('/').substringAfterLast('\\')
+                                    val matches = tracks.filter { it.path.substringAfterLast('/').equals(fileName, true) }
+                                    matches.singleOrNull()
+                                }
+                        }
+                        if (resolved.isNotEmpty()) {
+                            val baseName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Imported playlist"
+                            var name = baseName
+                            var suffix = 2
+                            while (name in playlists) { name = "$baseName ($suffix)"; suffix++ }
+                            playlists = playlists.toMutableMap().apply { put(name, resolved.map { it.id }.toSet()) }
+                            storePlaylists(playlists)
+                            Toast.makeText(this@MainActivity, "Imported $name • ${resolved.size} tracks", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "No playlist entries matched music in this library", Toast.LENGTH_LONG).show()
+                        }
+                    } else Toast.makeText(this@MainActivity, "Could not read this playlist file", Toast.LENGTH_LONG).show()
+                }
+            }
 
             LaunchedEffect(visibleSections) { if (tab !in visibleSections) tab = visibleSections.firstOrNull() ?: "Songs" }
             LaunchedEffect(libraryAllowed) { if (libraryAllowed) tracks = withContext(Dispatchers.IO) { scanLibrary() } }
@@ -175,11 +239,19 @@ class MainActivity : ComponentActivity() {
                     onDispose { }
                 }
             }
+            LaunchedEffect(headphoneDetectionEnabled) {
+                if (headphoneDetectionEnabled) {
+                    while (true) {
+                        outputRoute = currentAudioRoute()
+                        delay(1000L)
+                    }
+                }
+            }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            BackHandler(enabled = settings || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+            BackHandler(enabled = settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
+                    studio -> studio = false
                     settings -> settings = false
-                    visualizer -> visualizer = false
                     effects -> effects = false
                     recap -> recap = false
                     nowPlaying -> nowPlaying = false
@@ -188,8 +260,11 @@ class MainActivity : ComponentActivity() {
             }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
-                    !libraryAllowed -> PermissionPage { askLibrary.launch(readPermission) }
-                    visualizer -> RetroVisualizerScreen(onBack = { visualizer = false }, audioPermissionGranted = audioAllowed, audioSessionId = prefs().getInt("audio_session_id", 0), player = controller, tracks = tracks)
+                    studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
+                    !libraryAllowed -> PermissionPage(
+                        onAllow = { askLibrary.launch(readPermission) },
+                        onOpenStudio = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }
+                    )
                     effects -> AudioEffectsScreen(outputRoute = outputRoute, audioSessionId = prefs().getInt("audio_session_id", 0), onBack = { effects = false })
                     recap -> ListeningRecapScreen(tracks = tracks, monthlyCounts = currentMonthPlayCounts(), monthlyListeningMs = currentMonthListeningMs(), listeningStreakDays = currentListeningStreak(), onBack = { recap = false })
                     settings -> SettingsPage(
@@ -202,21 +277,36 @@ class MainActivity : ComponentActivity() {
                         replayGainEnabled = replayGainEnabled, onReplayGainChanged = { enabled -> replayGainEnabled = enabled; prefs().edit().putBoolean("replay_gain_enabled", enabled).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_REAPPLY_REPLAY_GAIN)) },
                         crossfadeSeconds = crossfadeSeconds, onCrossfadeChanged = { seconds -> crossfadeSeconds = seconds; prefs().edit().putInt("crossfade_seconds", seconds).apply(); startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_CROSSFADE).putExtra(PlaybackService.EXTRA_CROSSFADE_SECONDS, seconds)) },
                         onHeadsetSetting = { key, value -> prefs().edit().putString(key, value).apply(); when(key) { "headset_single" -> headsetSingle = value; "headset_double" -> headsetDouble = value; "headset_triple" -> headsetTriple = value } },
-                        onEffects = { settings = false; effects = true }, onVisualizer = { settings = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onEffects = { settings = false; effects = true },
                         onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
                         onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
                         onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) },
+                        sleepFadeSeconds = sleepFadeSeconds, onSleepFadeSecondsChanged = { seconds -> sleepFadeSeconds = seconds; prefs().edit().putInt("sleep_fade_seconds", seconds).apply() },
                         onMonthlyRecap = { settings = false; recap = true }, onRescan = { tracks = scanLibrary() }, onBack = { settings = false })
 
-                    nowPlaying -> PlayerPage(controller, tracks, favorites, onBack = { nowPlaying = false },
-                        onVisualizer = { nowPlaying = false; visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) },
-                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) })
+                    nowPlaying -> PlayerPage(controller, tracks, favorites, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }, onArtistRadio = { id ->
+                        tracks.firstOrNull { it.id == id }?.let { seed ->
+                            val radio = tracks.filter { it.artist.equals(seed.artist, true) }.shuffled()
+                            if (radio.isNotEmpty()) { play(radio, 0); playCountVersion++ }
+                        }
+                    }, onAlbumShuffle = { id ->
+                        tracks.firstOrNull { it.id == id }?.let { seed ->
+                            val album = tracks.filter { it.album.equals(seed.album, true) && it.artist.equals(seed.artist, true) }.shuffled()
+                            if (album.isNotEmpty()) { play(album, 0); playCountVersion++ }
+                        }
+                    }, onBack = { nowPlaying = false },
+                        
+                        onFavorite = { id -> favorites = favorites.toMutableSet().apply { if (contains(id)) remove(id) else add(id) }; storeIds("favorites", favorites) },
+                        onSleepTimer = { minutes -> startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER).putExtra(PlaybackService.EXTRA_MINUTES, minutes)) },
+                        onSleepTimerEndTrack = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_SLEEP_TIMER_END_TRACK)) },
+                        onCancelSleepTimer = { startService(Intent(this@MainActivity, PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP_TIMER)) })
                     else -> {
                         val libraryTracks = if (selectedFolders.isEmpty()) tracks else tracks.filter { it.folder in selectedFolders }
                         val currentTracks = when (tab) {
                             "Favorites" -> libraryTracks.filter { it.id in favorites }
                             "Playlists" -> activePlaylist?.let { name ->
                                 if (name.startsWith("smart:")) smartPlaylistTracks(name.removePrefix("smart:"), libraryTracks, favorites)
+                                else if (name.startsWith("mood:")) libraryTracks.filter { it.id.toString() in (prefs().getStringSet("mood_playlist:" + name.removePrefix("mood:"), emptySet()) ?: emptySet()) }
                                 else libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
                             } ?: emptyList()
                             else -> libraryTracks
@@ -228,6 +318,14 @@ class MainActivity : ComponentActivity() {
                             "Album" -> currentTracks.sortedBy { it.album.lowercase() }
                             "Least played" -> currentTracks.sortedWith(compareBy<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
                             "Most played" -> currentTracks.sortedWith(compareByDescending<Track> { playCounts[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+                            "Recently played" -> currentTracks.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+                            "Date added" -> currentTracks.sortedByDescending { it.dateAdded }
+                            "Shuffle" -> {
+                                val positions = libraryShuffleOrder.withIndex().associate { it.value to it.index }
+                                currentTracks.sortedBy { positions[it.id] ?: Int.MAX_VALUE }
+                            }
+                            "Longest first" -> currentTracks.sortedByDescending { it.duration }
+                            "Shortest first" -> currentTracks.sortedBy { it.duration }
                             else -> currentTracks.sortedBy { it.title.lowercase() }
                         }
                         val swipeTabs = librarySections.filter { it in visibleSections }.ifEmpty { listOf("Songs") }
@@ -242,6 +340,14 @@ class MainActivity : ComponentActivity() {
                         }) {
                             TopHeader(onSettings = { settings = true })
                             SearchBox(search) { search = it }
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("MUSIC LIBRARY", color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }) {
+                                    Icon(Icons.Default.Mic, contentDescription = null, tint = Amber)
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("STUDIO", color = Amber, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                }
+                            }
                             val tabs = swipeTabs
                             ScrollableTabRow(selectedTabIndex = tabs.indexOf(tab).coerceAtLeast(0), containerColor = Ink, contentColor = Amber, edgePadding = 12.dp) {
                                 tabs.forEach { name -> Tab(selected = tab == name, onClick = { tab = name; activePlaylist = null }, text = { Text(name, fontSize = 11.sp) }) }
@@ -261,15 +367,22 @@ class MainActivity : ComponentActivity() {
                                 Column(Modifier.weight(1f)) {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                                        TextButton(onClick = { importPlaylistLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain", "*/*")) }) { Text("IMPORT M3U") }
                                         TextButton(onClick = { pendingTrack = null; playlistDialog = true }) { Icon(Icons.Default.Add, null); Text("NEW") }
                                     }
                                     LazyColumn {
                                         item { Text("SMART MIXES", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
-                                        items(listOf("Most played this month", "Favourites", "Quick Listen", "Long Listening", "Surprise Me")) { name ->
+                                        items(listOf("Most played this month", "Most played all time", "Recently played", "Never played", "Favourites", "Quick Listen", "Long Listening", "Short tracks", "Surprise Me")) { name ->
                                             val smartTracks = smartPlaylistTracks(name, libraryTracks, favorites)
                                             GroupRow(Group(name, "${smartTracks.size} tracks • automatically updated", smartTracks)) { activePlaylist = "smart:$name" }
                                         }
-                                        item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
+                                        item { Text("MOOD COLLECTIONS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
+                                         items(listOf("Calm", "Energy", "Focus", "Nostalgia")) { name ->
+                                             val ids = prefs().getStringSet("mood_playlist:$name", emptySet()) ?: emptySet()
+                                             val moodTracks = libraryTracks.filter { it.id.toString() in ids }
+                                             GroupRow(Group(name, moodTracks.size.toString() + " tracks • mood collection", moodTracks)) { activePlaylist = "mood:$name" }
+                                         }
+                                         item { Text("YOUR PLAYLISTS", color = Green, fontSize = 10.sp, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) }
                                         items(playlists.keys.sorted()) { name ->
                                             val playlistTracks = libraryTracks.filter { it.id in (playlists[name] ?: emptySet()) }
                                             GroupRow(Group(name, "${playlistTracks.size} saved tracks", playlistTracks)) { activePlaylist = name }
@@ -278,7 +391,14 @@ class MainActivity : ComponentActivity() {
                                 }
                             } else {
                                 if (tab == "Playlists" && activePlaylist != null) {
-                                    TextButton(onClick = { activePlaylist = null }, modifier = Modifier.padding(start = 12.dp)) { Icon(Icons.Default.ArrowBack, null); Text("ALL PLAYLISTS") }
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = { activePlaylist = null }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.ArrowBack, null); Text("ALL PLAYLISTS") }
+                                        TextButton(onClick = {
+                                            exportTracks = currentTracks
+                                            exportName = (activePlaylist ?: "Analog Playlist").removePrefix("smart:").removePrefix("mood:")
+                                            exportPlaylistLauncher.launch(exportName.replace(Regex("[^A-Za-z0-9 _-]"), "").ifBlank { "Analog Playlist" } + ".m3u")
+                                        }) { Text("EXPORT M3U", color = Amber) }
+                                    }
                                 }
                                 if (currentTracks.isEmpty()) {
                                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -286,8 +406,24 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("${sortedTracks.size} SONGS", color = Cream.copy(alpha = .45f), fontSize = 10.sp, modifier = Modifier.weight(1f))
-                                        SortDropdown(sortMode) { sortMode = it; prefs().edit().putString("sort_mode", it).apply() }
+                                        Text("${sortedTracks.size} SONGS" + currentTracks.count { !it.isMusic }.takeIf { it > 0 }?.let { " • $it UNCLASSIFIED AUDIO INCLUDED" }.orEmpty(), color = Cream.copy(alpha = .45f), fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                        TextButton(onClick = {
+                                            libraryShuffleOrder = currentTracks.shuffled().map { it.id }
+                                            prefs().edit().putString("library_shuffle_order", libraryShuffleOrder.joinToString(",")).putString("sort_mode", "Shuffle").apply()
+                                            sortMode = "Shuffle"
+                                        }) {
+                                            Icon(Icons.Default.Shuffle, contentDescription = null, tint = Amber, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("SHUFFLE", color = Amber, fontSize = 10.sp)
+                                        }
+                                        SortDropdown(sortMode) {
+                                            sortMode = it
+                                            if (it == "Shuffle") {
+                                                libraryShuffleOrder = tracks.shuffled().map { track -> track.id }
+                                                prefs().edit().putString("library_shuffle_order", libraryShuffleOrder.joinToString(",")).apply()
+                                            }
+                                            prefs().edit().putString("sort_mode", it).apply()
+                                        }
                                     }
                                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
                                         itemsIndexed(sortedTracks, key = { _, t -> t.id }) { i, track ->
@@ -299,7 +435,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            MiniPlayer(controller) { nowPlaying = true }
+                            MiniPlayer(controller, onRandomPlay = { playRandomLibrary(tracks); playCountVersion++ }) { nowPlaying = true }
                         }
                         if (playlistDialog) {
                             AlertDialog(
@@ -308,7 +444,41 @@ class MainActivity : ComponentActivity() {
                                 title = { Text(if (pendingTrack == null) "Create playlist" else "Add to playlist", color = Cream) },
                                 text = { Column {
                                     if (pendingTrack != null) {
-                                        Text("Add this song to:", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
+                                        val selectedTrack = tracks.firstOrNull { it.id == pendingTrack }
+                                        Text("QUEUE ACTIONS", color = Green, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            TextButton(onClick = {
+                                                selectedTrack?.let { enqueueTrack(it, playNext = true) }
+                                                playlistDialog = false; pendingTrack = null
+                                            }, enabled = selectedTrack != null, modifier = Modifier.weight(1f)) { Text("PLAY NEXT", color = Amber, fontSize = 10.sp) }
+                                            TextButton(onClick = {
+                                                selectedTrack?.let { enqueueTrack(it, playNext = false) }
+                                                playlistDialog = false; pendingTrack = null
+                                            }, enabled = selectedTrack != null, modifier = Modifier.weight(1f)) { Text("ADD TO QUEUE", color = Amber, fontSize = 10.sp) }
+                                        }
+                                        Divider(color = Cream.copy(alpha = .12f))
+                                        Text("MOOD COLLECTIONS", color = Green, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                             listOf("Calm", "Energy", "Focus", "Nostalgia").forEach { moodName ->
+                                                 FilterChip(
+                                                     selected = selectedTrack?.let { prefs().getString("mood:${it.id}", "") == moodName } == true,
+                                                     onClick = {
+                                                         selectedTrack?.let { track ->
+                                                             val edit = prefs().edit().putString("mood:${track.id}", moodName)
+                                                             listOf("Calm", "Energy", "Focus", "Nostalgia").forEach { name ->
+                                                                 val ids = prefs().getStringSet("mood_playlist:$name", emptySet()).orEmpty().toMutableSet()
+                                                                 if (name == moodName) ids.add(track.id.toString()) else ids.remove(track.id.toString())
+                                                                 edit.putStringSet("mood_playlist:$name", ids)
+                                                             }
+                                                             edit.apply()
+                                                         }
+                                                     },
+                                                     label = { Text(moodName, fontSize = 9.sp) }
+                                                 )
+                                             }
+                                         }
+                                         Divider(color = Cream.copy(alpha = .12f))
+                                         Text("ADD TO PLAYLIST", color = Cream.copy(alpha = .65f), fontSize = 12.sp)
                                         playlists.keys.sorted().forEach { name ->
                                             TextButton(onClick = {
                                                 val id = pendingTrack
@@ -339,41 +509,75 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun mediaItem(track: Track): MediaItem =
+        MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(
+            MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist)
+                .setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()
+        ).build()
+
+    private fun enqueueTrack(track: Track, playNext: Boolean) {
+        val c = controller ?: return
+        val item = mediaItem(track)
+        if (c.mediaItemCount == 0) {
+            c.setMediaItem(item)
+            c.prepare()
+            c.play()
+        } else if (playNext) {
+            c.addMediaItem((c.currentMediaItemIndex + 1).coerceIn(0, c.mediaItemCount), item)
+        } else {
+            c.addMediaItem(item)
+        }
+    }
+
+    private fun playRandomLibrary(source: List<Track>) {
+        if (source.isEmpty()) return
+        play(source, kotlin.random.Random.nextInt(source.size))
+    }
+
     private fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
         val selected = list.getOrNull(index) ?: return
-        val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
         val libraryPrefs = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+        val shuffleLibraryEnabled = libraryPrefs.getString("sort_mode", null) == "Shuffle"
+        val libraryShuffleIds = libraryPrefs.getString("library_shuffle_order", null)
+            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+        val tracksById = list.associateBy { it.id }
+        val libraryOrdered = if (shuffleLibraryEnabled && !libraryShuffleIds.isNullOrEmpty()) {
+            val ordered = libraryShuffleIds.mapNotNull { tracksById[it] }
+            val included = ordered.mapTo(HashSet<Long>()) { it.id }
+            ordered + list.filter { it.id !in included }
+        } else list
+
+        val dayKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
         val dailyShuffleDue = libraryPrefs.getString("daily_shuffle_day", null) != dayKey
         val savedOrder = libraryPrefs.getString("daily_shuffle_order", null)
             ?.split(",")?.mapNotNull { it.toLongOrNull() }
-        val tracksById = list.associateBy { it.id }
         val restoredOrder = savedOrder?.takeIf { ids ->
-            ids.size == list.size && ids.toSet().size == ids.size && ids.all { it in tracksById }
+            ids.size == libraryOrdered.size && ids.toSet().size == ids.size && ids.all { it in tracksById }
         }?.mapNotNull { tracksById[it] }
         val orderedTracks = when {
-            dailyShuffleDue && list.size > 1 -> list.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
+            shuffleLibraryEnabled -> libraryOrdered
+            dailyShuffleDue && libraryOrdered.size > 1 -> libraryOrdered.filter { it.id != selected.id }.shuffled().let { listOf(selected) + it }
             restoredOrder != null -> restoredOrder
-            else -> list
+            else -> libraryOrdered
         }
         if (dailyShuffleDue) libraryPrefs.edit()
             .putString("daily_shuffle_day", dayKey)
             .putString("daily_shuffle_order", orderedTracks.joinToString(",") { it.id.toString() })
             .apply()
         val queueIndex = orderedTracks.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-        c.setMediaItems(orderedTracks.map { track ->
-            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(MediaMetadata.Builder()
-                .setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()).build()
-        }, queueIndex, 0L)
+        c.setMediaItems(orderedTracks.map(::mediaItem), queueIndex, 0L)
         c.prepare(); c.play()
     }
 
     private fun scanLibrary(): List<Track> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.ALBUM_ID)
+            MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATE_ADDED, MediaStore.Audio.Media.IS_MUSIC)
         val found = mutableListOf<Track>()
-        contentResolver.query(uri, columns, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
+        // Do not filter by IS_MUSIC: Android often leaves legitimate audio files unclassified.
+        contentResolver.query(uri, columns, null, null, "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC")?.use { c ->
             val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val title = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -381,11 +585,15 @@ class MainActivity : ComponentActivity() {
             val duration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val data = c.getColumnIndex(MediaStore.Audio.Media.DATA)
             val albumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val dateAdded = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+            val isMusic = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_MUSIC)
             while (c.moveToNext()) {
                 val path = if (data >= 0) c.getString(data).orEmpty() else ""
+                val folderName = path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }
+                if (folderName.equals("Ringtones", true) || folderName.equals("Notifications", true) || folderName.equals("Alarms", true)) continue
                 found += Track(c.getLong(id), c.getString(title) ?: "Unknown title", c.getString(artist) ?: "Unknown artist",
                     c.getString(album) ?: "Unknown album", Uri.withAppendedPath(uri, c.getLong(id).toString()),
-                    c.getLong(duration), path.substringBeforeLast("/", "Music").substringAfterLast("/").ifBlank { "Music" }, c.getLong(albumId))
+                    c.getLong(duration), folderName, c.getLong(albumId), path, c.getLong(dateAdded), c.getInt(isMusic) != 0)
             }
         }
         return found
@@ -393,20 +601,27 @@ class MainActivity : ComponentActivity() {
 
     private fun prefs() = getSharedPreferences("analog_library", Context.MODE_PRIVATE)
     private fun currentAudioRoute(): String {
-        val manager = getSystemService(AudioManager::class.java)
-        val device = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET) }
-        return device?.productName?.toString()?.takeIf { it.isNotBlank() }?.let { "Connected: $it" } ?: "Phone speaker / other output"
+        val selection = OutputDeviceResolver.resolve(getSystemService(AudioManager::class.java))
+        if (selection.ambiguous) return selection.name
+        return selection.name.takeIf { it.isNotBlank() && it != "No output device detected" }
+            ?.let { "Connected: $it" } ?: "Phone speaker / other output"
     }
     private fun smartPlaylistTracks(name: String, source: List<Track>, favorites: Set<Long>): List<Track> {
         val counts = currentMonthPlayCounts()
+        val allTime = source.associate { track -> track.id to prefs().getInt("plays:${track.id}", 0) }
+        val lastPlayed: (Track) -> Long = { prefs().getLong("last_played:${it.id}", 0L) }
         val recentCutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
         return when (name) {
             "Most played this month" -> source.filter { (counts[it.id] ?: 0) > 0 }.sortedByDescending { counts[it.id] ?: 0 }
-            "Favourites" -> source.filter { it.id in favorites }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
-            "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
-            "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            "Most played all time" -> source.filter { (allTime[it.id] ?: 0) > 0 }.sortedWith(compareByDescending<Track> { allTime[it.id] ?: 0 }.thenBy { it.title.lowercase() })
+            "Recently played" -> source.filter { lastPlayed(it) >= recentCutoff }.sortedByDescending(lastPlayed)
+            "Never played" -> source.filter { (allTime[it.id] ?: 0) == 0 }.sortedBy { it.title.lowercase() }
+            "Favourites" -> source.filter { it.id in favorites }.sortedByDescending(lastPlayed)
+            "Quick Listen" -> source.filter { it.duration in 1L..240_000L }.sortedByDescending(lastPlayed)
+            "Long Listening" -> source.filter { it.duration >= 300_000L }.sortedByDescending(lastPlayed)
+            "Short tracks" -> source.filter { it.duration in 1L..180_000L }.sortedBy { it.duration }
             "Surprise Me" -> source.shuffled()
-            else -> source.filter { prefs().getLong("last_played:${it.id}", 0L) >= recentCutoff }.sortedByDescending { prefs().getLong("last_played:${it.id}", 0L) }
+            else -> source.filter { lastPlayed(it) >= recentCutoff }.sortedByDescending(lastPlayed)
         }
     }
 
@@ -441,12 +656,13 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() { future?.let { MediaController.releaseFuture(it) }; controller = null; super.onDestroy() }
 }
 
-@Composable private fun PermissionPage(onAllow: () -> Unit) {
+@Composable private fun PermissionPage(onAllow: () -> Unit, onOpenStudio: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(28.dp)) {
             Text("ANALOG", color = Amber, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
             Spacer(Modifier.height(12.dp)); Text("Your music. Your device. No signal required.", color = Cream)
             Spacer(Modifier.height(22.dp)); Button(onClick = onAllow) { Text("ALLOW MUSIC LIBRARY") }
+            Spacer(Modifier.height(10.dp)); TextButton(onClick = onOpenStudio) { Text("OPEN RECORDING STUDIO", color = Amber) }
         }
     }
 }
@@ -465,7 +681,7 @@ class MainActivity : ComponentActivity() {
     Box {
         TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null, tint = Amber); Spacer(Modifier.width(4.dp)); Text(selected, color = Amber, fontSize = 11.sp) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Least played", "Most played").forEach { mode ->
+            listOf("Title (A–Z)", "Title (Z–A)", "Artist", "Album", "Date added", "Shuffle", "Least played", "Most played", "Recently played", "Longest first", "Shortest first").forEach { mode ->
                 DropdownMenuItem(text = { Text(mode) }, onClick = { onSelected(mode); expanded = false })
             }
         }
@@ -504,8 +720,9 @@ class MainActivity : ComponentActivity() {
         IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onMore() }) { Icon(Icons.Default.MoreVert, null, tint = Cream.copy(alpha = .6f)) }
     }
 }
-@Composable private fun MiniPlayer(player: MediaController?, onOpen: () -> Unit) {
+@Composable private fun MiniPlayer(player: MediaController?, onRandomPlay: () -> Unit, onOpen: () -> Unit) {
     val hapticView = LocalView.current
+    val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Choose a track") }
     var artist by remember { mutableStateOf("ANALOG • OFFLINE") }
     var playing by remember { mutableStateOf(false) }
@@ -522,13 +739,14 @@ class MainActivity : ComponentActivity() {
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 1); Text(artist, color = Green, fontSize = 10.sp, maxLines = 1) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }) { Icon(Icons.Default.SkipPrevious, null, tint = Cream) }
-            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
+            IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else resumeOrRestart(player) }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Amber) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }) { Icon(Icons.Default.SkipNext, null, tint = Cream) }
         }
     }
 }
-@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onBack: () -> Unit, onVisualizer: () -> Unit, onFavorite: (Long) -> Unit) {
+@Composable private fun PlayerPage(player: MediaController?, tracks: List<Track>, favorites: Set<Long>, onRandomPlay: () -> Unit, onArtistRadio: (Long) -> Unit, onAlbumShuffle: (Long) -> Unit, onBack: () -> Unit, onFavorite: (Long) -> Unit, onSleepTimer: (Int) -> Unit, onSleepTimerEndTrack: () -> Unit, onCancelSleepTimer: () -> Unit) {
     val hapticView = LocalView.current
+    val playerContext = LocalContext.current
     var title by remember { mutableStateOf("Nothing playing") }
     var artist by remember { mutableStateOf("Choose a song from your library") }
     var playing by remember { mutableStateOf(false) }
@@ -536,6 +754,11 @@ class MainActivity : ComponentActivity() {
     var position by remember { mutableFloatStateOf(0f) }
     var trackId by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    var showQueueSets by remember { mutableStateOf(false) }
+    var queueSetName by remember { mutableStateOf("") }
+    var queueSetVersion by remember { mutableIntStateOf(0) }
+    var customSleepMinutes by remember { mutableStateOf("90") }
+    val libraryPrefs = remember(playerContext) { playerContext.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
     var artAccent by remember { mutableStateOf(DefaultAmber) }
     var dynamicBackground by remember { mutableStateOf(Color(0xFF151713)) }
     val reflectionTransition = rememberInfiniteTransition(label = "artwork-reflection")
@@ -551,9 +774,9 @@ class MainActivity : ComponentActivity() {
     val themedMuted = androidx.compose.ui.graphics.lerp(themedText, themedBackground, .34f)
     var currentQueueIndex by remember { mutableIntStateOf(-1) }
     var shuffleEnabled by remember { mutableStateOf(false) }
+    var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
     var fileInfo by remember { mutableStateOf("Reading audio file details…") }
-    val playerContext = LocalContext.current
     LaunchedEffect(trackId) {
         val uri = tracks.firstOrNull { it.id == trackId }?.uri
         fileInfo = if (uri == null) "LOCAL AUDIO" else withContext(Dispatchers.IO) {
@@ -580,6 +803,7 @@ class MainActivity : ComponentActivity() {
         trackId = player?.currentMediaItem?.mediaId?.toLongOrNull()
         currentQueueIndex = player?.currentMediaItemIndex ?: -1
         shuffleEnabled = player?.shuffleModeEnabled ?: false
+        repeatMode = player?.repeatMode ?: Player.REPEAT_MODE_OFF
     }
     LaunchedEffect(trackId) {
         artAccent = DefaultAmber
@@ -589,6 +813,8 @@ class MainActivity : ComponentActivity() {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = syncPlayerState()
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { shuffleEnabled = shuffleModeEnabled }
+            override fun onRepeatModeChanged(repeatMode: Int) { syncPlayerState() }
             override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         }
         player?.addListener(listener)
@@ -602,12 +828,12 @@ class MainActivity : ComponentActivity() {
             delay(if (player.isPlaying) 250L else 1000L)
         }
     }
-    Column(Modifier.fillMaxSize().background(themedBackground).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().background(themedBackground).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = themedText) }
             Text("NOW PLAYING", color = themedAccent, fontSize = 12.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Playback queue", tint = themedText) }
-            IconButton(onClick = onVisualizer) { Icon(Icons.Default.GraphicEq, null, tint = themedAccent) }
+            TextButton(onClick = { showQueueSets = true; queueSetVersion++ }) { Text("SETLISTS", color = themedAccent, fontSize = 9.sp, letterSpacing = .8.sp) }
         }
         Spacer(Modifier.height(20.dp))
         val currentTrack = tracks.firstOrNull { it.id == trackId }
@@ -727,17 +953,148 @@ class MainActivity : ComponentActivity() {
         }
         Slider(value = position, onValueChange = { position = it }, onValueChangeFinished = { player?.seekTo(position.toLong()) }, valueRange = 0f..duration, colors = SliderDefaults.colors(thumbColor = themedAccent, activeTrackColor = themedAccent, inactiveTrackColor = themedMuted.copy(alpha = .30f)))
         Row { Text(timeText(position.toLong()), color = themedMuted, fontSize = 10.sp); Spacer(Modifier.weight(1f)); Text(timeText(duration.toLong()), color = themedMuted, fontSize = 10.sp) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { player?.let { it.seekTo((it.currentPosition - 10_000L).coerceAtLeast(0L)) } }) {
+                Icon(Icons.Default.Replay10, null, tint = themedAccent)
+                Text(" 10 SEC", color = themedMuted, fontSize = 9.sp)
+            }
+            Spacer(Modifier.width(24.dp))
+            TextButton(onClick = { player?.let { p -> p.seekTo((p.currentPosition + 30_000L).coerceAtMost(p.duration.coerceAtLeast(0L))) } }) {
+                Text("30 SEC ", color = themedMuted, fontSize = 9.sp)
+                Icon(Icons.Default.Forward30, null, tint = themedAccent)
+            }
+        }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.shuffleModeEnabled = !(player?.shuffleModeEnabled ?: false) }) { Icon(Icons.Default.Shuffle, null, tint = themedAccent) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToPrevious() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = themedText, modifier = Modifier.size(36.dp)) }
-            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else player?.play() }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
+            FilledIconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); if (playing) player?.pause() else if (player?.mediaItemCount == 0 || player?.currentMediaItem == null) onRandomPlay() else resumeOrRestart(player) }, modifier = Modifier.size(68.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = themedAccent)) {
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = themedBackground, modifier = Modifier.size(38.dp))
             }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.seekToNext() }, modifier = Modifier.size(54.dp)) { Icon(Icons.Default.SkipNext, null, tint = Cream, modifier = Modifier.size(36.dp)) }
             IconButton(onClick = { hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); player?.repeatMode = ((player?.repeatMode ?: 0) + 1) % 3 }) { Icon(Icons.Default.Repeat, null, tint = themedAccent) }
         }
-        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(if (shuffleEnabled) "SHUFFLE ON" else "SHUFFLE OFF", color = if (shuffleEnabled) themedAccent else themedMuted, fontSize = 9.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.width(18.dp))
+            Text("REPEAT • " + when (repeatMode) { Player.REPEAT_MODE_ONE -> "ONE"; Player.REPEAT_MODE_ALL -> "ALL"; else -> "OFF" }, color = if (repeatMode == Player.REPEAT_MODE_OFF) themedMuted else themedAccent, fontSize = 9.sp, letterSpacing = 1.sp)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { trackId?.let(onArtistRadio) }, enabled = trackId != null, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.GraphicEq, null, tint = themedAccent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("ARTIST RADIO", color = themedText, fontSize = 9.sp, maxLines = 1)
+            }
+            OutlinedButton(onClick = { trackId?.let(onAlbumShuffle) }, enabled = trackId != null, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Shuffle, null, tint = themedAccent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("SHUFFLE ALBUM", color = themedText, fontSize = 9.sp, maxLines = 1)
+            }
+        }
+        Column(Modifier.fillMaxWidth().background(themedPanel, RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.width(8.dp))
+                Text("SLEEP TIMER", color = themedAccent, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onCancelSleepTimer) { Text("CANCEL", color = themedMuted, fontSize = 9.sp) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 30, 45, 60).forEach { minutes ->
+                    OutlinedButton(onClick = { onSleepTimer(minutes) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)) {
+                        Text("$minutes MIN", color = themedText, fontSize = 9.sp, maxLines = 1)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = customSleepMinutes,
+                    onValueChange = { customSleepMinutes = it.filter(Char::isDigit).take(3) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("Custom minutes") },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = themedText, fontSize = 12.sp)
+                )
+                Button(onClick = { customSleepMinutes.toIntOrNull()?.takeIf { it in 1..720 }?.let(onSleepTimer) },
+                    enabled = customSleepMinutes.toIntOrNull()?.let { it in 1..720 } == true) { Text("SET", fontSize = 10.sp) }
+            }
+            OutlinedButton(onClick = onSleepTimerEndTrack, modifier = Modifier.fillMaxWidth()) {
+                Text("STOP AFTER CURRENT TRACK", color = themedAccent, fontSize = 9.sp)
+            }
+        }
+        PlayerMoodPanel(trackId = trackId, track = tracks.firstOrNull { it.id == trackId }, accent = themedAccent, panel = themedPanel, muted = themedMuted)
+        Spacer(Modifier.height(12.dp))
+    }
+    if (showQueueSets) {
+        val savedNames = remember(queueSetVersion) {
+            libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toList().sorted()
+        }
+        AlertDialog(
+            onDismissRequest = { showQueueSets = false },
+            containerColor = themedBackground,
+            title = { Text("SAVED SETLISTS", color = themedAccent, fontSize = 14.sp, letterSpacing = 1.4.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Save and recall complete playback queues from your local library.", color = themedMuted, fontSize = 11.sp)
+                    OutlinedTextField(value = queueSetName, onValueChange = { queueSetName = it.take(36) }, singleLine = true,
+                        label = { Text("Setlist name") }, placeholder = { Text("Late night listening") })
+                    Button(
+                        onClick = {
+                            val name = queueSetName.trim()
+                            val current = player
+                            if (name.isNotEmpty() && current != null && current.mediaItemCount > 0) {
+                                val ids = (0 until current.mediaItemCount).mapNotNull { current.getMediaItemAt(it).mediaId.toLongOrNull() }
+                                if (ids.isNotEmpty()) {
+                                    val names = libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toMutableSet()
+                                    names.add(name)
+                                    libraryPrefs.edit().putStringSet("saved_queue_set_names", names)
+                                        .putString("saved_queue_set:$name", ids.joinToString(",")).apply()
+                                    queueSetName = ""
+                                    queueSetVersion++
+                                }
+                            }
+                        },
+                        enabled = !queueSetName.isBlank() && (player?.mediaItemCount ?: 0) > 0,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("SAVE CURRENT QUEUE") }
+                    Divider(color = themedMuted.copy(alpha = .2f))
+                    if (savedNames.isEmpty()) Text("No saved setlists yet.", color = themedMuted, fontSize = 12.sp)
+                    else LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                        items(savedNames) { name ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(name, color = themedText, maxLines = 1)
+                                    val count = libraryPrefs.getString("saved_queue_set:$name", "").orEmpty().split(",").count { it.toLongOrNull() != null }
+                                    Text("$count tracks", color = themedMuted, fontSize = 9.sp)
+                                }
+                                TextButton(onClick = {
+                                    val ids = libraryPrefs.getString("saved_queue_set:$name", "").orEmpty()
+                                        .split(",").mapNotNull { it.toLongOrNull() }
+                                    val byId = tracks.associateBy { it.id }
+                                    val restored = ids.mapNotNull { byId[it] }
+                                    if (restored.isNotEmpty()) {
+                                        player?.setMediaItems(restored.map { track ->
+                                            MediaItem.Builder().setMediaId(track.id.toString()).setUri(track.uri).setMediaMetadata(
+                                                MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).setArtworkUri(track.artUri()).build()
+                                            ).build()
+                                        }, 0, 0L)
+                                        player?.prepare()
+                                        player?.play()
+                                        showQueueSets = false
+                                    }
+                                }) { Text("LOAD", color = themedAccent, fontSize = 9.sp) }
+                                TextButton(onClick = {
+                                    val names = libraryPrefs.getStringSet("saved_queue_set_names", emptySet()).orEmpty().toMutableSet()
+                                    names.remove(name)
+                                    libraryPrefs.edit().putStringSet("saved_queue_set_names", names).remove("saved_queue_set:$name").apply()
+                                    queueSetVersion++
+                                }) { Text("DELETE", color = themedMuted, fontSize = 9.sp) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQueueSets = false }) { Text("DONE") } }
+        )
     }
     if (showQueue) {
         AlertDialog(
@@ -758,14 +1115,54 @@ class MainActivity : ComponentActivity() {
                                     Text(item.mediaMetadata.title?.toString() ?: "Unknown title", color = themedText, maxLines = 1)
                                     Text(item.mediaMetadata.artist?.toString() ?: "Unknown artist", color = themedMuted, fontSize = 10.sp)
                                 }
-                                IconButton(onClick = { player.removeMediaItem(index) }) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
+                                IconButton(onClick = { if (index > 0) player.moveMediaItem(index, index - 1) }, enabled = index > 0, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Default.KeyboardArrowUp, "Move track up", tint = if (index > 0) themedAccent else themedMuted.copy(alpha = .25f))
+                                }
+                                IconButton(onClick = { if (index < player.mediaItemCount - 1) player.moveMediaItem(index, index + 1) }, enabled = index < player.mediaItemCount - 1, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Default.KeyboardArrowDown, "Move track down", tint = if (index < player.mediaItemCount - 1) themedAccent else themedMuted.copy(alpha = .25f))
+                                }
+                                IconButton(onClick = { player.removeMediaItem(index) }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.Close, "Remove from queue", tint = themedMuted) }
                             }
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("DONE") } }
+
+            confirmButton = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { player?.clearMediaItems() }) { Text("CLEAR QUEUE", color = themedMuted) }
+                    TextButton(onClick = { showQueue = false }) { Text("DONE") }
+                }
+            }
         )
+    }
+}
+
+@Composable
+private fun PlayerMoodPanel(trackId: Long?, track: Track?, accent: Color, panel: Color, muted: Color) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("analog_library", Context.MODE_PRIVATE) }
+    var mood by remember(trackId) { mutableStateOf(trackId?.let { prefs.getString("mood:$it", "Unsorted") } ?: "Unsorted") }
+    val moodNames = listOf("Focus", "Calm", "Energy", "Nostalgia")
+    fun assignMood(label: String) {
+        val id = trackId ?: return
+        mood = label
+        val edit = prefs.edit().putString("mood:$id", label)
+        moodNames.forEach { name ->
+            val ids = prefs.getStringSet("mood_playlist:$name", emptySet()).orEmpty().toMutableSet()
+            if (name == label) ids.add(id.toString()) else ids.remove(id.toString())
+            edit.putStringSet("mood_playlist:$name", ids)
+        }
+        edit.apply()
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp).background(panel, RoundedCornerShape(16.dp)).border(1.dp, accent.copy(alpha = .22f), RoundedCornerShape(16.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("LISTENING MOOD", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
+        Text(track?.let { "${it.title} • ${it.album}" } ?: "Choose a track to assign a mood", color = muted, fontSize = 9.sp, maxLines = 1)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            moodNames.forEach { label ->
+                FilterChip(selected = mood == label, onClick = { assignMood(label) }, enabled = trackId != null, label = { Text(label, fontSize = 9.sp) })
+            }
+        }
     }
 }
 

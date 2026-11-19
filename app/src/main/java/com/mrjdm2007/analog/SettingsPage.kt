@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,10 +42,11 @@ fun SettingsPage(
     onCrossfadeChanged: (Int) -> Unit,
     onHeadsetSetting: (String, String) -> Unit,
     onEffects: () -> Unit,
-    onVisualizer: () -> Unit,
     onSleepTimer: (Int) -> Unit,
     onSleepTimerEndTrack: () -> Unit,
     onCancelSleepTimer: () -> Unit,
+    sleepFadeSeconds: Int,
+    onSleepFadeSecondsChanged: (Int) -> Unit,
     onMonthlyRecap: () -> Unit,
     onRescan: () -> Unit,
     onBack: () -> Unit
@@ -126,6 +126,13 @@ fun SettingsPage(
                     Column(Modifier.padding(12.dp)) {
                         Text("Sleep timer", color = SettingsCream, fontWeight = FontWeight.SemiBold)
                         Text("Pause playback automatically after a chosen interval.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp)
+                        ActionDropdown(
+                            "Gentle fade-out before pause",
+                            if (sleepFadeSeconds == 0) "Off" else "$sleepFadeSeconds seconds",
+                            listOf("Off", "5 seconds", "10 seconds", "15 seconds", "30 seconds")
+                        ) {
+                            onSleepFadeSecondsChanged(it.substringBefore(" ").toIntOrNull() ?: 0)
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
                             listOf(15, 30, 45, 60).forEach { minutes -> TextButton(onClick = { onSleepTimer(minutes) }) { Text("${minutes}m", color = SettingsAmber) } }
                         }
@@ -139,7 +146,6 @@ fun SettingsPage(
                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C18)), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column {
                         TextButton(onClick = onEffects, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Icon(Icons.Default.GraphicEq, null); Spacer(Modifier.width(8.dp)); Text("Audio effects & equalizer") }
-                        TextButton(onClick = onVisualizer, modifier = Modifier.fillMaxWidth().padding(8.dp)) { Icon(Icons.Default.Visibility, null); Spacer(Modifier.width(8.dp)); Text("Visualizer") }
                     }
                 }
             }
