@@ -761,6 +761,26 @@ final class AnalogPlayer: ObservableObject {
         startTrack(queue[nextIndex], at: 0)
     }
 
+    /// Rebuilds the upcoming gapless schedule after playback-mode changes.
+    /// The current track is resumed from its latest published position and is not
+    /// counted as a new play. When playback is paused, it stays paused.
+    func refreshPlaybackSchedule(force: Bool = false) {
+        guard let track = currentTrack else { return }
+        guard force || gaplessPlaybackEnabled else { return }
+
+        let wasPlaying = isPlaying
+        let resumeAt = min(max(0, currentTime), max(0, track.duration))
+        guard resumeAt < track.duration else { return }
+
+        startTrack(track, at: resumeAt, recordPlay: false)
+        if !wasPlaying {
+            playerNode.pause()
+            isPlaying = false
+            timer?.invalidate()
+            updateSystemNowPlayingInfo()
+        }
+    }
+
     private func startClock() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
