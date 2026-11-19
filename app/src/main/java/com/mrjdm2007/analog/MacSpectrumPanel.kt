@@ -15,8 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -82,7 +80,8 @@ fun MacSpectrumPanel(
             val result = runCatching {
                 Visualizer(audioSessionId).apply {
                     val range = Visualizer.getCaptureSizeRange()
-                    captureSize = 1024.coerceIn(range[0], range[1])
+                    val fftCaptureSize = 1024.coerceIn(range[0], range[1])
+                    captureSize = fftCaptureSize
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                         override fun onWaveFormDataCapture(
                             visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int
@@ -94,7 +93,7 @@ fun MacSpectrumPanel(
                             if (!resumed || fft == null || fft.size < 8) return
                             val fftBins = fft.size / 2
                             val sampleRateHz = samplingRate / 1000.0
-                            val binHz = sampleRateHz / captureSize.coerceAtLeast(1)
+                            val binHz = sampleRateHz / fftCaptureSize.coerceAtLeast(1)
                             val upperFrequency = min(16_000.0, sampleRateHz * 0.45)
                             val next = FloatArray(36)
                             for (index in 0 until 36) {
