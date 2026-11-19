@@ -289,7 +289,7 @@ fun VisualizerScreen(
                     Spacer(Modifier.weight(1f))
                     Text("16 kHz", color = VisualMuted, fontSize = 8.sp)
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     VisualMetric("SOURCE", "POST-EQ", Modifier.weight(1f))
                     VisualMetric("BANDS", "36", Modifier.weight(1f))
                     VisualMetric("RANGE", "35 Hz–16 kHz", Modifier.weight(1f))
@@ -328,30 +328,30 @@ fun VisualizerScreen(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(visualTime(position), color = VisualMuted, fontSize = 9.sp)
             Slider(value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()), onValueChange = { position = it.toLong() }, onValueChangeFinished = { player?.seekTo(position) }, valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.weight(1f).height(26.dp), colors = SliderDefaults.colors(thumbColor = VisualCream, activeTrackColor = VisualAmber, inactiveTrackColor = VisualMuted.copy(alpha = .28f)))
             Text(visualTime(duration), color = VisualMuted, fontSize = 9.sp)
-            IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream) }
-            FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(40.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk) }
-            IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.SkipNext, null, tint = VisualCream) }
+            IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
+            FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk, modifier = Modifier.size(30.dp)) }
+            IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipNext, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
         }
     }
 }
 
 @Composable
 private fun VisualMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 6.dp)) {
-        Text(value, color = VisualCream, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(label, color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+    Column(modifier.heightIn(min = 32.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+        Text(value, color = VisualCream, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
     }
 }
 
 @Composable
 private fun VisualDetail(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 5.dp)) {
+    Column(modifier.heightIn(min = 30.dp).background(VisualRaised.copy(alpha = .72f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) {
         Text(label, color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp, maxLines = 1)
-        Text(value, color = VisualCream, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(value, color = VisualCream, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
