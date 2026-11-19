@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
             var effects by remember { mutableStateOf(false) }
             var recap by remember { mutableStateOf(false) }
             var studio by remember { mutableStateOf(false) }
+            var visualizer by remember { mutableStateOf(false) }
             var outputRoute by remember { mutableStateOf(currentAudioRoute()) }
             var headphoneDetectionEnabled by remember { mutableStateOf(prefs().getBoolean("headphone_detection_enabled", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
@@ -267,9 +268,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(Unit) { WeeklyLibraryScanWorker.schedule(this@MainActivity) }
-            BackHandler(enabled = settings || studio || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
+            BackHandler(enabled = settings || studio || visualizer || effects || recap || nowPlaying || (tab == "Playlists" && activePlaylist != null)) {
                 when {
                     studio -> studio = false
+                    visualizer -> visualizer = false
                     settings -> settings = false
                     effects -> effects = false
                     recap -> recap = false
@@ -279,6 +281,12 @@ class MainActivity : ComponentActivity() {
             }
             MaterialTheme(colorScheme = darkColorScheme(primary = Amber, onPrimary = Ink, background = Ink, surface = Panel, onBackground = Cream, onSurface = Cream, secondary = Green)) {
                 when {
+                    visualizer -> VisualizerScreen(
+                        audioSessionId = prefs().getInt("audio_session_id", 0),
+                        audioPermissionGranted = audioAllowed,
+                        onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) },
+                        onBack = { visualizer = false }
+                    )
                     studio -> StudioScreen(audioPermissionGranted = audioAllowed, onRequestPermission = { askAudio.launch(Manifest.permission.RECORD_AUDIO) }, onBack = { studio = false })
                     !libraryAllowed -> PermissionPage(
                         onAllow = { askLibrary.launch(readPermission) },
@@ -374,6 +382,11 @@ class MainActivity : ComponentActivity() {
                             SearchBox(search) { search = it }
                             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("MUSIC LIBRARY", color = Green.copy(alpha = .8f), fontSize = 9.sp, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { visualizer = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }) {
+                                    Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Amber)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("VISUALIZER", color = Amber, fontSize = 10.sp, letterSpacing = 1.sp)
+                                }
                                 TextButton(onClick = { studio = true; if (!audioAllowed) askAudio.launch(Manifest.permission.RECORD_AUDIO) }) {
                                     Icon(Icons.Default.Mic, contentDescription = null, tint = Amber)
                                     Spacer(Modifier.width(5.dp))
