@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -306,7 +308,7 @@ fun VisualizerScreen(
                         if (currentTrack != null && currentTrack.albumId > 0L) AsyncImage(model = currentTrack.artUri(), contentDescription = currentTrack.album, modifier = Modifier.fillMaxSize().padding(3.dp), contentScale = ContentScale.Crop)
                         else Text("A", color = VisualAmber, fontSize = 38.sp, fontWeight = FontWeight.Black)
                     }
-                    Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1.2f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(title, color = VisualCream, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                         Text(artist, color = VisualMuted, fontSize = 9.sp, maxLines = 1)
                         Text("ALBUM  •  $album", color = VisualMuted, fontSize = 8.sp, maxLines = 1)
