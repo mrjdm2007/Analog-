@@ -15,7 +15,6 @@ private enum AnalogPalette {
 struct ContentView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @EnvironmentObject private var recorder: AnalogRecorder
-    @Environment(\.openWindow) private var openWindow
     @State private var mainWindowVisible = true
 
     var body: some View {
@@ -82,12 +81,6 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-            Button { openWindow(id: "mini-player") } label: {
-                Label("MINI PLAYER", systemImage: "pip")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
-            }
-            .buttonStyle(AnalogOutlineButton())
             Button { player.importMusicFolder() } label: {
                 Label("ADD MUSIC", systemImage: "folder.badge.plus")
                     .font(.system(size: 10, weight: .bold))
@@ -560,7 +553,8 @@ struct EqualizerView: View {
     @State private var renameDevicePresetText = ""
     @State private var showingDevicePresetRename = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MASTER EQUALIZER").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
@@ -752,8 +746,11 @@ struct EqualizerView: View {
                 Text("This is a native 10-band DSP equalizer in the Mac playback signal path. It does not depend on a system-wide audio effect or another app.")
                     .font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
             }.padding(12).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 9))
-            Spacer()
-        }.padding(22)
+            }
+            .padding(22)
+        }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private func freqLabel(_ value: Float) -> String { value >= 1000 ? String(format: "%.0fk", value / 1000) : String(format: "%.0f", value) }
 }
