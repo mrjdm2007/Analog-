@@ -30,6 +30,7 @@ import kotlin.math.hypot
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 private val VizBg = Color(0xFF090D0B)
 private val VizPanel = Color(0xFF141B16)
@@ -39,7 +40,7 @@ private val VizAmber = Color(0xFFFFB45B)
 private val VizGreen = Color(0xFFB5D69B)
 
 private enum class VisualMode(val label: String) {
-    SPECTRUM("Spectrum"), WAVEFORM("Oscilloscope"), VU("VU meters")
+    SPECTRUM("Spectrum"), WAVEFORM("Oscilloscope"), VU("VU meter")
 }
 
 @Composable
@@ -57,8 +58,7 @@ fun VisualizerScreen(
     var colorIndex by remember { mutableIntStateOf(0) }
     var waveform by remember { mutableStateOf(FloatArray(0)) }
     var spectrum by remember { mutableStateOf(FloatArray(0)) }
-    var leftLevel by remember { mutableFloatStateOf(0f) }
-    var rightLevel by remember { mutableFloatStateOf(0f) }
+    var vuLevel by remember { mutableFloatStateOf(0f) }
     var captureAvailable by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
 
@@ -101,8 +101,11 @@ fun VisualizerScreen(
                         override fun onWaveFormDataCapture(effect: Visualizer?, bytes: ByteArray?, samplingRate: Int) {
                             if (!resumed || bytes == null) return
                             val values = FloatArray(bytes.size) { i -> ((bytes[i].toInt() and 0xFF) - 128) / 128f }
+                            val rms = if (values.isNotEmpty()) kotlin.math.sqrt(values.map { it * it }.average()).toFloat() else 0f
+                            val peak = values.maxOfOrNull { abs(it) } ?: 0f
+                            val level = (rms * 2.8f + peak * 0.12f).coerceIn(0f, 1f)
                             mainHandler.post {
-                                if (resumed) waveform = values
+                                if (resumed) { waveform = values; vuLevel = level }
                             }
                         }
                         override fun onFftDataCapture(effect: Visualizer?, bytes: ByteArray?, samplingRate: Int) {
@@ -118,9 +121,7 @@ fun VisualizerScreen(
                             mainHandler.post {
                                 if (resumed) {
                                     spectrum = low
-                                    val half = max(1, low.size / 2)
-                                    leftLevel = low.take(half).average().toFloat().coerceIn(0f, 1f)
-                                    rightLevel = low.drop(half).average().toFloat().coerceIn(0f, 1f)
+                                    // FFT bins are frequency bins, not separate stereo channels.
                                 }
                             }
                         }
@@ -143,8 +144,7 @@ fun VisualizerScreen(
                 mainHandler.removeCallbacksAndMessages(null)
                 waveform = FloatArray(0)
                 spectrum = FloatArray(0)
-                leftLevel = 0f
-                rightLevel = 0f
+                vuLevel = 0f
                 captureAvailable = false
             }
         }
@@ -192,8 +192,9 @@ fun VisualizerScreen(
                         val gap = 3.dp.toPx()
                         val barWidth = ((w - gap * (count - 1)) / count).coerceAtLeast(1f)
                         for (i in 0 until count) {
-                            val start = (i.toFloat() / count * spectrum.size).toInt().coerceIn(0, max(0, spectrum.lastIndex))
-                            val end = (((i + 1f) / count * spectrum.size).toInt()).coerceIn(start + 1, max(start + 1, spectrum.size))
+                            val maxBin = (spectrum.size - 1).coerceAtLeast(1)
+                            val start = maxBin.toDouble().pow(i.toDouble() / count).toInt().coerceIn(0, maxBin)
+                            val end = maxBin.toDouble().pow((i + 1).toDouble() / count).toInt().coerceAtLeast(start + 1).coerceAtMost(spectrum.size)
                             val raw = if (spectrum.isNotEmpty()) spectrum.slice(start until min(end, spectrum.size)).maxOrNull() ?: 0f else 0f
                             val shaped = (raw * sensitivity).coerceIn(0f, 1f)
                             val barHeight = max(2.dp.toPx(), shaped * h * .88f)
@@ -221,11 +222,13 @@ fun VisualizerScreen(
                     }
                     VisualMode.VU -> {
                         val meterWidth = w * .34f
-                        listOf(leftLevel, rightLevel).forEachIndexed { index, level ->
-                            val top = h * (.27f + index * .34f)
-                            val x = (w - meterWidth) / 2f
-                            drawRoundRect(VizMuted.copy(alpha = .18f), Offset(x, top), androidx.compose.ui.geometry.Size(meterWidth, h * .12f), androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
-                            drawRoundRect(colors[0], Offset(x, top), androidx.compose.ui.geometry.Size(meterWidth * (level * sensitivity).coerceIn(0f, 1f), h * .12f), androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
+                        val top = h * .44f
+                        val x = (w - meterWidth) / 2f
+                        drawRoundRect(VizMuted.copy(alpha = .18f), Offset(x, top), androidx.compose.ui.geometry.Size(meterWidth, h * .14f), androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
+                        drawRoundRect(colors[0], Offset(x, top), androidx.compose.ui.geometry.Size(meterWidth * (vuLevel * sensitivity).coerceIn(0f, 1f), h * .14f), androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
+                        for (tick in 1..10) {
+                            val tx = x + meterWidth * tick / 11f
+                            drawLine(VizBg, Offset(tx, top), Offset(tx, top + h * .14f), 1.dp.toPx())
                         }
                     }
                 }
@@ -257,7 +260,7 @@ fun VisualizerScreen(
                     Box(Modifier.padding(start = 8.dp).size(22.dp).background(palette[0], RoundedCornerShape(50)).clickable { colorIndex = index })
                 }
             }
-            Text("Analysis runs only while this screen is visible and the activity is resumed. Playback and EQ continue independently.", color = VizMuted, fontSize = 10.sp, lineHeight = 15.sp)
+            Text("Analysis runs only while this screen is visible, the activity is resumed and music is playing. Playback and EQ continue independently.", color = VizMuted, fontSize = 10.sp, lineHeight = 15.sp)
         }
         Spacer(Modifier.height(8.dp))
     }
