@@ -114,11 +114,5 @@ struct AnalogMacApp: App {
                     .keyboardShortcut(",", modifiers: [.command])
             }
         }
-        Window("Analog Mini Player", id: "mini-player") {
-            MiniPlayerView().environmentObject(player)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 360, height: 84)
-        .windowResizability(.contentSize)
     }
 }
