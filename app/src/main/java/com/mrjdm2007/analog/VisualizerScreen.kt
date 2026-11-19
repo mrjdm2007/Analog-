@@ -46,6 +46,7 @@ private enum class VisualMode(val label: String) {
 fun VisualizerScreen(
     audioSessionId: Int,
     audioPermissionGranted: Boolean,
+    playbackActive: Boolean,
     onRequestPermission: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -69,10 +70,10 @@ fun VisualizerScreen(
     )
     val colors = palettes[colorIndex]
 
-    DisposableEffect(lifecycleOwner, audioSessionId, audioPermissionGranted) {
-        if (!audioPermissionGranted || audioSessionId <= 0) {
+    DisposableEffect(lifecycleOwner, audioSessionId, audioPermissionGranted, playbackActive) {
+        if (!audioPermissionGranted || audioSessionId <= 0 || !playbackActive) {
             captureAvailable = false
-            captureError = if (!audioPermissionGranted) "Microphone permission is required for Android's playback visualizer API." else "Start playback to connect the visualizer."
+            captureError = if (!audioPermissionGranted) "Microphone permission is required for Android's playback visualizer API." else if (!playbackActive) "Start or resume playback to activate the visualizer." else "Waiting for the playback audio session."
             onDispose { }
         } else {
             val mainHandler = Handler(Looper.getMainLooper())
