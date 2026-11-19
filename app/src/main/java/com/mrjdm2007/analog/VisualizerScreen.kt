@@ -118,8 +118,8 @@ fun VisualizerScreen(
         onDispose { player?.removeListener(listener) }
     }
 
-    LaunchedEffect(player) {
-        while (player != null) {
+    LaunchedEffect(player, resumed) {
+        while (player != null && resumed) {
             position = player.currentPosition.coerceAtLeast(0L)
             duration = player.duration.takeIf { it > 0L } ?: 0L
             playing = player.isPlaying
