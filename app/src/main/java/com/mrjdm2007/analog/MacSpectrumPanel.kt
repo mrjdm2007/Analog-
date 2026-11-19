@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -224,11 +225,17 @@ fun MacSpectrumPanel(
             Text("16 kHz", color = SpectrumMuted, fontSize = 8.sp)
         }
         if (!audioPermissionGranted) {
-            Text(
-                "Enable audio analysis to view the live spectrum.",
-                color = SpectrumMuted,
-                fontSize = 9.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Audio permission is needed for live analysis.",
+                    color = SpectrumMuted,
+                    fontSize = 9.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onRequestPermission, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                    Text("ENABLE", color = SpectrumAmber, fontSize = 9.sp, letterSpacing = 1.sp)
+                }
+            }
         } else if (!playbackActive || !captureReady) {
             Text(
                 captureError ?: "Waiting for playback…",
