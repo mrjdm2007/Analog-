@@ -107,13 +107,21 @@ private data class Group(val title: String, val subtitle: String, val tracks: Li
 
 class MainActivity : ComponentActivity() {
     private fun setVisualizerImmersive(enabled: Boolean) {
+        // Keep Analog edge-to-edge in every screen. Android still permits a swipe
+        // gesture to temporarily reveal system bars and the notification shade.
         val bars = WindowInsetsControllerCompat(window, window.decorView)
-        if (enabled) {
-            bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            bars.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            bars.show(WindowInsetsCompat.Type.systemBars())
-        }
+        bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        bars.hide(WindowInsetsCompat.Type.systemBars())
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) setVisualizerImmersive(false)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setVisualizerImmersive(false)
     }
     private var visualizerPreviousOrientation: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var future: ListenableFuture<MediaController>? = null
@@ -121,6 +129,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setVisualizerImmersive(false)
         future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         future?.addListener({ runCatching { controller = future?.get() } }, ContextCompat.getMainExecutor(this))
 
