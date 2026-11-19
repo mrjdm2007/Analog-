@@ -383,6 +383,7 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(peakGuardThresholdDB, forKey: "peakGuardThresholdDB")
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
+        syncActiveDevicePresetFromCurrentSettings()
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
@@ -1102,6 +1103,26 @@ final class AnalogPlayer: ObservableObject {
         autoMatchOutputDevice = enabled
         if enabled { applyMatchingDevicePreset(for: outputDeviceName) }
         persistState()
+    }
+
+    private func syncActiveDevicePresetFromCurrentSettings() {
+        guard let activeName = activeDevicePresetName,
+              let index = devicePresets.firstIndex(where: {
+                  normalizedDeviceName($0.name) == normalizedDeviceName(activeName)
+              }) else { return }
+        devicePresets[index] = EQDevicePreset(
+            id: devicePresets[index].id,
+            name: devicePresets[index].name,
+            gains: eqGains,
+            bandwidths: eqBandwidths,
+            preampDB: preampDB,
+            eqEnabled: eqEnabled,
+            crossfeedEnabled: crossfeedEnabled,
+            crossfeedAmount: crossfeedAmount,
+            peakGuardEnabled: peakGuardEnabled,
+            peakGuardThresholdDB: peakGuardThresholdDB,
+            stereoPan: stereoPan
+        )
     }
 
     func saveDevicePreset(named rawName: String) {
