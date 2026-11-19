@@ -1068,7 +1068,7 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func normalizedDeviceName(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive], locale: .current)
     }
 
     private func handleOutputDeviceChange(_ name: String) {
