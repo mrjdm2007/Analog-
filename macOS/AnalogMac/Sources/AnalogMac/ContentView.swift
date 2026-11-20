@@ -21,7 +21,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if visualizerFocusMode {
-                VisualiserView(focusMode: true, onExitFocus: { visualizerFocusMode = false })
+                VisualiserView(focusMode: $visualizerFocusMode, onExitFocus: { visualizerFocusMode = false })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
@@ -49,9 +49,6 @@ struct ContentView: View {
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
-        .onReceive(NotificationCenter.default.publisher(for: .analogEnterVisualizerFocus)) { _ in
-            visualizerFocusMode = true
-        }
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
             player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
@@ -127,7 +124,7 @@ struct ContentView: View {
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
         case "Equalizer": EqualizerView()
-        case "Visualiser": VisualiserView()
+        case "Visualiser": VisualiserView(focusMode: $visualizerFocusMode, onExitFocus: { visualizerFocusMode = false })
         case "Recorder": RecorderView()
         case "Settings": SettingsView()
         default: LibraryView()
@@ -1090,7 +1087,7 @@ private func formatTime(_ seconds: Double) -> String {
 
 struct VisualiserView: View {
     @EnvironmentObject private var player: AnalogPlayer
-    var focusMode = false
+    @Binding var focusMode: Bool
     var onExitFocus: (() -> Void)? = nil
     @State private var style = "Spectrum"
     @State private var peakHold = true
@@ -1126,7 +1123,7 @@ struct VisualiserView: View {
             HStack(spacing: 8) {
                 visualizerStyleButtons
                 Spacer()
-                Button("FOCUS VIEW  ⤢") { onExitFocus?(); NotificationCenter.default.post(name: .analogEnterVisualizerFocus, object: nil) }
+                Button("FOCUS VIEW  ⤢") { focusMode = true }
                     .buttonStyle(AnalogActionButton())
                 Button {
                     player.setVisualizerEnabled(!player.visualizerEnabled)
@@ -1285,7 +1282,7 @@ struct VisualiserView: View {
                 focusDetail("AVG. BITRATE", track?.averageBitrateKbps.map { "\($0) kbps" } ?? "—")
                 focusDetail("SAMPLE RATE", track?.sampleRateHz.map { String(format: "%.1f kHz", $0 / 1000) } ?? "—")
                 focusDetail("DURATION", track.map { formatTime($0.duration) } ?? "—")
-                focusDetail("CHANNELS", track?.audioChannels.map(String.init) ?? "—")
+                focusDetail("CHANNELS", track?.audioChannels.map { String($0) } ?? "—")
             }
             Spacer(minLength: 0)
         }
@@ -1332,9 +1329,6 @@ private func focusFileSize(_ bytes: Int64?) -> String {
     return formatter.string(fromByteCount: bytes)
 }
 
-private extension Notification.Name {
-    static let analogEnterVisualizerFocus = Notification.Name("AnalogEnterVisualizerFocus")
-}
 
 struct QueueView: View {
     @EnvironmentObject private var player: AnalogPlayer
