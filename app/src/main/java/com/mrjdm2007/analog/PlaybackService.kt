@@ -167,11 +167,18 @@ class PlaybackService : MediaSessionService() {
             .putInt("eq_band_min", -1200)
             .putInt("eq_band_max", 1200)
             .putString("eq_band_centers", listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000).joinToString(",") { (it * 1000).toString() })
-            .putBoolean("eq_available", true)
+            .putBoolean("eq_available", false)
             .putInt("eq_session_id", eqPrefs.getInt("audio_session_id", 0))
-            .putString("eq_error", "")
+            .putString("eq_error", "Equaliser is initialising")
             .apply()
-        applySoftwareEqualizer()
+        runCatching { applySoftwareEqualizer() }
+            .onSuccess {
+                eqPrefs.edit().putBoolean("eq_available", true).putString("eq_error", "").apply()
+            }
+            .onFailure { error ->
+                eqPrefs.edit().putBoolean("eq_available", false)
+                    .putString("eq_error", error.message ?: "Equaliser initialisation failed").apply()
+            }
         val player = ExoPlayer.Builder(this, createEqualizedRenderersFactory(softwareEqualizer)).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
