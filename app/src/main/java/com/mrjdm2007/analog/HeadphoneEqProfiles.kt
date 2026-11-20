@@ -34,7 +34,7 @@ object HeadphoneEqProfiles {
             val array = JSONArray(raw)
             buildList {
                 for (i in 0 until array.length()) {
-                    val item = array.getJSONObject(i)
+                    val item = runCatching { array.getJSONObject(i) }.getOrNull() ?: continue
                     val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
                     if (gains.size != 10 || gains.any { !it.isFinite() }) continue
                     val rawBandwidths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
@@ -83,7 +83,7 @@ object HeadphoneEqProfiles {
         val array = JSONArray(raw)
         buildList {
             for (i in 0 until array.length()) {
-                val item = array.getJSONObject(i)
+                val item = runCatching { array.getJSONObject(i) }.getOrNull() ?: continue
                 val gains = item.optJSONArray("gains")?.toFloatList() ?: continue
                 if (gains.size != 10 || gains.any { !it.isFinite() }) continue
                 val rawWidths = item.optJSONArray("bandwidths")?.toFloatList() ?: List(10) { 1f }
@@ -133,5 +133,5 @@ object HeadphoneEqProfiles {
         return profiles.firstOrNull { normalize(it.name) == key }
     }
 
-    private fun JSONArray.toFloatList(): List<Float> = List(length()) { getDouble(it).toFloat() }
+    private fun JSONArray.toFloatList(): List<Float> = List(length()) { optDouble(it, Double.NaN).toFloat() }
 }

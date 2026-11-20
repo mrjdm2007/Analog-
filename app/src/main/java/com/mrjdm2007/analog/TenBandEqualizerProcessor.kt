@@ -45,16 +45,22 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
     private var z1 = Array(10) { FloatArray(2) }
     private var z2 = Array(10) { FloatArray(2) }
 
-    fun setBands(gains: FloatArray) { gainsDb = FloatArray(10) { i -> gains.getOrElse(i) { 0f }.coerceIn(-12f, 12f) } }
-    fun setBandwidths(values: FloatArray) { bandwidths = FloatArray(10) { i -> values.getOrElse(i) { 1f }.coerceIn(0.1f, 4f) } }
+    fun setBands(gains: FloatArray) { gainsDb = FloatArray(10) { i -> gains.getOrElse(i) { 0f }.let { if (it.isFinite()) it.coerceIn(-12f, 12f) else 0f } } }
+    fun setBandwidths(values: FloatArray) { bandwidths = FloatArray(10) { i -> values.getOrElse(i) { 1f }.let { if (it.isFinite()) it.coerceIn(0.1f, 4f) else 1f } } }
     fun setEnabled(value: Boolean) { enabled = value }
-    fun setPreamp(gainDb: Float) { preampLinear = 10.0.pow(gainDb.coerceIn(-12f, 12f).toDouble() / 20.0).toFloat() }
-    fun setCrossfeed(isEnabled: Boolean, amount: Float) { crossfeedEnabled = isEnabled; crossfeedAmount = amount.coerceIn(0f, 0.35f) }
+    fun setPreamp(gainDb: Float) {
+        val safeGainDb = if (gainDb.isFinite()) gainDb.coerceIn(-12f, 12f) else 0f
+        preampLinear = 10.0.pow(safeGainDb.toDouble() / 20.0).toFloat()
+    }
+    fun setCrossfeed(isEnabled: Boolean, amount: Float) {
+        crossfeedEnabled = isEnabled
+        crossfeedAmount = if (amount.isFinite()) amount.coerceIn(0f, 0.35f) else 0.12f
+    }
     fun setPeakGuard(isEnabled: Boolean, thresholdDb: Float) {
         peakGuardEnabled = isEnabled
-        peakGuardThresholdDb = thresholdDb.coerceIn(-12f, -0.1f)
+        peakGuardThresholdDb = if (thresholdDb.isFinite()) thresholdDb.coerceIn(-12f, -0.1f) else -1f
     }
-    fun setStereoBalance(value: Float) { stereoBalance = value.coerceIn(-1f, 1f) }
+    fun setStereoBalance(value: Float) { stereoBalance = if (value.isFinite()) value.coerceIn(-1f, 1f) else 0f }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
@@ -91,7 +97,9 @@ class TenBandEqualizerProcessor : BaseAudioProcessor() {
 
         while (input.remaining() >= channelCount * bytesPerSample) {
             for (channel in 0 until channelCount) {
-                val sample = if (encoding == C.ENCODING_PCM_16BIT) input.short / 32768f else input.float
+                val rawSample = if (encoding == C.ENCODING_PCM_16BIT) input.short / 32768f else input.float
+                // A single invalid float must not poison the recursive biquad state.
+                val sample = if (rawSample.isFinite()) rawSample else 0f
                 frame[channel] = processSample(sample, channel)
             }
             if (crossfeedEnabled && channelCount >= 2) {

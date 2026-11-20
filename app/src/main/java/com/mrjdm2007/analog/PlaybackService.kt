@@ -43,6 +43,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_TILE_PLAY = "com.mrjdm2007.analog.TILE_PLAY"
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
         const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
+        const val ACTION_REFRESH_AUDIO_FOCUS_MODE = "com.mrjdm2007.analog.REFRESH_AUDIO_FOCUS_MODE"
         const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
         const val ACTION_EQ_ENABLED = "com.mrjdm2007.analog.EQ_ENABLED"
         const val ACTION_EQ_BAND = "com.mrjdm2007.analog.EQ_BAND"
@@ -146,9 +147,16 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val audioManager = getSystemService(AudioManager::class.java)
         outputDeviceCallback = object : AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
-            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+                AudioFocusModeController.refresh(this@PlaybackService, audioManager)
+                refreshOutputDeviceProfile()
+            }
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+                AudioFocusModeController.refresh(this@PlaybackService, audioManager)
+                refreshOutputDeviceProfile()
+            }
         }.also { audioManager.registerAudioDeviceCallback(it, Handler(Looper.getMainLooper())) }
+        AudioFocusModeController.refresh(this, audioManager)
         refreshOutputDeviceProfile()
         val eqPrefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         eqPrefs.edit()
@@ -207,8 +215,15 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateWidget()
                 if (isPlaying) {
+                    // ExoPlayer may allocate its audio session after the listener is
+                    // attached. Do not rely only on onAudioSessionIdChanged: publish
+                    // the live ID when playback actually starts as well.
                     val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
-                    if (activeSessionId > 0 && optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    if (activeSessionId > 0) {
+                        getSharedPreferences("analog_library", MODE_PRIVATE)
+                            .edit().putInt("audio_session_id", activeSessionId).apply()
+                        if (optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    }
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
@@ -356,6 +371,7 @@ class PlaybackService : MediaSessionService() {
                 applySoftwareEqualizer()
             }
             ACTION_EQ_MATCH_DEVICE -> refreshOutputDeviceProfile()
+            ACTION_REFRESH_AUDIO_FOCUS_MODE -> AudioFocusModeController.refresh(this)
             ACTION_EQ_PEAK_GUARD -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, false)
                 val threshold = intent.getFloatExtra(EXTRA_THRESHOLD_DB, -1f).coerceIn(-12f, -0.1f)
@@ -558,9 +574,14 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         } else {
-            if (secondary.playerError != null) {
+            val targetStillMatches = crossfadeTargetIndex in 0 until primary.mediaItemCount &&
+                primary.getMediaItemAt(crossfadeTargetIndex).mediaId == secondary.currentMediaItem?.mediaId
+            if (!targetStillMatches || secondary.playerError != null) {
+                // The queue may have been edited while the second decoder prepared.
+                // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
                 primary.volume = 1f
+                crossfadeForIndex = -1
                 return
             }
             if (!secondary.isPlaying) {

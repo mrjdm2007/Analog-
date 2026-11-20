@@ -36,6 +36,24 @@ class HeadphoneEqProfilesTest {
     }
 
     @Test
+    fun malformedProfileIsSkippedWithoutDiscardingValidProfiles() {
+        val gains = (0 until 10).joinToString(",") { "0" }
+        val invalidGains = (0 until 10).joinToString(",") { if (it == 4) "\"bad\"" else "0" }
+        val widths = (0 until 10).joinToString(",") { "1" }
+        val json = """
+            [
+              {"name":"First valid","gains":[$gains],"bandwidths":[$widths]},
+              {"name":"Malformed","gains":[$invalidGains],"bandwidths":[$widths]},
+              {"name":"Second valid","gains":[$gains],"bandwidths":[$widths]},
+              "not an object"
+            ]
+        """.trimIndent()
+
+        val imported = HeadphoneEqProfiles.importJson(json)
+        assertEquals(listOf("First valid", "Second valid"), imported.map { it.name })
+    }
+
+    @Test
     fun legacyFieldNamesRemainImportableAndBlankProfilesAreSkipped() {
         val gains = (0 until 10).joinToString(",") { "0.5" }
         val widths = (0 until 10).joinToString(",") { "1.25" }

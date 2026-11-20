@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import android.provider.DocumentsContract
 
 private val SettingsInk = Color(0xFF10110F)
 private val SettingsCream = Color(0xFFE8E1CF)
@@ -36,6 +38,14 @@ fun SettingsPage(
     outputRoute: String,
     headphoneDetectionEnabled: Boolean,
     onHeadphoneDetectionChanged: (Boolean) -> Unit,
+    audioFocusEnabled: Boolean,
+    onAudioFocusEnabledChanged: (Boolean) -> Unit,
+    audioFocusWired: Boolean,
+    onAudioFocusWiredChanged: (Boolean) -> Unit,
+    audioFocusUsb: Boolean,
+    onAudioFocusUsbChanged: (Boolean) -> Unit,
+    audioFocusBluetooth: Boolean,
+    onAudioFocusBluetoothChanged: (Boolean) -> Unit,
     replayGainEnabled: Boolean,
     onReplayGainChanged: (Boolean) -> Unit,
     crossfadeSeconds: Int,
@@ -48,6 +58,9 @@ fun SettingsPage(
     sleepFadeSeconds: Int,
     onSleepFadeSecondsChanged: (Int) -> Unit,
     onMonthlyRecap: () -> Unit,
+    safMusicFolders: List<String>,
+    onAddSafMusicFolder: () -> Unit,
+    onRemoveSafMusicFolder: (String) -> Unit,
     onRescan: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -75,6 +88,20 @@ fun SettingsPage(
                             val updated = if (checked) visibleSections + section else visibleSections - section
                             onVisibleSectionsChanged(updated.ifEmpty { setOf("Songs") })
                         }, colors = CheckboxDefaults.colors(checkedColor = SettingsAmber))
+                    }
+                }
+                Text("EXTRA MUSIC FOLDERS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.4.sp, modifier = Modifier.padding(top = 12.dp))
+                Text("Add folders containing audio that Android has not indexed. Access stays limited to the folders you choose.", color = SettingsCream.copy(alpha = .6f), fontSize = 11.sp)
+                TextButton(onClick = onAddSafMusicFolder, modifier = Modifier.fillMaxWidth()) {
+                    Text("ADD MUSIC FOLDER", color = SettingsAmber)
+                }
+                safMusicFolders.forEach { rawUri ->
+                    val label = runCatching {
+                        DocumentsContract.getTreeDocumentId(Uri.parse(rawUri)).substringAfter(':')
+                    }.getOrDefault("Selected folder")
+                    Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, color = SettingsCream, modifier = Modifier.weight(1f), maxLines = 1)
+                        TextButton(onClick = { onRemoveSafMusicFolder(rawUri) }) { Text("REMOVE", color = SettingsAmber) }
                     }
                 }
                 TextButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) { Text("SCAN FOR NEW SONGS", color = SettingsAmber) }
@@ -107,6 +134,31 @@ fun SettingsPage(
                 ActionDropdown("Single press", singlePress, listOf("Play/Pause", "Next track", "Previous track", "No action")) { onHeadsetSetting("headset_single", it) }
                 ActionDropdown("Double press", doublePress, listOf("Next track", "Play/Pause", "Previous track", "No action")) { onHeadsetSetting("headset_double", it) }
                 ActionDropdown("Triple press", triplePress, listOf("Previous track", "Play/Pause", "Next track", "No action")) { onHeadsetSetting("headset_triple", it) }
+            }
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text("AUTOMATIC LISTENING FOCUS", color = SettingsGreen, fontSize = 10.sp, letterSpacing = 1.7.sp)
+                Row(Modifier.fillMaxWidth().background(Color(0xFF1A1C18)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Vibration-only notifications", color = SettingsCream, fontSize = 12.sp)
+                        Text("When a selected external audio device connects, switch the phone's ringer mode to vibration. Media audio and media volume are unchanged; each app's notification-channel vibration settings still apply.", color = SettingsCream.copy(alpha = .58f), fontSize = 10.sp)
+                    }
+                    Switch(checked = audioFocusEnabled, onCheckedChange = onAudioFocusEnabledChanged)
+                }
+                if (audioFocusEnabled) {
+                    Text("ACTIVATE FOR", color = SettingsGreen, fontSize = 9.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 7.dp))
+                    listOf(
+                        Triple("Wired headphones / IEMs", audioFocusWired, onAudioFocusWiredChanged),
+                        Triple("USB DACs / USB headsets", audioFocusUsb, onAudioFocusUsbChanged),
+                        Triple("Bluetooth headphones", audioFocusBluetooth, onAudioFocusBluetoothChanged)
+                    ).forEach { (label, checked, onChecked) ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, color = SettingsCream, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Checkbox(checked = checked, onCheckedChange = onChecked, colors = CheckboxDefaults.colors(checkedColor = SettingsAmber))
+                        }
+                    }
+                    Text("Your previous ringer mode is restored on disconnect. If you change it manually while connected, Analog respects your change. This is vibration mode, not full Do Not Disturb.", color = SettingsCream.copy(alpha = .52f), fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp))
+                }
             }
             item {
                 Spacer(Modifier.height(12.dp))
