@@ -179,9 +179,10 @@ struct SidebarView: View {
                     .overlay(alignment: .leading) {
                         if player.selectedTab == title { RoundedRectangle(cornerRadius: 2).fill(AnalogPalette.amber).frame(width: 3).padding(.vertical, 5) }
                     }
+                    .padding(.horizontal, 10)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).padding(.horizontal, 10)
+                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 20)
@@ -431,6 +432,7 @@ struct TrackRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 12).padding(.vertical, 6)
                     .contentShape(Rectangle())
             }.buttonStyle(.plain)
             Text(formatTime(track.duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted).frame(width: 60, alignment: .trailing)
@@ -454,7 +456,7 @@ struct TrackRow: View {
                 }.menuStyle(.borderlessButton)
             }.frame(width: 95, alignment: .trailing)
         }
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.trailing, 12)
         .background(player.currentTrack?.id == track.id ? AnalogPalette.amber.opacity(0.07) : AnalogPalette.panel.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
             Button("Play") { player.play(track) }
