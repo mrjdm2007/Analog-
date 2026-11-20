@@ -350,11 +350,20 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
             ACTION_EQ_RETRY -> {
-                applySoftwareEqualizer()
                 val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-                prefs.edit().putBoolean("eq_available", true)
-                    .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
-                    .putString("eq_error", "").apply()
+                val result = runCatching { applySoftwareEqualizer() }
+                if (result.isSuccess) {
+                    prefs.edit()
+                        .putBoolean("eq_available", true)
+                        .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
+                        .putString("eq_error", "")
+                        .apply()
+                } else {
+                    prefs.edit()
+                        .putBoolean("eq_available", false)
+                        .putString("eq_error", result.exceptionOrNull()?.message ?: "Equaliser initialisation failed")
+                        .apply()
+                }
             }
             ACTION_EQ_PREAMP -> {
                 val gain = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(-12f, 12f)
