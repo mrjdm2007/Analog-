@@ -488,7 +488,13 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
             }
-            if (items.isEmpty()) return
+            if (items.isEmpty()) {
+                // Some devices index audio outside IS_MUSIC. Fall back to the
+                // broader library query so a cold-start tile tap still has a chance
+                // to begin playback without opening the activity.
+                startRandomLibraryTrack()
+                return
+            }
             val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
                 ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
             val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
