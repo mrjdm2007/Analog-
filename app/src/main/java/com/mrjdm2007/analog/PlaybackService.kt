@@ -511,10 +511,19 @@ class PlaybackService : MediaSessionService() {
                         .setMediaMetadata(metadata)
                         .build()
                     result[uri.toString()] = id to media
+                    if (path.isNotBlank()) knownPaths.add(path.replace('\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT))
                 }
             }
         }
 
+        val knownUris = result.keys.toMutableSet()
+        val knownPaths = HashSet<String>()
+        result.values.forEach { (_, media) ->
+            media.localConfiguration?.uri?.lastPathSegment?.let { segment ->
+                // MediaStore URI IDs are not filesystem paths; path matching is
+                // populated below from the MediaStore cursor instead.
+            }
+        }
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         val treeUris = prefs.getStringSet("saf_music_trees", emptySet())?.toSet().orEmpty()
         if (treeUris.isNotEmpty()) {
@@ -522,7 +531,8 @@ class PlaybackService : MediaSessionService() {
                 .getOrDefault(emptyList())
                 .forEach { track ->
                     val key = track.uri.toString()
-                    if (key !in result) {
+                    val normalizedPath = track.path.replace('\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
+                    if (key !in knownUris && (normalizedPath.isBlank() || normalizedPath.startsWith("content://") || knownPaths.add(normalizedPath))) {
                         val metadata = androidx.media3.common.MediaMetadata.Builder()
                             .setTitle(track.title)
                             .setArtist(track.artist)
@@ -534,6 +544,7 @@ class PlaybackService : MediaSessionService() {
                             .setMediaMetadata(metadata)
                             .build()
                         result[key] = track.id to media
+                        knownUris.add(key)
                     }
                 }
         }

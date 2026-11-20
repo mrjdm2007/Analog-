@@ -452,13 +452,16 @@ final class AnalogPlayer: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                for var track in found {
-                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
-                    merged[track.id] = track
+                let existingByID = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let reconciled = found.map { discovered -> MusicTrack in
+                    var track = discovered
+                    if let existing = existingByID[track.id] {
+                        track.dateAdded = existing.dateAdded ?? track.dateAdded
+                    }
+                    return track
                 }
                 self.skippedAudioFiles = skippedFiles.sorted()
-                self.tracks = merged.values.sorted {
+                self.tracks = reconciled.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
                 self.defaults.set(folder.path, forKey: "musicFolder")
