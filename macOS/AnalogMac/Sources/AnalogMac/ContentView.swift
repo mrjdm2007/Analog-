@@ -21,7 +21,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if visualizerFocusMode {
-                VisualiserView(focusMode: $visualizerFocusMode, onExitFocus: { visualizerFocusMode = false })
+                VisualiserView(focusMode: $visualizerFocusMode)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
@@ -1088,7 +1088,6 @@ private func formatTime(_ seconds: Double) -> String {
 struct VisualiserView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @Binding var focusMode: Bool
-    var onExitFocus: (() -> Void)? = nil
     @State private var style = "Spectrum"
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
@@ -1154,7 +1153,7 @@ struct VisualiserView: View {
                 Spacer()
                 HStack(spacing: 8) {
                     Toggle("PEAK HOLD", isOn: $peakHold).toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
-                    Button("EXIT FOCUS  ⎋") { onExitFocus?() }.buttonStyle(AnalogOutlineButton())
+                    Text("ESC TO EXIT").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.muted)
                 }
             }
             HStack(spacing: 12) {
