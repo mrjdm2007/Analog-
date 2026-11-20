@@ -464,6 +464,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun coldStartLibraryItems(): List<Pair<Long, androidx.media3.common.MediaItem>> {
         val result = LinkedHashMap<String, Pair<Long, androidx.media3.common.MediaItem>>()
+        val knownPaths = HashSet<String>()
         val columns = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
@@ -517,13 +518,6 @@ class PlaybackService : MediaSessionService() {
         }
 
         val knownUris = result.keys.toMutableSet()
-        val knownPaths = HashSet<String>()
-        result.values.forEach { (_, media) ->
-            media.localConfiguration?.uri?.lastPathSegment?.let { segment ->
-                // MediaStore URI IDs are not filesystem paths; path matching is
-                // populated below from the MediaStore cursor instead.
-            }
-        }
         val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         val treeUris = prefs.getStringSet("saf_music_trees", emptySet())?.toSet().orEmpty()
         if (treeUris.isNotEmpty()) {
