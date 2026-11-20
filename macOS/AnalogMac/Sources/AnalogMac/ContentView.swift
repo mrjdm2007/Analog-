@@ -51,7 +51,7 @@ struct ContentView: View {
         }.frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
-            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible, windowVisible: visible)
         }.frame(width: 0, height: 0))
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
