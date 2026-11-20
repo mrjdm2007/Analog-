@@ -8,9 +8,11 @@ import androidx.core.content.ContextCompat
 class AnalogQuickSettingsTile : TileService() {
     override fun onStartListening() {
         super.onStartListening()
+        val playing = getSharedPreferences("analog_library", MODE_PRIVATE)
+            .getBoolean("quick_tile_playing", false)
         qsTile?.apply {
-            label = "Play Analog"
-            state = Tile.STATE_INACTIVE
+            label = if (playing) "Analog • Playing" else "Play Analog"
+            state = if (playing) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             updateTile()
         }
     }
