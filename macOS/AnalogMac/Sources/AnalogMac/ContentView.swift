@@ -124,7 +124,7 @@ struct ContentView: View {
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
         case "Equalizer": EqualizerView()
-        case "Visualiser": VisualiserView(focusMode: $visualizerFocusMode, onExitFocus: { visualizerFocusMode = false })
+        case "Visualiser": VisualiserView(focusMode: $visualizerFocusMode)
         case "Recorder": RecorderView()
         case "Settings": SettingsView()
         default: LibraryView()
