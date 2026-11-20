@@ -89,6 +89,7 @@ fun VisualizerScreen(
     var trackId by remember { mutableStateOf<Long?>(null) }
     var duration by remember { mutableLongStateOf(0L) }
     var position by remember { mutableLongStateOf(0L) }
+    var isSeeking by remember { mutableStateOf(false) }
     var sessionId by remember { mutableIntStateOf(0) }
     var levels by remember { mutableStateOf(FloatArray(36)) }
     var peaks by remember { mutableStateOf(FloatArray(36)) }
@@ -122,7 +123,7 @@ fun VisualizerScreen(
 
     LaunchedEffect(player, resumed) {
         while (player != null && resumed) {
-            position = player.currentPosition.coerceAtLeast(0L)
+            if (!isSeeking) position = player.currentPosition.coerceAtLeast(0L)
             duration = player.duration.takeIf { it > 0L } ?: 0L
             playing = player.isPlaying
             sessionId = context.getSharedPreferences("analog_library", android.content.Context.MODE_PRIVATE).getInt("audio_session_id", 0)
@@ -332,7 +333,17 @@ fun VisualizerScreen(
         }
         Row(Modifier.fillMaxWidth().padding(top = 3.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(visualTime(position), color = VisualMuted, fontSize = 9.sp)
-            Slider(value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()), onValueChange = { position = it.toLong() }, onValueChangeFinished = { player?.seekTo(position) }, valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.weight(1f).height(26.dp), colors = SliderDefaults.colors(thumbColor = VisualCream, activeTrackColor = VisualAmber, inactiveTrackColor = VisualMuted.copy(alpha = .28f)))
+            Slider(
+                value = position.toFloat().coerceIn(0f, duration.coerceAtLeast(1L).toFloat()),
+                onValueChange = { isSeeking = true; position = it.toLong() },
+                onValueChangeFinished = {
+                    player?.seekTo(position)
+                    isSeeking = false
+                },
+                valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
+                modifier = Modifier.weight(1f).height(26.dp),
+                colors = SliderDefaults.colors(thumbColor = VisualCream, activeTrackColor = VisualAmber, inactiveTrackColor = VisualMuted.copy(alpha = .28f))
+            )
             Text(visualTime(duration), color = VisualMuted, fontSize = 9.sp)
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
             FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk, modifier = Modifier.size(30.dp)) }
