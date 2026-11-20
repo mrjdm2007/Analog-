@@ -138,6 +138,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerEnabled = false
+    private var analysisWindowVisible = true
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
     @Published var outputVolume: Float = 0.85
@@ -507,11 +508,13 @@ final class AnalogPlayer: ObservableObject {
         }
     }
 
-    func setVisualizerEnabled(_ enabled: Bool) {
-        visualizerEnabled = enabled
-        let meterEnabled = selectedTab == "Equalizer"
+    func setVisualizerEnabled(_ enabled: Bool, windowVisible: Bool? = nil) {
+        if let windowVisible { analysisWindowVisible = windowVisible }
+        let visualizerActive = enabled && analysisWindowVisible
+        visualizerEnabled = visualizerActive
+        let meterEnabled = selectedTab == "Equalizer" && analysisWindowVisible
         analogAudioAnalysisGate.withLock { state in
-            state.visualizerEnabled = enabled
+            state.visualizerEnabled = visualizerActive
             state.meterEnabled = meterEnabled
             state.lastUpdate = 0
         }
