@@ -1090,6 +1090,10 @@ final class AnalogPlayer: ObservableObject {
         let key = normalizedDeviceName(name)
         guard !key.isEmpty,
               let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
+            // Preserve manually configured EQ when no device profile was active.
+            // Only clear settings when moving away from a profile that was
+            // actually auto-applied, so its curve cannot leak onto another output.
+            guard activeDevicePresetName != nil else { return }
             activeDevicePresetName = nil
             eqGains = Array(repeating: 0, count: 10)
             eqBandwidths = Array(repeating: 1, count: 10)
