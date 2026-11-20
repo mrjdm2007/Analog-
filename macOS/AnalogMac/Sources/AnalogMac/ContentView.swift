@@ -1091,6 +1091,7 @@ struct VisualiserView: View {
     @State private var style = "Spectrum"
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
+    @State private var scrubTime: Double?
 
     var body: some View {
         Group {
@@ -1321,9 +1322,21 @@ struct VisualiserView: View {
         let duration = max(0, player.currentTrack?.duration ?? 0)
         return VStack(spacing: 7) {
             HStack(spacing: 10) {
-                Text(formatTime(player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
-                Slider(value: Binding(get: { min(player.currentTime, max(duration, 0.01)) }, set: { player.seek(to: $0) }), in: 0...max(duration, 0.01))
-                    .tint(AnalogPalette.amber)
+                Text(formatTime(scrubTime ?? player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+                Slider(
+                    value: Binding(
+                        get: { min(scrubTime ?? player.currentTime, max(duration, 0.01)) },
+                        set: { scrubTime = $0 }
+                    ),
+                    in: 0...max(duration, 0.01),
+                    onEditingChanged: { editing in
+                        if !editing {
+                            if let target = scrubTime { player.seek(to: target) }
+                            scrubTime = nil
+                        }
+                    }
+                )
+                .tint(AnalogPalette.amber)
                 Text(formatTime(duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
             }
             HStack(spacing: 24) {
