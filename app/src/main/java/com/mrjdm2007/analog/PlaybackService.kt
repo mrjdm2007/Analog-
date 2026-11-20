@@ -43,6 +43,7 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_TILE_PLAY = "com.mrjdm2007.analog.TILE_PLAY"
         const val ACTION_REAPPLY_REPLAY_GAIN = "com.mrjdm2007.analog.REAPPLY_REPLAY_GAIN"
         const val ACTION_SET_CROSSFADE = "com.mrjdm2007.analog.SET_CROSSFADE"
+        const val ACTION_REFRESH_AUDIO_FOCUS_MODE = "com.mrjdm2007.analog.REFRESH_AUDIO_FOCUS_MODE"
         const val EXTRA_CROSSFADE_SECONDS = "crossfade_seconds"
         const val ACTION_EQ_ENABLED = "com.mrjdm2007.analog.EQ_ENABLED"
         const val ACTION_EQ_BAND = "com.mrjdm2007.analog.EQ_BAND"
@@ -73,6 +74,9 @@ class PlaybackService : MediaSessionService() {
     private var sleepFade: Runnable? = null
     private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
+    private val coldStartExecutor = Executors.newSingleThreadExecutor()
+    private var coldStartLoadInProgress = false
+    private val coldStartLoadCallbacks = mutableListOf<(List<Pair<Long, androidx.media3.common.MediaItem>>) -> Unit>()
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private val softwareEqualizer = TenBandEqualizerProcessor()
     private val crossfadeEqualizer = TenBandEqualizerProcessor()
@@ -146,9 +150,16 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val audioManager = getSystemService(AudioManager::class.java)
         outputDeviceCallback = object : AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
-            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { refreshOutputDeviceProfile() }
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+                AudioFocusModeController.refresh(this@PlaybackService, audioManager)
+                refreshOutputDeviceProfile()
+            }
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+                AudioFocusModeController.refresh(this@PlaybackService, audioManager)
+                refreshOutputDeviceProfile()
+            }
         }.also { audioManager.registerAudioDeviceCallback(it, Handler(Looper.getMainLooper())) }
+        AudioFocusModeController.refresh(this, audioManager)
         refreshOutputDeviceProfile()
         val eqPrefs = getSharedPreferences("analog_library", MODE_PRIVATE)
         eqPrefs.edit()
@@ -156,11 +167,18 @@ class PlaybackService : MediaSessionService() {
             .putInt("eq_band_min", -1200)
             .putInt("eq_band_max", 1200)
             .putString("eq_band_centers", listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000).joinToString(",") { (it * 1000).toString() })
-            .putBoolean("eq_available", true)
+            .putBoolean("eq_available", false)
             .putInt("eq_session_id", eqPrefs.getInt("audio_session_id", 0))
-            .putString("eq_error", "")
+            .putString("eq_error", "Equaliser is initialising")
             .apply()
-        applySoftwareEqualizer()
+        runCatching { applySoftwareEqualizer() }
+            .onSuccess {
+                eqPrefs.edit().putBoolean("eq_available", true).putString("eq_error", "").apply()
+            }
+            .onFailure { error ->
+                eqPrefs.edit().putBoolean("eq_available", false)
+                    .putString("eq_error", error.message ?: "Equaliser initialisation failed").apply()
+            }
         val player = ExoPlayer.Builder(this, createEqualizedRenderersFactory(softwareEqualizer)).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             setHandleAudioBecomingNoisy(true)
@@ -205,10 +223,25 @@ class PlaybackService : MediaSessionService() {
                 applyReplayGain()
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                getSharedPreferences("analog_library", MODE_PRIVATE)
+                    .edit().putBoolean("quick_tile_playing", isPlaying).apply()
+                runCatching {
+                    android.service.quicksettings.TileService.requestListeningState(
+                        this@PlaybackService,
+                        ComponentName(this@PlaybackService, AnalogQuickSettingsTile::class.java)
+                    )
+                }
                 updateWidget()
                 if (isPlaying) {
+                    // ExoPlayer may allocate its audio session after the listener is
+                    // attached. Do not rely only on onAudioSessionIdChanged: publish
+                    // the live ID when playback actually starts as well.
                     val activeSessionId = (player as? ExoPlayer)?.audioSessionId ?: 0
-                    if (activeSessionId > 0 && optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    if (activeSessionId > 0) {
+                        getSharedPreferences("analog_library", MODE_PRIVATE)
+                            .edit().putInt("audio_session_id", activeSessionId).apply()
+                        if (optionalFxSessionId != activeSessionId) initializeOptionalEffects(activeSessionId)
+                    }
                     timerHandler.removeCallbacks(listeningTick)
                     timerHandler.post(listeningTick)
                     timerHandler.removeCallbacks(crossfadeTick)
@@ -324,11 +357,20 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_PREVIOUS -> mediaSession?.player?.seekToPrevious()
             ACTION_REAPPLY_REPLAY_GAIN -> applyReplayGain()
             ACTION_EQ_RETRY -> {
-                applySoftwareEqualizer()
                 val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-                prefs.edit().putBoolean("eq_available", true)
-                    .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
-                    .putString("eq_error", "").apply()
+                val result = runCatching { applySoftwareEqualizer() }
+                if (result.isSuccess) {
+                    prefs.edit()
+                        .putBoolean("eq_available", true)
+                        .putInt("eq_session_id", prefs.getInt("audio_session_id", 0))
+                        .putString("eq_error", "")
+                        .apply()
+                } else {
+                    prefs.edit()
+                        .putBoolean("eq_available", false)
+                        .putString("eq_error", result.exceptionOrNull()?.message ?: "Equaliser initialisation failed")
+                        .apply()
+                }
             }
             ACTION_EQ_PREAMP -> {
                 val gain = intent.getFloatExtra(EXTRA_STRENGTH, 0f).coerceIn(-12f, 12f)
@@ -356,6 +398,7 @@ class PlaybackService : MediaSessionService() {
                 applySoftwareEqualizer()
             }
             ACTION_EQ_MATCH_DEVICE -> refreshOutputDeviceProfile()
+            ACTION_REFRESH_AUDIO_FOCUS_MODE -> AudioFocusModeController.refresh(this)
             ACTION_EQ_PEAK_GUARD -> {
                 val enabled = intent.getBooleanExtra(EXTRA_ENABLED, false)
                 val threshold = intent.getFloatExtra(EXTRA_THRESHOLD_DB, -1f).coerceIn(-12f, -0.1f)
@@ -430,70 +473,30 @@ class PlaybackService : MediaSessionService() {
         if (restoreVolume) mediaSession?.player?.volume = 1f
     }
 
-    private fun startLastPlayedFromTile() {
-        val player = mediaSession?.player ?: return
-        if (player.mediaItemCount == 0) {
-            val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-            val columns = arrayOf(
-                MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID
-            )
-            val items = mutableListOf<Pair<Long, androidx.media3.common.MediaItem>>()
-            runCatching {
-                contentResolver.query(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns,
-                    "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
-                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
-                )?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                    val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                    val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(idCol)
-                        val albumId = cursor.getLong(albumIdCol)
-                        val artwork = if (albumId > 0L) Uri.withAppendedPath(
-                            Uri.parse("content://media/external/audio/albumart"), albumId.toString()
-                        ) else null
-                        val metadata = androidx.media3.common.MediaMetadata.Builder()
-                            .setTitle(cursor.getString(titleCol) ?: "Unknown title")
-                            .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
-                            .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
-                            .setArtworkUri(artwork)
-                            .build()
-                        val media = androidx.media3.common.MediaItem.Builder()
-                            .setMediaId(id.toString())
-                            .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
-                            .setMediaMetadata(metadata)
-                            .build()
-                        items += id to media
-                    }
-                }
-            }
-            if (items.isEmpty()) return
-            val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
-                ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
-            val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
-            player.setMediaItems(items.map { it.second }, startIndex, 0L)
-            player.prepare()
-        } else if (player.playbackState == Player.STATE_ENDED) {
-            player.seekTo(0L)
-        } else if (player.playbackState == Player.STATE_IDLE) {
-            player.prepare()
-        }
-        player.play()
-        updateWidget()
-    }
-
-    private fun startRandomLibraryTrack() {
-        val player = mediaSession?.player as? ExoPlayer ?: return
-        if (player.currentMediaItem != null && player.mediaItemCount > 0) { resumeOrRestart(player); return }
-        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATA)
-        val items = mutableListOf<androidx.media3.common.MediaItem>()
+    /**
+     * Rebuild the cold-start queue from both MediaStore and the user's persisted
+     * Storage Access Framework folders. This keeps widget/tile playback consistent
+     * with the library shown by MainActivity, even when files are not indexed.
+     */
+    private fun coldStartLibraryItems(): List<Pair<Long, androidx.media3.common.MediaItem>> {
+        val result = LinkedHashMap<String, Pair<Long, androidx.media3.common.MediaItem>>()
+        val knownPaths = HashSet<String>()
+        val columns = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DATA
+        )
         runCatching {
-            contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns, null, null, null)?.use { cursor ->
+            contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                columns,
+                null,
+                null,
+                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+            )?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -504,26 +507,139 @@ class PlaybackService : MediaSessionService() {
                     val id = cursor.getLong(idCol)
                     val path = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
                     val folder = path.substringBeforeLast("/", "Music").substringAfterLast("/")
-                    if (folder.equals("Ringtones", true) || folder.equals("Notifications", true) || folder.equals("Alarms", true)) continue
+                    if (folder.equals("Ringtones", true) ||
+                        folder.equals("Notifications", true) ||
+                        folder.equals("Alarms", true)
+                    ) continue
                     val albumId = cursor.getLong(albumIdCol)
-                    val art = if (albumId > 0L) Uri.withAppendedPath(Uri.parse("content://media/external/audio/albumart"), albumId.toString()) else null
+                    val artwork = if (albumId > 0L) Uri.withAppendedPath(
+                        Uri.parse("content://media/external/audio/albumart"), albumId.toString()
+                    ) else null
                     val metadata = androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(cursor.getString(titleCol) ?: "Unknown title")
                         .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
                         .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
-                        .setArtworkUri(art).build()
-                    items += androidx.media3.common.MediaItem.Builder().setMediaId(id.toString())
-                        .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
-                        .setMediaMetadata(metadata).build()
+                        .setArtworkUri(artwork)
+                        .build()
+                    val uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    val media = androidx.media3.common.MediaItem.Builder()
+                        .setMediaId(id.toString())
+                        .setUri(uri)
+                        .setMediaMetadata(metadata)
+                        .build()
+                    result[uri.toString()] = id to media
+                    if (path.isNotBlank()) knownPaths.add(path.replace('\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT))
                 }
             }
         }
-        if (items.isEmpty()) return
-        val order = items.shuffled()
-        player.setMediaItems(order, 0, 0L)
-        player.prepare()
+
+        val knownUris = result.keys.toMutableSet()
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        val treeUris = prefs.getStringSet("saf_music_trees", emptySet())?.toSet().orEmpty()
+        if (treeUris.isNotEmpty()) {
+            runCatching { SafAudioLibrary.scan(this, treeUris) }
+                .getOrDefault(emptyList())
+                .forEach { track ->
+                    val key = track.uri.toString()
+                    val normalizedPath = track.path.replace('\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
+                    if (key !in knownUris && (normalizedPath.isBlank() || normalizedPath.startsWith("content://") || knownPaths.add(normalizedPath))) {
+                        val metadata = androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .setAlbumTitle(track.album)
+                            .build()
+                        val media = androidx.media3.common.MediaItem.Builder()
+                            .setMediaId(track.id.toString())
+                            .setUri(track.uri)
+                            .setMediaMetadata(metadata)
+                            .build()
+                        result[key] = track.id to media
+                        knownUris.add(key)
+                    }
+                }
+        }
+        return result.values.toList()
+    }
+
+    /**
+     * SAF providers may need to enumerate thousands of documents and extract
+     * metadata. Never do that on MediaSessionService's main thread: a widget or
+     * Quick Settings tap is a foreground-service start and must return promptly.
+     */
+    private fun loadColdStartLibrary(
+        onLoaded: (List<Pair<Long, androidx.media3.common.MediaItem>>) -> Unit
+    ) {
+        coldStartLoadCallbacks += onLoaded
+        if (coldStartLoadInProgress) return
+        coldStartLoadInProgress = true
+        coldStartExecutor.execute {
+            val items = runCatching { coldStartLibraryItems() }.getOrDefault(emptyList())
+            timerHandler.post {
+                coldStartLoadInProgress = false
+                val callbacks = coldStartLoadCallbacks.toList()
+                coldStartLoadCallbacks.clear()
+                callbacks.forEach { callback -> callback(items) }
+            }
+        }
+    }
+
+    private fun startLastPlayedFromTile() {
+        val player = mediaSession?.player ?: return
+        if (player.mediaItemCount == 0) {
+            loadColdStartLibrary { items ->
+                val activePlayer = mediaSession?.player ?: return@loadColdStartLibrary
+                if (activePlayer.mediaItemCount == 0) {
+                    if (items.isEmpty()) {
+                        updateWidget()
+                        return@loadColdStartLibrary
+                    }
+                    val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
+                        ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
+                    val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
+                    activePlayer.setMediaItems(items.map { it.second }, startIndex, 0L)
+                    activePlayer.prepare()
+                } else if (activePlayer.playbackState == Player.STATE_ENDED) {
+                    activePlayer.seekTo(0L)
+                } else if (activePlayer.playbackState == Player.STATE_IDLE) {
+                    activePlayer.prepare()
+                }
+                activePlayer.play()
+                updateWidget()
+            }
+            return
+        }
+        if (player.playbackState == Player.STATE_ENDED) {
+            player.seekTo(0L)
+        } else if (player.playbackState == Player.STATE_IDLE) {
+            player.prepare()
+        }
         player.play()
         updateWidget()
+    }
+
+    private fun startRandomLibraryTrack() {
+        val player = mediaSession?.player as? ExoPlayer ?: return
+        if (player.currentMediaItem != null && player.mediaItemCount > 0) {
+            resumeOrRestart(player)
+            return
+        }
+        loadColdStartLibrary { items ->
+            val activePlayer = mediaSession?.player as? ExoPlayer ?: return@loadColdStartLibrary
+            if (activePlayer.currentMediaItem != null && activePlayer.mediaItemCount > 0) {
+                resumeOrRestart(activePlayer)
+                return@loadColdStartLibrary
+            }
+            if (items.isEmpty()) {
+                updateWidget()
+                return@loadColdStartLibrary
+            }
+            val shuffled = items.shuffled()
+            activePlayer.setMediaItems(shuffled.map { it.second }, 0, 0L)
+            activePlayer.prepare()
+            activePlayer.play()
+            updateWidget()
+        }
     }
 
     private fun runCrossfadeTick() {
@@ -558,9 +674,14 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         } else {
-            if (secondary.playerError != null) {
+            val targetStillMatches = crossfadeTargetIndex in 0 until primary.mediaItemCount &&
+                primary.getMediaItemAt(crossfadeTargetIndex).mediaId == secondary.currentMediaItem?.mediaId
+            if (!targetStillMatches || secondary.playerError != null) {
+                // The queue may have been edited while the second decoder prepared.
+                // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
                 primary.volume = 1f
+                crossfadeForIndex = -1
                 return
             }
             if (!secondary.isPlaying) {
@@ -756,6 +877,16 @@ class PlaybackService : MediaSessionService() {
         sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
         sleepEndListener = null
         replayGainExecutor.shutdownNow()
+        coldStartExecutor.shutdownNow()
+        coldStartLoadCallbacks.clear()
+        getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+            .putBoolean("quick_tile_playing", false).apply()
+        runCatching {
+            android.service.quicksettings.TileService.requestListeningState(
+                this,
+                ComponentName(this, AnalogQuickSettingsTile::class.java)
+            )
+        }
         timerHandler.removeCallbacks(crossfadeTick)
         timerHandler.removeCallbacks(listeningTick)
         cancelCrossfade()

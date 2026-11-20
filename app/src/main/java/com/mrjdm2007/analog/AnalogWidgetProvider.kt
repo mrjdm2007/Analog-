@@ -7,15 +7,31 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.RemoteViews
 
 class AnalogWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { id -> updateOne(context, manager, id, "Choose a track", "ANALOG • OFFLINE", false, null) }
+        val prefs = context.getSharedPreferences("analog_library", Context.MODE_PRIVATE)
+        val title = prefs.getString("widget_title", "Choose a track") ?: "Choose a track"
+        val artist = prefs.getString("widget_artist", "ANALOG • OFFLINE") ?: "ANALOG • OFFLINE"
+        val isPlaying = prefs.getBoolean("widget_is_playing", false)
+        val artwork = prefs.getString("widget_artwork_uri", null)?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val position = prefs.getLong("widget_position_ms", 0L)
+        val duration = prefs.getLong("widget_duration_ms", 0L)
+        ids.forEach { id -> updateOne(context, manager, id, title, artist, isPlaying, artwork, position, duration) }
     }
 
     companion object {
         fun update(context: Context, title: String, artist: String, isPlaying: Boolean, artworkUri: Uri?, positionMs: Long = 0L, durationMs: Long = 0L) {
+            context.getSharedPreferences("analog_library", Context.MODE_PRIVATE).edit()
+                .putString("widget_title", title)
+                .putString("widget_artist", artist)
+                .putBoolean("widget_is_playing", isPlaying)
+                .putString("widget_artwork_uri", artworkUri?.toString())
+                .putLong("widget_position_ms", positionMs.coerceAtLeast(0L))
+                .putLong("widget_duration_ms", durationMs.coerceAtLeast(0L))
+                .apply()
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, AnalogWidgetProvider::class.java)
             manager.getAppWidgetIds(component).forEach { updateOne(context, manager, it, title, artist, isPlaying, artworkUri, positionMs, durationMs) }
@@ -41,7 +57,12 @@ class AnalogWidgetProvider : AppWidgetProvider() {
 
         private fun serviceIntent(context: Context, action: String, requestCode: Int): PendingIntent {
             val intent = Intent(context, PlaybackService::class.java).setAction(action)
-            return PendingIntent.getService(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PendingIntent.getForegroundService(context, requestCode, intent, flags)
+            } else {
+                PendingIntent.getService(context, requestCode, intent, flags)
+            }
         }
     }
 }

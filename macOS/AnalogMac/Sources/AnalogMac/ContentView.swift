@@ -15,12 +15,17 @@ private enum AnalogPalette {
 struct ContentView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @EnvironmentObject private var recorder: AnalogRecorder
-    @Environment(\.openWindow) private var openWindow
     @State private var mainWindowVisible = true
+    @State private var visualizerFocusMode = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
+        Group {
+            if visualizerFocusMode {
+                VisualiserView(focusMode: $visualizerFocusMode)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
                 SidebarView()
                     .frame(width: 218)
                 Rectangle().fill(AnalogPalette.cream.opacity(0.10)).frame(width: 1)
@@ -35,13 +40,18 @@ struct ContentView: View {
                     .frame(width: 286)
             }
             Rectangle().fill(AnalogPalette.cream.opacity(0.12)).frame(height: 1)
-            TransportBar()
+                    TransportBar()
+                }
+            }
         }
         .background(AnalogPalette.ink)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
+        .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
+            visualizerFocusMode = false
+        }.frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
-            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible)
+            player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible, windowVisible: visible)
         }.frame(width: 0, height: 0))
         .frame(minWidth: 1180, minHeight: 760)
         .preferredColorScheme(.dark)
@@ -82,12 +92,6 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-            Button { openWindow(id: "mini-player") } label: {
-                Label("MINI PLAYER", systemImage: "pip")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
-            }
-            .buttonStyle(AnalogOutlineButton())
             Button { player.importMusicFolder() } label: {
                 Label("ADD MUSIC", systemImage: "folder.badge.plus")
                     .font(.system(size: 10, weight: .bold))
@@ -120,7 +124,7 @@ struct ContentView: View {
         case "Moods": MoodCollectionsView()
         case "Playlists": PlaylistsView()
         case "Equalizer": EqualizerView()
-        case "Visualiser": VisualiserView()
+        case "Visualiser": VisualiserView(focusMode: $visualizerFocusMode)
         case "Recorder": RecorderView()
         case "Settings": SettingsView()
         default: LibraryView()
@@ -175,8 +179,10 @@ struct SidebarView: View {
                     .overlay(alignment: .leading) {
                         if player.selectedTab == title { RoundedRectangle(cornerRadius: 2).fill(AnalogPalette.amber).frame(width: 3).padding(.vertical, 5) }
                     }
+                    .padding(.horizontal, 10)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).padding(.horizontal, 10)
+                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 20)
@@ -190,6 +196,7 @@ struct SidebarView: View {
                         Text("\(player.moodTracks(mood).count)").font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
                     }
                     .padding(.horizontal, 19).padding(.vertical, 8)
+                    .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             Spacer()
@@ -425,6 +432,8 @@ struct TrackRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 12).padding(.vertical, 6)
+                    .contentShape(Rectangle())
             }.buttonStyle(.plain)
             Text(formatTime(track.duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted).frame(width: 60, alignment: .trailing)
             HStack(spacing: 2) {
@@ -447,7 +456,7 @@ struct TrackRow: View {
                 }.menuStyle(.borderlessButton)
             }.frame(width: 95, alignment: .trailing)
         }
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.trailing, 12)
         .background(player.currentTrack?.id == track.id ? AnalogPalette.amber.opacity(0.07) : AnalogPalette.panel.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
             Button("Play") { player.play(track) }
@@ -560,7 +569,8 @@ struct EqualizerView: View {
     @State private var renameDevicePresetText = ""
     @State private var showingDevicePresetRename = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MASTER EQUALIZER").font(.system(size: 22, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
@@ -659,12 +669,17 @@ struct EqualizerView: View {
                     .tint(AnalogPalette.amber).disabled(!player.crossfeedAvailable)
             }
             .padding(13).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 11))
-            HStack(spacing: 8) {
-                ForEach(["Flat", "Bass", "Treble", "Vocal", "Rock", "Classical", "Jazz", "Electronic", "Acoustic", "Podcast", "Night", "R&B", "Hip-Hop", "Metal", "Small Speakers", "Headphones"], id: \.self) { preset in
-                    Button(preset.uppercased()) { player.applyPreset(preset) }.buttonStyle(AnalogOutlineButton())
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 86, maximum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(["Flat", "Bass", "Treble", "Vocal", "Pop", "Rock", "Jazz", "Classical"], id: \.self) { preset in
+                    Button(preset.uppercased()) { player.applyPreset(preset) }
+                        .buttonStyle(AnalogOutlineButton())
+                        .frame(maxWidth: .infinity)
                 }
+            }
+            HStack {
+                Button("RESET") { player.applyPreset("Flat") }
+                    .buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
                 Spacer()
-                Button("RESET") { player.applyPreset("Flat") }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
             }
             HStack(spacing: 8) {
                 Button("STORE A") { player.storeEQSnapshot("A") }.buttonStyle(AnalogOutlineButton())
@@ -752,8 +767,11 @@ struct EqualizerView: View {
                 Text("This is a native 10-band DSP equalizer in the Mac playback signal path. It does not depend on a system-wide audio effect or another app.")
                     .font(.system(size: 10)).foregroundStyle(AnalogPalette.muted)
             }.padding(12).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 9))
-            Spacer()
-        }.padding(22)
+            }
+            .padding(22)
+        }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private func freqLabel(_ value: Float) -> String { value >= 1000 ? String(format: "%.0fk", value / 1000) : String(format: "%.0f", value) }
 }
@@ -1049,6 +1067,7 @@ struct AnalogActionButton: ButtonStyle {
             .padding(.horizontal, 13).padding(.vertical, 10)
             .foregroundStyle(AnalogPalette.ink)
             .background(AnalogPalette.amber.opacity(configuration.isPressed ? 0.7 : 1), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
     }
 }
 
@@ -1059,6 +1078,7 @@ struct AnalogOutlineButton: ButtonStyle {
             .foregroundStyle(AnalogPalette.cream)
             .background(AnalogPalette.raised.opacity(configuration.isPressed ? 0.6 : 1), in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
+            .contentShape(Rectangle())
     }
 }
 
@@ -1069,10 +1089,30 @@ private func formatTime(_ seconds: Double) -> String {
 
 struct VisualiserView: View {
     @EnvironmentObject private var player: AnalogPlayer
+    @Binding var focusMode: Bool
     @State private var style = "Spectrum"
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
+    @State private var scrubTime: Double?
+
     var body: some View {
+        Group {
+            if focusMode {
+                focusedLayout
+            } else {
+                standardLayout
+            }
+        }
+        .onChange(of: player.visualizerBins) { values in
+            guard peakHold else { return }
+            if heldPeaks.count != values.count { heldPeaks = values; return }
+            heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
+        }
+        .padding(focusMode ? 18 : 22)
+        .background(AnalogPalette.ink)
+    }
+
+    private var standardLayout: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -1083,83 +1123,246 @@ struct VisualiserView: View {
                 Toggle("PEAK HOLD", isOn: $peakHold).toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
             }
             HStack(spacing: 8) {
-                ForEach(["Spectrum", "Waveform"], id: \.self) { item in
-                    Button(item.uppercased()) { style = item }.buttonStyle(AnalogOutlineButton())
-                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(style == item ? AnalogPalette.amber.opacity(0.8) : .clear, lineWidth: 1))
-                }
+                visualizerStyleButtons
                 Spacer()
-                Button { player.setVisualizerEnabled(!player.visualizerEnabled) } label: {
+                Button("FOCUS VIEW  ⤢") { focusMode = true }
+                    .buttonStyle(AnalogActionButton())
+                Button {
+                    player.setVisualizerEnabled(!player.visualizerEnabled)
+                } label: {
                     Label(player.visualizerEnabled ? "ANALYSER ON" : "ANALYSER PAUSED", systemImage: player.visualizerEnabled ? "waveform" : "pause.fill")
                 }.buttonStyle(AnalogActionButton())
             }
-            ZStack {
-                RoundedRectangle(cornerRadius: 15).fill(Color.black.opacity(0.68))
-                Canvas { context, size in
-                    let bins = player.visualizerBins
-                    let count = max(1, bins.count)
-                    let gap: CGFloat = 4
-                    let barWidth = max(2, (size.width - CGFloat(count - 1) * gap) / CGFloat(count))
-                    if style == "Spectrum" {
-                        for index in bins.indices {
-                            let value = CGFloat(bins[index])
-                            let height = max(2, value * (size.height - 20))
-                            let rect = CGRect(x: CGFloat(index) * (barWidth + gap), y: size.height - height - 10, width: barWidth, height: height)
-                            let color = index < 10 ? AnalogPalette.green : (index < 24 ? AnalogPalette.amber : Color(red: 0.9, green: 0.42, blue: 0.25))
-                            context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [color.opacity(0.55), color]), startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
-                            if peakHold, heldPeaks.indices.contains(index) {
-                                let peakY = size.height - CGFloat(heldPeaks[index]) * (size.height - 20) - 10
-                                let marker = CGRect(x: rect.minX, y: max(4, peakY - 2), width: barWidth, height: 2)
-                                context.fill(Path(roundedRect: marker, cornerRadius: 1), with: .color(AnalogPalette.cream.opacity(0.9)))
-                            }
-                        }
-                    } else {
-                        let wave = player.visualizerWaveform
-                        var path = Path()
-                        for index in wave.indices {
-                            let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
-                            let y = size.height / 2 - CGFloat(wave[index]) * size.height * 0.42
-                            if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
-                        }
-                        context.stroke(path, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                        var mirror = Path()
-                        for index in wave.indices {
-                            let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
-                            let y = size.height / 2 + CGFloat(wave[index]) * size.height * 0.12
-                            if index == 0 { mirror.move(to: CGPoint(x: x, y: y)) } else { mirror.addLine(to: CGPoint(x: x, y: y)) }
-                        }
-                        context.stroke(mirror, with: .color(AnalogPalette.amber.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                    }
-                    for fraction in [0.25, 0.5, 0.75] {
-                        var grid = Path(); grid.move(to: CGPoint(x: 0, y: size.height * fraction)); grid.addLine(to: CGPoint(x: size.width, y: size.height * fraction))
-                        context.stroke(grid, with: .color(.white.opacity(0.08)), lineWidth: 1)
-                    }
-                }
-                .padding(12)
-                if !player.isPlaying {
-                    VStack(spacing: 5) {
-                        Image(systemName: "waveform.path").font(.system(size: 25)).foregroundStyle(AnalogPalette.amber)
-                        Text(player.currentTrack == nil ? "PLAY A TRACK TO START ANALYSIS" : "PLAYBACK PAUSED").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.muted)
-                    }
-                }
-            }
-            .frame(height: 300)
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
+            analyserCanvas.frame(height: 300)
             HStack(alignment: .top, spacing: 10) {
                 MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
                 MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
                 MetricTile(label: "RANGE", value: "35 Hz–16 kHz", symbol: "waveform")
             }
-            Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+            Text("The analyser reads the live audio signal after the app's equalizer. It is not a decorative animation; bars respond to the playing audio.")
+                .font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12)
+                .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
             Spacer()
         }
-        .onChange(of: player.visualizerBins) { values in
-            guard peakHold else { return }
-            if heldPeaks.count != values.count { heldPeaks = values; return }
-            heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
+    }
+
+    private var focusedLayout: some View {
+        VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("ANALOG  /  LIVE SPECTRUM").font(.system(size: 11, weight: .black)).tracking(2).foregroundStyle(AnalogPalette.amber)
+                    Text("POST-EQ AUDIO ANALYSIS  •  36 BANDS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.muted)
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Circle().fill(player.isPlaying && player.visualizerEnabled ? AnalogPalette.green : AnalogPalette.muted).frame(width: 7, height: 7)
+                    Text(player.isPlaying && player.visualizerEnabled ? "LIVE" : "STANDBY")
+                        .font(.system(size: 9, weight: .bold)).tracking(1)
+                        .foregroundStyle(player.isPlaying && player.visualizerEnabled ? AnalogPalette.green : AnalogPalette.muted)
+                    Toggle("PEAK HOLD", isOn: $peakHold).toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
+                    Text("ESC TO EXIT").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.muted)
+                }
+            }
+            HStack(spacing: 12) {
+                VStack(spacing: 7) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("LIVE AUDIO ANALYSER").font(.system(size: 14, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                            Text("Real-time signal from the playback chain").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                        }
+                        Spacer()
+                        Text("36 BANDS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.amber)
+                    }
+                    analyserCanvas.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack {
+                        Text("35 Hz").foregroundStyle(AnalogPalette.muted)
+                        Spacer()
+                        Text("POST-EQ  •  LOGARITHMIC").foregroundStyle(AnalogPalette.muted)
+                        Spacer()
+                        Text("16 kHz").foregroundStyle(AnalogPalette.muted)
+                    }
+                    .font(.system(size: 8, weight: .medium))
+                    HStack(spacing: 8) {
+                        MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
+                        MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
+                        MetricTile(label: "RANGE", value: "35 Hz–16 kHz", symbol: "waveform")
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(12)
+                .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 13))
+                nowPlayingDetails
+                    .frame(width: 360)
+                    .frame(maxHeight: .infinity)
+                    .padding(12)
+                    .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 13))
+            }
+            playbackControls
         }
-        .padding(22)
+    }
+
+    private var visualizerStyleButtons: some View {
+        HStack(spacing: 8) {
+            ForEach(["Spectrum", "Waveform"], id: \.self) { item in
+                Button(item.uppercased()) { style = item }.buttonStyle(AnalogOutlineButton())
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(style == item ? AnalogPalette.amber.opacity(0.8) : .clear, lineWidth: 1))
+            }
+        }
+    }
+
+    private var analyserCanvas: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 15).fill(Color.black.opacity(0.68))
+            Canvas { context, size in
+                let bins = player.visualizerBins
+                let count = max(1, bins.count)
+                let gap: CGFloat = focusMode ? 5 : 4
+                let barWidth = max(2, (size.width - CGFloat(count - 1) * gap) / CGFloat(count))
+                if style == "Spectrum" {
+                    for index in bins.indices {
+                        let value = CGFloat(bins[index])
+                        let height = max(2, value * (size.height - 20))
+                        let rect = CGRect(x: CGFloat(index) * (barWidth + gap), y: size.height - height - 10, width: barWidth, height: height)
+                        let color = index < 10 ? AnalogPalette.green : (index < 24 ? AnalogPalette.amber : Color(red: 0.9, green: 0.42, blue: 0.25))
+                        context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [color.opacity(0.55), color]), startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+                        if peakHold, heldPeaks.indices.contains(index) {
+                            let peakY = size.height - CGFloat(heldPeaks[index]) * (size.height - 20) - 10
+                            let marker = CGRect(x: rect.minX, y: max(4, peakY - 2), width: barWidth, height: 2)
+                            context.fill(Path(roundedRect: marker, cornerRadius: 1), with: .color(AnalogPalette.cream.opacity(0.9)))
+                        }
+                    }
+                } else {
+                    let wave = player.visualizerWaveform
+                    var path = Path()
+                    for index in wave.indices {
+                        let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
+                        let y = size.height / 2 - CGFloat(wave[index]) * size.height * 0.42
+                        if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                    context.stroke(path, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    var mirror = Path()
+                    for index in wave.indices {
+                        let x = CGFloat(index) / CGFloat(max(1, wave.count - 1)) * size.width
+                        let y = size.height / 2 + CGFloat(wave[index]) * size.height * 0.12
+                        if index == 0 { mirror.move(to: CGPoint(x: x, y: y)) } else { mirror.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                    context.stroke(mirror, with: .color(AnalogPalette.amber.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                }
+                for fraction in [0.25, 0.5, 0.75] {
+                    var grid = Path()
+                    grid.move(to: CGPoint(x: 0, y: size.height * fraction))
+                    grid.addLine(to: CGPoint(x: size.width, y: size.height * fraction))
+                    context.stroke(grid, with: .color(.white.opacity(0.08)), lineWidth: 1)
+                }
+            }
+            .padding(12)
+            if !player.isPlaying {
+                VStack(spacing: 5) {
+                    Image(systemName: "waveform.path").font(.system(size: 25)).foregroundStyle(AnalogPalette.amber)
+                    Text(player.currentTrack == nil ? "PLAY A TRACK TO START ANALYSIS" : "PLAYBACK PAUSED")
+                        .font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.muted)
+                }
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
+    }
+
+    private var nowPlayingDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("NOW PLAYING").font(.system(size: 9, weight: .black)).tracking(1.8).foregroundStyle(AnalogPalette.muted)
+                Spacer()
+                Circle().fill(player.isPlaying ? AnalogPalette.green : AnalogPalette.muted).frame(width: 7, height: 7)
+            }
+            HStack(spacing: 12) {
+                Group {
+                    if let path = player.currentTrack?.artworkPath, let image = NSImage(contentsOfFile: path) {
+                        Image(nsImage: image).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10).fill(AnalogPalette.raised)
+                            Image(systemName: "waveform").font(.system(size: 38, weight: .bold)).foregroundStyle(AnalogPalette.amber)
+                        }
+                    }
+                }
+                .frame(width: 124, height: 124).clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(player.currentTrack?.title ?? "Nothing playing")
+                        .font(.system(size: 16, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(2)
+                    Text(player.currentTrack?.artist ?? "—")
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                    Text("ALBUM  •  \(player.currentTrack?.album ?? "—")")
+                        .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+            Text("FILE DETAILS").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+            let track = player.currentTrack
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 7) {
+                focusDetail("FORMAT", track?.url.pathExtension.uppercased() ?? "—")
+                focusDetail("SIZE", focusFileSize(track?.fileSizeBytes))
+                focusDetail("AVG. BITRATE", track?.averageBitrateKbps.map { "\($0) kbps" } ?? "—")
+                focusDetail("SAMPLE RATE", track?.sampleRateHz.map { String(format: "%.1f kHz", $0 / 1000) } ?? "—")
+                focusDetail("DURATION", track.map { formatTime($0.duration) } ?? "—")
+                focusDetail("CHANNELS", track?.audioChannels.map { String($0) } ?? "—")
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func focusDetail(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 7, weight: .black)).tracking(0.8).foregroundStyle(AnalogPalette.muted)
+            Text(value).font(.system(size: 10, weight: .bold, design: .rounded)).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8).padding(.vertical, 7)
+        .background(AnalogPalette.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var playbackControls: some View {
+        let duration = max(0, player.currentTrack?.duration ?? 0)
+        return VStack(spacing: 7) {
+            HStack(spacing: 10) {
+                Text(formatTime(scrubTime ?? player.currentTime)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+                Slider(
+                    value: Binding(
+                        get: { min(scrubTime ?? player.currentTime, max(duration, 0.01)) },
+                        set: { scrubTime = $0 }
+                    ),
+                    in: 0...max(duration, 0.01),
+                    onEditingChanged: { editing in
+                        if !editing {
+                            if let target = scrubTime { player.seek(to: target) }
+                            scrubTime = nil
+                        }
+                    }
+                )
+                .tint(AnalogPalette.amber)
+                Text(formatTime(duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
+            }
+            HStack(spacing: 24) {
+                Button { player.previous() } label: { Image(systemName: "backward.end.fill") }.buttonStyle(.plain)
+                Button { player.togglePlayback() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 18, weight: .bold)).foregroundStyle(AnalogPalette.ink)
+                        .frame(width: 44, height: 44).background(AnalogPalette.amber, in: Circle())
+                }.buttonStyle(.plain)
+                Button { player.next() } label: { Image(systemName: "forward.end.fill") }.buttonStyle(.plain)
+            }
+            .font(.system(size: 17, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+        }
+        .padding(.horizontal, 10)
     }
 }
+
+private func focusFileSize(_ bytes: Int64?) -> String {
+    guard let bytes, bytes > 0 else { return "—" }
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    return formatter.string(fromByteCount: bytes)
+}
+
 
 struct QueueView: View {
     @EnvironmentObject private var player: AnalogPlayer
@@ -1279,5 +1482,38 @@ struct SmartMixesView: View {
             Text("Smart mixes update automatically as you play, rate and favourite tracks.").font(.system(size: 10)).foregroundStyle(AnalogPalette.muted).padding(12).background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 9))
             Spacer()
         }.padding(22)
+    }
+}
+
+
+private struct EscapeKeyMonitor: NSViewRepresentable {
+    let isActive: Bool
+    let onEscape: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+        context.coordinator.onEscape = onEscape
+        context.coordinator.installIfNeeded()
+    }
+
+    final class Coordinator {
+        var isActive = false
+        var onEscape: () -> Void = {}
+        private var monitor: Any?
+
+        func installIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.isActive, event.keyCode == 53 else { return event }
+                self.onEscape()
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
     }
 }

@@ -138,6 +138,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerEnabled = false
+    private var analysisWindowVisible = true
     @Published var preampDB: Float = 0
     @Published var stereoPan: Float = 0
     @Published var outputVolume: Float = 0.85
@@ -353,6 +354,7 @@ final class AnalogPlayer: ObservableObject {
         playHistory = defaults.stringArray(forKey: "playHistory") ?? []
         playCounts = defaults.dictionary(forKey: "playCounts") as? [String: Int] ?? [:]
         if let data = defaults.data(forKey: "deviceEQPresets"), let saved = try? JSONDecoder().decode([EQDevicePreset].self, from: data) { devicePresets = saved.filter { $0.gains.count == 10 && $0.bandwidths.count == 10 } }
+        activeDevicePresetName = defaults.string(forKey: "activeDevicePresetName")
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
         crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
@@ -383,6 +385,12 @@ final class AnalogPlayer: ObservableObject {
         defaults.set(peakGuardThresholdDB, forKey: "peakGuardThresholdDB")
         defaults.set(playHistory, forKey: "playHistory")
         defaults.set(playCounts, forKey: "playCounts")
+        syncActiveDevicePresetFromCurrentSettings()
+        if let activeDevicePresetName {
+            defaults.set(activeDevicePresetName, forKey: "activeDevicePresetName")
+        } else {
+            defaults.removeObject(forKey: "activeDevicePresetName")
+        }
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
@@ -444,13 +452,16 @@ final class AnalogPlayer: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                var merged = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                for var track in found {
-                    if let existing = merged[track.id] { track.dateAdded = existing.dateAdded ?? track.dateAdded }
-                    merged[track.id] = track
+                let existingByID = Dictionary(self.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let reconciled = found.map { discovered -> MusicTrack in
+                    var track = discovered
+                    if let existing = existingByID[track.id] {
+                        track.dateAdded = existing.dateAdded ?? track.dateAdded
+                    }
+                    return track
                 }
                 self.skippedAudioFiles = skippedFiles.sorted()
-                self.tracks = merged.values.sorted {
+                self.tracks = reconciled.sorted {
                     $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                 }
                 self.defaults.set(folder.path, forKey: "musicFolder")
@@ -500,11 +511,13 @@ final class AnalogPlayer: ObservableObject {
         }
     }
 
-    func setVisualizerEnabled(_ enabled: Bool) {
-        visualizerEnabled = enabled
-        let meterEnabled = selectedTab == "Equalizer"
+    func setVisualizerEnabled(_ enabled: Bool, windowVisible: Bool? = nil) {
+        if let windowVisible { analysisWindowVisible = windowVisible }
+        let visualizerActive = enabled && analysisWindowVisible
+        visualizerEnabled = visualizerActive
+        let meterEnabled = selectedTab == "Equalizer" && analysisWindowVisible
         analogAudioAnalysisGate.withLock { state in
-            state.visualizerEnabled = enabled
+            state.visualizerEnabled = visualizerActive
             state.meterEnabled = meterEnabled
             state.lastUpdate = 0
         }
@@ -1067,7 +1080,7 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func normalizedDeviceName(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        value.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive], locale: .current)
     }
 
     private func handleOutputDeviceChange(_ name: String) {
@@ -1080,6 +1093,10 @@ final class AnalogPlayer: ObservableObject {
         let key = normalizedDeviceName(name)
         guard !key.isEmpty,
               let preset = devicePresets.first(where: { $0.matchesOutput(named: name) }) else {
+            // Preserve manually configured EQ when no device profile was active.
+            // Only clear settings when moving away from a profile that was
+            // actually auto-applied, so its curve cannot leak onto another output.
+            guard activeDevicePresetName != nil else { return }
             activeDevicePresetName = nil
             eqGains = Array(repeating: 0, count: 10)
             eqBandwidths = Array(repeating: 1, count: 10)
@@ -1102,6 +1119,26 @@ final class AnalogPlayer: ObservableObject {
         autoMatchOutputDevice = enabled
         if enabled { applyMatchingDevicePreset(for: outputDeviceName) }
         persistState()
+    }
+
+    private func syncActiveDevicePresetFromCurrentSettings() {
+        guard let activeName = activeDevicePresetName,
+              let index = devicePresets.firstIndex(where: {
+                  normalizedDeviceName($0.name) == normalizedDeviceName(activeName)
+              }) else { return }
+        devicePresets[index] = EQDevicePreset(
+            id: devicePresets[index].id,
+            name: devicePresets[index].name,
+            gains: eqGains,
+            bandwidths: eqBandwidths,
+            preampDB: preampDB,
+            eqEnabled: eqEnabled,
+            crossfeedEnabled: crossfeedEnabled,
+            crossfeedAmount: crossfeedAmount,
+            peakGuardEnabled: peakGuardEnabled,
+            peakGuardThresholdDB: peakGuardThresholdDB,
+            stereoPan: stereoPan
+        )
     }
 
     func saveDevicePreset(named rawName: String) {
@@ -1129,11 +1166,13 @@ final class AnalogPlayer: ObservableObject {
         eqBandwidths = preset.bandwidths.map { min(4, max(0.1, $0)) }
         preampDB = min(12, max(-12, preset.preampDB))
         eqEnabled = preset.eqEnabled
-        if let value = preset.crossfeedEnabled { crossfeedEnabled = value }
-        if let value = preset.crossfeedAmount { crossfeedAmount = min(0.35, max(0, value)) }
-        if let value = preset.peakGuardEnabled { peakGuardEnabled = value }
-        if let value = preset.peakGuardThresholdDB { peakGuardThresholdDB = min(-0.1, max(-12, value)) }
-        if let value = preset.stereoPan { stereoPan = min(1, max(-1, value)) }
+        // Older profile files omit these optional DSP values. Reset them to
+        // application defaults rather than inheriting the previous profile.
+        crossfeedEnabled = preset.crossfeedEnabled ?? false
+        crossfeedAmount = min(0.35, max(0, preset.crossfeedAmount ?? 0.12))
+        peakGuardEnabled = preset.peakGuardEnabled ?? false
+        peakGuardThresholdDB = min(-0.1, max(-12, preset.peakGuardThresholdDB ?? -1))
+        stereoPan = min(1, max(-1, preset.stereoPan ?? 0))
         activeDevicePresetName = preset.name
         applyEqualizer()
         applyCrossfeedMatrix()
@@ -1285,6 +1324,7 @@ final class AnalogPlayer: ObservableObject {
         let values: [Float]
         switch name {
         case "Bass": values = [7, 6, 4, 2, 0, -1, -2, -2, -1, 0]
+        case "Pop": values = [-1, 1, 3, 4, 2, -1, 0, 2, 3, 2]
         case "Treble": values = [-2, -1, 0, 0, 1, 2, 4, 6, 7, 7]
         case "Vocal": values = [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1]
         case "Rock": values = [5, 3, -1, -2, 1, 3, 5, 5, 3, 3]
