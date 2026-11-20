@@ -37,7 +37,19 @@ object AudioFocusModeController {
                         .putBoolean(KEY_RESTORE_PENDING, true)
                         .commit()
                 }
-                runCatching { audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE }
+                val switched = runCatching {
+                    audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE
+                    audioManager.ringerMode == AudioManager.RINGER_MODE_VIBRATE
+                }.getOrDefault(false)
+                if (!switched) {
+                    // Do not retain a restore record when Android rejected the
+                    // mode change; otherwise a later disconnect could overwrite
+                    // a ringer mode that Analog never changed.
+                    prefs.edit()
+                        .remove(KEY_PREVIOUS_MODE)
+                        .putBoolean(KEY_RESTORE_PENDING, false)
+                        .commit()
+                }
             }
         } else {
             restoreIfStillOwned(audioManager, prefs)
@@ -75,8 +87,14 @@ object AudioFocusModeController {
         // If the user changed the ringer mode themselves while connected, respect
         // that choice rather than overwriting it on disconnect.
         if (audioManager.ringerMode == AudioManager.RINGER_MODE_VIBRATE) {
-            runCatching { audioManager.ringerMode = previousMode }
+            val restored = runCatching {
+                audioManager.ringerMode = previousMode
+                audioManager.ringerMode == previousMode
+            }.getOrDefault(false)
+            if (!restored) return // Retry on the next device/settings refresh.
         }
+        // If the mode is no longer vibrate, the user changed it manually; do not
+        // override that choice. If restoration succeeded, release our ownership.
         prefs.edit()
             .remove(KEY_PREVIOUS_MODE)
             .putBoolean(KEY_RESTORE_PENDING, false)
