@@ -218,6 +218,12 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 getSharedPreferences("analog_library", MODE_PRIVATE)
                     .edit().putBoolean("quick_tile_playing", isPlaying).apply()
+                runCatching {
+                    android.service.quicksettings.TileService.requestListeningState(
+                        this@PlaybackService,
+                        ComponentName(this@PlaybackService, AnalogQuickSettingsTile::class.java)
+                    )
+                }
                 updateWidget()
                 if (isPlaying) {
                     // ExoPlayer may allocate its audio session after the listener is
