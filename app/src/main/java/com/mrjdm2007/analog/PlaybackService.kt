@@ -213,6 +213,8 @@ class PlaybackService : MediaSessionService() {
                 applyReplayGain()
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                getSharedPreferences("analog_library", MODE_PRIVATE)
+                    .edit().putBoolean("quick_tile_playing", isPlaying).apply()
                 updateWidget()
                 if (isPlaying) {
                     // ExoPlayer may allocate its audio session after the listener is
