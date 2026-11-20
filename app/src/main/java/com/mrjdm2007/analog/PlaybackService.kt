@@ -446,55 +446,95 @@ class PlaybackService : MediaSessionService() {
         if (restoreVolume) mediaSession?.player?.volume = 1f
     }
 
+    /**
+     * Rebuild the cold-start queue from both MediaStore and the user's persisted
+     * Storage Access Framework folders. This keeps widget/tile playback consistent
+     * with the library shown by MainActivity, even when files are not indexed.
+     */
+    private fun coldStartLibraryItems(): List<Pair<Long, androidx.media3.common.MediaItem>> {
+        val result = LinkedHashMap<String, Pair<Long, androidx.media3.common.MediaItem>>()
+        val columns = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DATA
+        )
+        runCatching {
+            contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                columns,
+                null,
+                null,
+                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val path = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
+                    val folder = path.substringBeforeLast("/", "Music").substringAfterLast("/")
+                    if (folder.equals("Ringtones", true) ||
+                        folder.equals("Notifications", true) ||
+                        folder.equals("Alarms", true)
+                    ) continue
+                    val albumId = cursor.getLong(albumIdCol)
+                    val artwork = if (albumId > 0L) Uri.withAppendedPath(
+                        Uri.parse("content://media/external/audio/albumart"), albumId.toString()
+                    ) else null
+                    val metadata = androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(cursor.getString(titleCol) ?: "Unknown title")
+                        .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
+                        .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
+                        .setArtworkUri(artwork)
+                        .build()
+                    val uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    val media = androidx.media3.common.MediaItem.Builder()
+                        .setMediaId(id.toString())
+                        .setUri(uri)
+                        .setMediaMetadata(metadata)
+                        .build()
+                    result[uri.toString()] = id to media
+                }
+            }
+        }
+
+        val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+        val treeUris = prefs.getStringSet("saf_music_trees", emptySet())?.toSet().orEmpty()
+        if (treeUris.isNotEmpty()) {
+            runCatching { SafAudioLibrary.scan(this, treeUris) }
+                .getOrDefault(emptyList())
+                .forEach { track ->
+                    val key = track.uri.toString()
+                    if (key !in result) {
+                        val metadata = androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .setAlbumTitle(track.album)
+                            .build()
+                        val media = androidx.media3.common.MediaItem.Builder()
+                            .setMediaId(track.id.toString())
+                            .setUri(track.uri)
+                            .setMediaMetadata(metadata)
+                            .build()
+                        result[key] = track.id to media
+                    }
+                }
+        }
+        return result.values.toList()
+    }
+
     private fun startLastPlayedFromTile() {
         val player = mediaSession?.player ?: return
         if (player.mediaItemCount == 0) {
             val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-            val columns = arrayOf(
-                MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID
-            )
-            val items = mutableListOf<Pair<Long, androidx.media3.common.MediaItem>>()
-            runCatching {
-                contentResolver.query(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns,
-                    "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
-                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
-                )?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                    val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                    val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                    val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                    val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(idCol)
-                        val albumId = cursor.getLong(albumIdCol)
-                        val artwork = if (albumId > 0L) Uri.withAppendedPath(
-                            Uri.parse("content://media/external/audio/albumart"), albumId.toString()
-                        ) else null
-                        val metadata = androidx.media3.common.MediaMetadata.Builder()
-                            .setTitle(cursor.getString(titleCol) ?: "Unknown title")
-                            .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
-                            .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
-                            .setArtworkUri(artwork)
-                            .build()
-                        val media = androidx.media3.common.MediaItem.Builder()
-                            .setMediaId(id.toString())
-                            .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
-                            .setMediaMetadata(metadata)
-                            .build()
-                        items += id to media
-                    }
-                }
-            }
-            if (items.isEmpty()) {
-                // Some devices index audio outside IS_MUSIC. Fall back to the
-                // broader library query so a cold-start tile tap still has a chance
-                // to begin playback without opening the activity.
-                startRandomLibraryTrack()
-                return
-            }
+            val items = coldStartLibraryItems()
+            if (items.isEmpty()) return
             val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
                 ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
             val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
@@ -511,38 +551,14 @@ class PlaybackService : MediaSessionService() {
 
     private fun startRandomLibraryTrack() {
         val player = mediaSession?.player as? ExoPlayer ?: return
-        if (player.currentMediaItem != null && player.mediaItemCount > 0) { resumeOrRestart(player); return }
-        val columns = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DATA)
-        val items = mutableListOf<androidx.media3.common.MediaItem>()
-        runCatching {
-            contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, columns, null, null, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-                val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idCol)
-                    val path = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
-                    val folder = path.substringBeforeLast("/", "Music").substringAfterLast("/")
-                    if (folder.equals("Ringtones", true) || folder.equals("Notifications", true) || folder.equals("Alarms", true)) continue
-                    val albumId = cursor.getLong(albumIdCol)
-                    val art = if (albumId > 0L) Uri.withAppendedPath(Uri.parse("content://media/external/audio/albumart"), albumId.toString()) else null
-                    val metadata = androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(cursor.getString(titleCol) ?: "Unknown title")
-                        .setArtist(cursor.getString(artistCol) ?: "Unknown artist")
-                        .setAlbumTitle(cursor.getString(albumCol) ?: "Unknown album")
-                        .setArtworkUri(art).build()
-                    items += androidx.media3.common.MediaItem.Builder().setMediaId(id.toString())
-                        .setUri(Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString()))
-                        .setMediaMetadata(metadata).build()
-                }
-            }
+        if (player.currentMediaItem != null && player.mediaItemCount > 0) {
+            resumeOrRestart(player)
+            return
         }
+        val items = coldStartLibraryItems()
         if (items.isEmpty()) return
-        val order = items.shuffled()
-        player.setMediaItems(order, 0, 0L)
+        val shuffled = items.shuffled()
+        player.setMediaItems(shuffled.map { it.second }, 0, 0L)
         player.prepare()
         player.play()
         updateWidget()
