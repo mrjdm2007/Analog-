@@ -1152,13 +1152,33 @@ struct VisualiserView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
+                    Circle().fill(player.isPlaying && player.visualizerEnabled ? AnalogPalette.green : AnalogPalette.muted).frame(width: 7, height: 7)
+                    Text(player.isPlaying && player.visualizerEnabled ? "LIVE" : "STANDBY")
+                        .font(.system(size: 9, weight: .bold)).tracking(1)
+                        .foregroundStyle(player.isPlaying && player.visualizerEnabled ? AnalogPalette.green : AnalogPalette.muted)
                     Toggle("PEAK HOLD", isOn: $peakHold).toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
                     Text("ESC TO EXIT").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.muted)
                 }
             }
             HStack(spacing: 12) {
-                VStack(spacing: 8) {
+                VStack(spacing: 7) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("LIVE AUDIO ANALYSER").font(.system(size: 14, weight: .black, design: .rounded)).foregroundStyle(AnalogPalette.cream)
+                            Text("Real-time signal from the playback chain").font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                        }
+                        Spacer()
+                        Text("36 BANDS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.amber)
+                    }
                     analyserCanvas.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack {
+                        Text("35 Hz").foregroundStyle(AnalogPalette.muted)
+                        Spacer()
+                        Text("POST-EQ  •  LOGARITHMIC").foregroundStyle(AnalogPalette.muted)
+                        Spacer()
+                        Text("16 kHz").foregroundStyle(AnalogPalette.muted)
+                    }
+                    .font(.system(size: 8, weight: .medium))
                     HStack(spacing: 8) {
                         MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
                         MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
