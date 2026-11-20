@@ -1314,6 +1314,7 @@ final class AnalogPlayer: ObservableObject {
         let values: [Float]
         switch name {
         case "Bass": values = [7, 6, 4, 2, 0, -1, -2, -2, -1, 0]
+        case "Pop": values = [-1, 1, 3, 4, 2, -1, 0, 2, 3, 2]
         case "Treble": values = [-2, -1, 0, 0, 1, 2, 4, 6, 7, 7]
         case "Vocal": values = [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1]
         case "Rock": values = [5, 3, -1, -2, 1, 3, 5, 5, 3, 3]
