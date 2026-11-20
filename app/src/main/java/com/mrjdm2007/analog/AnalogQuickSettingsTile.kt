@@ -25,8 +25,8 @@ class AnalogQuickSettingsTile : TileService() {
             Intent(this, PlaybackService::class.java).setAction(PlaybackService.ACTION_TILE_PLAY)
         )
         qsTile?.apply {
-            label = "Analog"
-            state = Tile.STATE_ACTIVE
+            label = "Starting Analog…"
+            state = Tile.STATE_INACTIVE
             updateTile()
         }
     }
