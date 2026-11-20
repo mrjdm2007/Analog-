@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.RemoteViews
 
 class AnalogWidgetProvider : AppWidgetProvider() {
@@ -41,7 +42,12 @@ class AnalogWidgetProvider : AppWidgetProvider() {
 
         private fun serviceIntent(context: Context, action: String, requestCode: Int): PendingIntent {
             val intent = Intent(context, PlaybackService::class.java).setAction(action)
-            return PendingIntent.getService(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PendingIntent.getForegroundService(context, requestCode, intent, flags)
+            } else {
+                PendingIntent.getService(context, requestCode, intent, flags)
+            }
         }
     }
 }
