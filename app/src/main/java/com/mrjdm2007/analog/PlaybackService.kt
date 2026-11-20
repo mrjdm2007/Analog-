@@ -74,6 +74,9 @@ class PlaybackService : MediaSessionService() {
     private var sleepFade: Runnable? = null
     private var sleepEndListener: Player.Listener? = null
     private val replayGainExecutor = Executors.newSingleThreadExecutor()
+    private val coldStartExecutor = Executors.newSingleThreadExecutor()
+    private var coldStartLoadInProgress = false
+    private val coldStartLoadCallbacks = mutableListOf<(List<Pair<Long, androidx.media3.common.MediaItem>>) -> Unit>()
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private val softwareEqualizer = TenBandEqualizerProcessor()
     private val crossfadeEqualizer = TenBandEqualizerProcessor()
@@ -531,18 +534,55 @@ class PlaybackService : MediaSessionService() {
         return result.values.toList()
     }
 
+    /**
+     * SAF providers may need to enumerate thousands of documents and extract
+     * metadata. Never do that on MediaSessionService's main thread: a widget or
+     * Quick Settings tap is a foreground-service start and must return promptly.
+     */
+    private fun loadColdStartLibrary(
+        onLoaded: (List<Pair<Long, androidx.media3.common.MediaItem>>) -> Unit
+    ) {
+        coldStartLoadCallbacks += onLoaded
+        if (coldStartLoadInProgress) return
+        coldStartLoadInProgress = true
+        coldStartExecutor.execute {
+            val items = runCatching { coldStartLibraryItems() }.getOrDefault(emptyList())
+            timerHandler.post {
+                coldStartLoadInProgress = false
+                val callbacks = coldStartLoadCallbacks.toList()
+                coldStartLoadCallbacks.clear()
+                callbacks.forEach { callback -> callback(items) }
+            }
+        }
+    }
+
     private fun startLastPlayedFromTile() {
         val player = mediaSession?.player ?: return
         if (player.mediaItemCount == 0) {
-            val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
-            val items = coldStartLibraryItems()
-            if (items.isEmpty()) return
-            val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
-                ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
-            val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
-            player.setMediaItems(items.map { it.second }, startIndex, 0L)
-            player.prepare()
-        } else if (player.playbackState == Player.STATE_ENDED) {
+            loadColdStartLibrary { items ->
+                val activePlayer = mediaSession?.player ?: return@loadColdStartLibrary
+                if (activePlayer.mediaItemCount == 0) {
+                    if (items.isEmpty()) {
+                        updateWidget()
+                        return@loadColdStartLibrary
+                    }
+                    val prefs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                    val lastPlayedId = items.maxByOrNull { prefs.getLong("last_played:${it.first}", 0L) }
+                        ?.takeIf { prefs.getLong("last_played:${it.first}", 0L) > 0L }?.first
+                    val startIndex = items.indexOfFirst { it.first == lastPlayedId }.takeIf { it >= 0 } ?: 0
+                    activePlayer.setMediaItems(items.map { it.second }, startIndex, 0L)
+                    activePlayer.prepare()
+                } else if (activePlayer.playbackState == Player.STATE_ENDED) {
+                    activePlayer.seekTo(0L)
+                } else if (activePlayer.playbackState == Player.STATE_IDLE) {
+                    activePlayer.prepare()
+                }
+                activePlayer.play()
+                updateWidget()
+            }
+            return
+        }
+        if (player.playbackState == Player.STATE_ENDED) {
             player.seekTo(0L)
         } else if (player.playbackState == Player.STATE_IDLE) {
             player.prepare()
@@ -557,13 +597,22 @@ class PlaybackService : MediaSessionService() {
             resumeOrRestart(player)
             return
         }
-        val items = coldStartLibraryItems()
-        if (items.isEmpty()) return
-        val shuffled = items.shuffled()
-        player.setMediaItems(shuffled.map { it.second }, 0, 0L)
-        player.prepare()
-        player.play()
-        updateWidget()
+        loadColdStartLibrary { items ->
+            val activePlayer = mediaSession?.player as? ExoPlayer ?: return@loadColdStartLibrary
+            if (activePlayer.currentMediaItem != null && activePlayer.mediaItemCount > 0) {
+                resumeOrRestart(activePlayer)
+                return@loadColdStartLibrary
+            }
+            if (items.isEmpty()) {
+                updateWidget()
+                return@loadColdStartLibrary
+            }
+            val shuffled = items.shuffled()
+            activePlayer.setMediaItems(shuffled.map { it.second }, 0, 0L)
+            activePlayer.prepare()
+            activePlayer.play()
+            updateWidget()
+        }
     }
 
     private fun runCrossfadeTick() {
@@ -801,6 +850,16 @@ class PlaybackService : MediaSessionService() {
         sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
         sleepEndListener = null
         replayGainExecutor.shutdownNow()
+        coldStartExecutor.shutdownNow()
+        coldStartLoadCallbacks.clear()
+        getSharedPreferences("analog_library", MODE_PRIVATE).edit()
+            .putBoolean("quick_tile_playing", false).apply()
+        runCatching {
+            android.service.quicksettings.TileService.requestListeningState(
+                this,
+                ComponentName(this, AnalogQuickSettingsTile::class.java)
+            )
+        }
         timerHandler.removeCallbacks(crossfadeTick)
         timerHandler.removeCallbacks(listeningTick)
         cancelCrossfade()
