@@ -16,11 +16,12 @@ public func gaplessQueueIndices(count: Int, currentIndex: Int, repeatQueue: Bool
 
 public func stereoCrossfeedMatrix(amount rawAmount: Float) -> [Float32] {
     let amount = min(0.35, max(0, rawAmount))
-    // AVAudioUnitMatrixMixer uses one coefficient per input/output pair.
-    // For stereo this is a 2 × 2 matrix, not a 3 × 3 matrix.
+    // AUMatrixMixer MatrixLevels includes the input-gain column, output-gain
+    // row and master-gain cell in addition to the crosspoints: stereo is 3 × 3.
     return [
-        1 - amount, amount,
-        amount, 1 - amount
+        1 - amount, amount, 1,
+        amount, 1 - amount, 1,
+        1, 1, 1
     ]
 }
 
