@@ -89,6 +89,9 @@ class PlaybackService : MediaSessionService() {
     private var crossfadeTargetIndex = -1
     private var crossfadeInProgress = false
     private var crossfadeForIndex = -1
+    private var crossfadePrimaryGain = 1f
+    private var crossfadeSecondaryGain = 0f
+    private var sleepVolumeMultiplier = 1f
     private val listeningTick = object : Runnable {
         override fun run() {
             val player = mediaSession?.player
@@ -299,7 +302,9 @@ class PlaybackService : MediaSessionService() {
                     .getInt("sleep_fade_seconds", 20).coerceIn(0, 30)
                 val fadeMs = fadeSeconds * 1000L
                 sleepTimer = Runnable {
-                    mediaSession?.player?.let { it.pause(); it.volume = 1f }
+                    mediaSession?.player?.pause()
+                    sleepVolumeMultiplier = 1f
+                    applyCrossfadeVolumes()
                     sleepTimer = null
                     sleepFade = null
                 }
@@ -309,8 +314,8 @@ class PlaybackService : MediaSessionService() {
                     sleepFade = object : Runnable {
                         override fun run() {
                             val elapsed = SystemClock.elapsedRealtime() - fadeStart
-                            val volume = SleepFade.volumeAt(elapsed, fadeMs)
-                            mediaSession?.player?.volume = volume
+                            sleepVolumeMultiplier = SleepFade.volumeAt(elapsed, fadeMs)
+                            applyCrossfadeVolumes()
                             if (elapsed < fadeMs) timerHandler.postDelayed(this, 100L)
                         }
                     }
@@ -343,10 +348,11 @@ class PlaybackService : MediaSessionService() {
                             }
                         }
                     }
-                    sleepEndListener = listener
                     if (activePlayer.playbackState == Player.STATE_ENDED) {
                         activePlayer.pause()
+                        sleepEndListener = null
                     } else {
+                        sleepEndListener = listener
                         activePlayer.addListener(listener)
                     }
                 }
@@ -456,7 +462,7 @@ class PlaybackService : MediaSessionService() {
                 val seconds = intent.getIntExtra(EXTRA_CROSSFADE_SECONDS, 0).coerceIn(0, 10)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("crossfade_seconds", seconds).apply()
                 cancelCrossfade()
-                mediaSession?.player?.volume = 1f
+                applyCrossfadeVolumes()
                 if (mediaSession?.player?.isPlaying == true) timerHandler.post(crossfadeTick)
             }
         }
@@ -474,7 +480,15 @@ class PlaybackService : MediaSessionService() {
         sleepFade?.let(timerHandler::removeCallbacks)
         sleepTimer = null
         sleepFade = null
-        if (restoreVolume) mediaSession?.player?.volume = 1f
+        if (restoreVolume) {
+            sleepVolumeMultiplier = 1f
+            applyCrossfadeVolumes()
+        }
+    }
+
+    private fun applyCrossfadeVolumes() {
+        mediaSession?.player?.volume = (crossfadePrimaryGain * sleepVolumeMultiplier).coerceIn(0f, 1f)
+        crossfadePlayer?.volume = (crossfadeSecondaryGain * sleepVolumeMultiplier).coerceIn(0f, 1f)
     }
 
     /**
@@ -652,7 +666,7 @@ class PlaybackService : MediaSessionService() {
         val durationMs = getSharedPreferences("analog_library", MODE_PRIVATE).getInt("crossfade_seconds", 0) * 1000L
         if (!primary.isPlaying || durationMs <= 0L) {
             cancelCrossfade()
-            primary.volume = 1f
+            applyCrossfadeVolumes()
             return
         }
         if (!crossfadeInProgress) {
@@ -666,7 +680,9 @@ class PlaybackService : MediaSessionService() {
                     secondary.clearMediaItems()
                     secondary.setMediaItem(primary.getMediaItemAt(nextIndex))
                     secondary.prepare()
-                    secondary.volume = 0f
+                    crossfadePrimaryGain = 1f
+                    crossfadeSecondaryGain = 0f
+                    applyCrossfadeVolumes()
                     secondary.play()
                     crossfadeTargetIndex = nextIndex
                     crossfadeForIndex = primary.currentMediaItemIndex
@@ -674,7 +690,7 @@ class PlaybackService : MediaSessionService() {
                     crossfadeInProgress = true
                 }.onFailure {
                     cancelCrossfade()
-                    primary.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
         } else {
@@ -684,7 +700,7 @@ class PlaybackService : MediaSessionService() {
                 // The queue may have been edited while the second decoder prepared.
                 // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
-                primary.volume = 1f
+                applyCrossfadeVolumes()
                 crossfadeForIndex = -1
                 return
             }
@@ -696,15 +712,16 @@ class PlaybackService : MediaSessionService() {
             }
             if (crossfadeStartMs == 0L) crossfadeStartMs = SystemClock.elapsedRealtime()
             val progress = ((SystemClock.elapsedRealtime() - crossfadeStartMs).toFloat() / durationMs).coerceIn(0f, 1f)
-            primary.volume = 1f - progress
-            secondary.volume = progress
+            crossfadePrimaryGain = 1f - progress
+            crossfadeSecondaryGain = progress
+            applyCrossfadeVolumes()
             if (progress >= 1f) {
                 val nextPosition = secondary.currentPosition
-                primary.volume = 0f
                 primary.seekTo(crossfadeTargetIndex, nextPosition)
                 primary.play()
-                primary.volume = 1f
-                secondary.volume = 0f
+                crossfadePrimaryGain = 1f
+                crossfadeSecondaryGain = 0f
+                applyCrossfadeVolumes()
                 secondary.pause()
                 secondary.clearMediaItems()
                 crossfadeInProgress = false
@@ -717,7 +734,10 @@ class PlaybackService : MediaSessionService() {
     private fun cancelCrossfade() {
         crossfadeInProgress = false
         crossfadeTargetIndex = -1
+        crossfadePrimaryGain = 1f
+        crossfadeSecondaryGain = 0f
         crossfadePlayer?.let { runCatching { it.volume = 0f; it.pause(); it.clearMediaItems() } }
+        applyCrossfadeVolumes()
     }
 
 
