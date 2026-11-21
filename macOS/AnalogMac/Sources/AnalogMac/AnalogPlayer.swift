@@ -619,14 +619,17 @@ final class AnalogPlayer: ObservableObject {
         if queue.isEmpty {
             queue = [track]
             queueIndex = 0
+            refreshPlaybackSchedule()
             return
         }
         let insertion = min(max(queueIndex + 1, 0), queue.count)
         queue.insert(track, at: insertion)
+        refreshPlaybackSchedule()
     }
 
     func addToQueue(_ track: MusicTrack) {
         queue.append(track)
+        refreshPlaybackSchedule()
     }
 
     func removeFromQueue(at index: Int) {
@@ -634,6 +637,7 @@ final class AnalogPlayer: ObservableObject {
         guard queue.indices.contains(index), index != queueIndex else { return }
         queue.remove(at: index)
         if index < queueIndex { queueIndex -= 1 }
+        refreshPlaybackSchedule()
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
@@ -643,11 +647,17 @@ final class AnalogPlayer: ObservableObject {
         if queueIndex == source { queueIndex = destination }
         else if source < queueIndex && destination >= queueIndex { queueIndex -= 1 }
         else if source > queueIndex && destination <= queueIndex { queueIndex += 1 }
-    }
+        refreshPlaybackSchedule()
 
     func clearUpcomingQueue() {
-        guard queueIndex < queue.count else { queue = []; queueIndex = 0; return }
+        guard queueIndex < queue.count else {
+            queue = []
+            queueIndex = 0
+            refreshPlaybackSchedule()
+            return
+        }
         queue = Array(queue.prefix(queueIndex + 1))
+        refreshPlaybackSchedule()
     }
 
     var historyTracks: [MusicTrack] {
