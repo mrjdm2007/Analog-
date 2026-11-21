@@ -181,7 +181,7 @@ fun SettingsPage(
                         ActionDropdown(
                             "Gentle fade-out before pause",
                             if (sleepFadeSeconds == 0) "Off" else "$sleepFadeSeconds seconds",
-                            listOf("Off", "5 seconds", "10 seconds", "15 seconds", "30 seconds")
+                            listOf("Off", "5 seconds", "10 seconds", "15 seconds", "20 seconds", "30 seconds")
                         ) {
                             onSleepFadeSecondsChanged(it.substringBefore(" ").toIntOrNull() ?: 0)
                         }
