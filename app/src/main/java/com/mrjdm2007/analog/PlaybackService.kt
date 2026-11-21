@@ -266,6 +266,12 @@ class PlaybackService : MediaSessionService() {
                 newPosition: Player.PositionInfo,
                 reason: Int
             ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && sleepEndListener != null) {
+                    // A manual rewind should restore full level and let the
+                    // end-of-track fade begin again at the new track position.
+                    sleepVolumeMultiplier = 1f
+                    applyCrossfadeVolumes()
+                }
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && crossfadeInProgress) {
                     cancelCrossfade()
                     crossfadeForIndex = -1
@@ -328,6 +334,7 @@ class PlaybackService : MediaSessionService() {
             ACTION_SLEEP_TIMER_END_TRACK -> {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+                sleepEndListener = null
                 val activePlayer = mediaSession?.player
                 if (activePlayer != null) {
                     val listener = object : Player.Listener {
