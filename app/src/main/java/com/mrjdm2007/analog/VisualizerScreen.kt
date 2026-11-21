@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +95,7 @@ fun VisualizerScreen(
     var sessionId by remember { mutableIntStateOf(0) }
     var levels by remember { mutableStateOf(FloatArray(36)) }
     var peaks by remember { mutableStateOf(FloatArray(36)) }
+    var waveformSamples by remember { mutableStateOf(FloatArray(96)) }
     var captureReady by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var details by remember { mutableStateOf(VisualFileDetails()) }
@@ -171,6 +174,7 @@ fun VisualizerScreen(
         peaks = FloatArray(36)
         if (!shouldCapture) {
             captureReady = false
+            waveformSamples = FloatArray(96)
             captureError = when {
                 !audioPermissionGranted -> "Allow audio analysis to enable the live spectrum."
                 !playing -> "Start playback to activate the spectrum analyser."
@@ -190,7 +194,14 @@ fun VisualizerScreen(
                     val captureSize = 1024.coerceIn(range[0], range[1])
                     this.captureSize = captureSize
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) = Unit
+                        override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) {
+                            if (!active || waveform.isEmpty()) return
+                            val samples = FloatArray(96) { index ->
+                                val sourceIndex = index * (waveform.size - 1) / 95
+                                (((waveform[sourceIndex].toInt() and 0xFF) - 128) / 128f).coerceIn(-1f, 1f)
+                            }
+                            handler.post { if (active) waveformSamples = samples }
+                        }
                         override fun onFftDataCapture(visualizer: Visualizer, fft: ByteArray, samplingRate: Int) {
                             if (!active || fft.size < 8) return
                             val binCount = fft.size / 2
@@ -216,7 +227,7 @@ fun VisualizerScreen(
                             val peakFrame = held.copyOf()
                             handler.post { if (active) { levels = next; peaks = peakFrame; captureReady = true; captureError = null } }
                         }
-                    }, min(20_000, Visualizer.getMaxCaptureRate()), false, true)
+                    }, min(20_000, Visualizer.getMaxCaptureRate()), true, true)
                     enabled = true
                 }
             }
@@ -229,6 +240,7 @@ fun VisualizerScreen(
                 handler.removeCallbacksAndMessages(null)
                 levels = FloatArray(36)
                 peaks = FloatArray(36)
+                waveformSamples = FloatArray(96)
                 captureReady = false
             }
         }
@@ -242,8 +254,10 @@ fun VisualizerScreen(
                 Text("POST-EQ AUDIO ANALYSIS  •  36 BANDS", color = VisualMuted, fontSize = 8.sp, letterSpacing = 1.1.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(6.dp).background(if (captureReady && playing) VisualGreen else VisualMuted, RoundedCornerShape(50)))
-                Text(if (captureReady && playing) "LIVE" else "STANDBY", color = if (captureReady && playing) VisualGreen else VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                val live = captureReady && playing
+                val liveAlpha by animateFloatAsState(if (live) 1f else .38f, animationSpec = tween(360), label = "visualizer-live-indicator")
+                Box(Modifier.size(6.dp).background(VisualGreen.copy(alpha = liveAlpha), RoundedCornerShape(50)))
+                Text(if (live) "LIVE" else "STANDBY", color = if (live) VisualGreen else VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -327,6 +341,12 @@ fun VisualizerScreen(
                             VisualDetail("DURATION", if (duration > 0) visualTime(duration) else "—", Modifier.weight(1f))
                             VisualDetail("CHANNELS", details.channels, Modifier.weight(1f))
                         }
+                        Spacer(Modifier.height(10.dp))
+                        VisualWaveformPanel(waveformSamples, playing && captureReady)
+                        Spacer(Modifier.height(9.dp))
+                        VisualMiniSpectrum(levels, playing && captureReady)
+                        Spacer(Modifier.height(8.dp))
+                        Text("POST-EQ  •  35 Hz–16 kHz  •  36 BANDS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
                     }
                 }
             }
@@ -348,6 +368,65 @@ fun VisualizerScreen(
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
             FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk, modifier = Modifier.size(30.dp)) }
             IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipNext, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun VisualWaveformPanel(samples: FloatArray, active: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("LIVE WAVEFORM", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Spacer(Modifier.weight(1f))
+            Text(if (active) "SIGNAL ACTIVE" else "SIGNAL IDLE", color = if (active) VisualGreen else VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+        }
+        Canvas(Modifier.fillMaxWidth().height(68.dp).background(Color(0xFF080908), RoundedCornerShape(8.dp))) {
+            val center = size.height / 2f
+            for (fraction in listOf(.25f, .5f, .75f)) {
+                val y = size.height * fraction
+                drawLine(Color.White.copy(alpha = .07f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+            }
+            val step = size.width / samples.size.coerceAtLeast(1)
+            samples.forEachIndexed { index, sample ->
+                val x = (index + .5f) * step
+                val amplitude = sample.coerceIn(-1f, 1f) * size.height * .43f
+                drawLine(
+                    color = (if (index < samples.size / 2) VisualGreen else VisualAmber).copy(alpha = if (active) .9f else .28f),
+                    start = Offset(x, center - amplitude),
+                    end = Offset(x, center + amplitude),
+                    strokeWidth = max(1.2f, step * .52f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisualMiniSpectrum(levels: FloatArray, active: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("FREQUENCY PROFILE", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Spacer(Modifier.weight(1f))
+            Text("36-BAND FFT", color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+        }
+        Canvas(Modifier.fillMaxWidth().height(48.dp).background(Color(0xFF080908), RoundedCornerShape(8.dp))) {
+            val gap = 2.dp.toPx()
+            val width = (size.width - gap * (levels.size - 1)) / levels.size.coerceAtLeast(1)
+            levels.forEachIndexed { index, raw ->
+                val height = (raw.coerceIn(0f, 1f) * size.height * .88f).coerceAtLeast(1.dp.toPx())
+                val x = index * (width + gap)
+                val color = when {
+                    index < 10 -> VisualGreen
+                    index < 24 -> VisualAmber
+                    else -> VisualOrange
+                }
+                drawRoundRect(
+                    brush = Brush.verticalGradient(listOf(color.copy(alpha = if (active) .55f else .18f), color.copy(alpha = if (active) 1f else .28f))),
+                    topLeft = Offset(x, size.height - height),
+                    size = Size(width, height),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                )
+            }
         }
     }
 }
