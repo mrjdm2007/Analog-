@@ -1564,7 +1564,12 @@ struct VisualiserView: View {
                     .padding(7)
                     .background(AnalogPalette.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
                 } else {
-                    Text(player.currentTrack == nil ? "Nothing queued" : (player.repeatQueue ? "Current queue will repeat" : "End of queue"))
+                    let status = player.currentTrack == nil
+                        ? "Nothing queued"
+                        : (player.shuffleQueue
+                            ? "Next track will be selected randomly"
+                            : (player.repeatQueue ? "Current queue will repeat" : "End of queue"))
+                    Text(status)
                         .font(.system(size: 9, weight: .medium)).foregroundStyle(AnalogPalette.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(9)
@@ -1581,7 +1586,9 @@ struct VisualiserView: View {
     }
 
     private var upcomingTrack: MusicTrack? {
-        guard !player.queue.isEmpty else { return nil }
+        // The random next item is chosen by the playback scheduler, not queue order.
+        // Avoid displaying queueIndex + 1 as a promise when shuffle is enabled.
+        guard !player.shuffleQueue, !player.queue.isEmpty else { return nil }
         if player.repeatCurrentTrack { return player.currentTrack }
         let nextIndex = player.queueIndex + 1
         if player.queue.indices.contains(nextIndex) { return player.queue[nextIndex] }
