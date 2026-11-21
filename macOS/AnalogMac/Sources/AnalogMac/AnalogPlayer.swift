@@ -137,6 +137,7 @@ final class AnalogPlayer: ObservableObject {
     @Published var sleepMinutes = 0
     @Published var sleepFadeSeconds = 20
     @Published var sleepStopsAtTrackEnd = false
+    private var sleepEndTrackFadeCompleted = false
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerLeftPeak: Double = 0
@@ -616,6 +617,7 @@ final class AnalogPlayer: ObservableObject {
         if sleepStopsAtTrackEnd {
             sleepFadeTimer?.invalidate()
             sleepFadeTimer = nil
+            sleepEndTrackFadeCompleted = false
             playerNode.volume = 1
         }
         playbackToken = UUID()
@@ -1460,6 +1462,7 @@ final class AnalogPlayer: ObservableObject {
         cancelSleepTimer()
         guard let track = currentTrack else { return }
         sleepStopsAtTrackEnd = true
+        sleepEndTrackFadeCompleted = false
         if currentTime >= track.duration {
             finishSleepTimer()
             return
@@ -1471,7 +1474,8 @@ final class AnalogPlayer: ObservableObject {
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.sleepStopsAtTrackEnd, self.isPlaying,
-                      let current = self.currentTrack, self.sleepFadeTimer == nil else { return }
+                      let current = self.currentTrack, self.sleepFadeTimer == nil,
+                      !self.sleepEndTrackFadeCompleted else { return }
                 let remaining = max(0, current.duration - self.currentTime)
                 if remaining <= fadeDuration {
                     self.beginSleepFade(duration: max(0.1, remaining), stopWhenFinished: false)
@@ -1488,6 +1492,7 @@ final class AnalogPlayer: ObservableObject {
         sleepFadeTimer = nil
         sleepMinutes = 0
         sleepStopsAtTrackEnd = false
+        sleepEndTrackFadeCompleted = false
         playerNode.volume = 1
         if rebuildQueue { refreshPlaybackSchedule(force: true) }
     }
@@ -1499,6 +1504,7 @@ final class AnalogPlayer: ObservableObject {
         sleepFadeTimer = nil
         sleepMinutes = 0
         sleepStopsAtTrackEnd = false
+        sleepEndTrackFadeCompleted = false
         playerNode.pause()
         playerNode.volume = 1
         isPlaying = false
@@ -1530,6 +1536,7 @@ final class AnalogPlayer: ObservableObject {
                     } else {
                         // Keep the current track playing silently until its segment
                         // completion callback performs the actual stop.
+                        self.sleepEndTrackFadeCompleted = true
                         self.playerNode.volume = 0
                     }
                 }
