@@ -1366,7 +1366,7 @@ struct VisualiserView: View {
                         RoundedRectangle(cornerRadius: 1)
                             .fill(AnalogPalette.cream)
                             .frame(width: 2, height: 9)
-                            .offset(x: min(proxy.size.width - 2, proxy.size.width * CGFloat(min(1, max(0, held)))) - proxy.size.width / 2)
+                            .offset(x: max(0, min(proxy.size.width - 2, proxy.size.width * CGFloat(min(1, max(0, held))) - 1)))
                     }
                 }
             }.frame(height: 9)
