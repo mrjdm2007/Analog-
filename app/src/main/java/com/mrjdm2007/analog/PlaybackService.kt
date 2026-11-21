@@ -218,9 +218,13 @@ class PlaybackService : MediaSessionService() {
         }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                if (crossfadeSeekTransition) crossfadeSeekTransition = false
-                if (crossfadeInProgress && mediaSession?.player?.currentMediaItemIndex != crossfadeTargetIndex) {
+                val isInternalCrossfadeTransition = crossfadeSeekTransition
+                crossfadeSeekTransition = false
+                // Any ordinary item transition during a crossfade (including a manual
+                // skip directly to the prepared target) must discard the secondary deck.
+                if (crossfadeInProgress && !isInternalCrossfadeTransition) {
                     cancelCrossfade()
+                    crossfadeForIndex = -1
                     applyCrossfadeVolumes()
                 }
                 recordTrackStart(mediaItem)
