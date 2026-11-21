@@ -142,6 +142,11 @@ final class AnalogPlayer: ObservableObject {
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerLeftPeak: Double = 0
     @Published var visualizerRightPeak: Double = 0
+    @Published var visualizerLeftRMS: Double = 0
+    @Published var visualizerRightRMS: Double = 0
+    @Published var visualizerLeftWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerRightWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerChannelCount = 0
     @Published var visualizerEnabled = false
     private var analysisWindowVisible = true
     @Published var preampDB: Float = 0
@@ -279,6 +284,8 @@ final class AnalogPlayer: ObservableObject {
             var rms: Float = 0
             var leftPeak: Float = 0
             var rightPeak: Float = 0
+            var leftRMS: Float = 0
+            var rightRMS: Float = 0
             if work.meter {
                 var sumSquares: Double = 0
                 for index in 0..<count {
@@ -290,16 +297,28 @@ final class AnalogPlayer: ObservableObject {
                 rms = Float(sqrt(sumSquares / Double(count)))
             }
             if work.visualizer {
+                var leftSquares = 0.0
+                var rightSquares = 0.0
                 for index in 0..<count {
-                    leftPeak = max(leftPeak, abs(leftChannel[index]))
-                    rightPeak = max(rightPeak, abs(rightChannel[index]))
+                    let left = leftChannel[index]
+                    let right = rightChannel[index]
+                    leftPeak = max(leftPeak, abs(left))
+                    rightPeak = max(rightPeak, abs(right))
+                    leftSquares += Double(left) * Double(left)
+                    rightSquares += Double(right) * Double(right)
                 }
+                leftRMS = Float(sqrt(leftSquares / Double(count)))
+                rightRMS = Float(sqrt(rightSquares / Double(count)))
             }
 
-            let samples = work.visualizer
+            let leftSamples = work.visualizer
                 ? Array(UnsafeBufferPointer(start: leftChannel, count: count))
                 : []
+            let rightSamples = work.visualizer
+                ? Array(UnsafeBufferPointer(start: rightChannel, count: count))
+                : []
             let sampleRate = buffer.format.sampleRate
+            let sourceChannelCount = channelCount
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -310,8 +329,13 @@ final class AnalogPlayer: ObservableObject {
                 if work.visualizer {
                     self.visualizerLeftPeak = Double(min(1, leftPeak))
                     self.visualizerRightPeak = Double(min(1, rightPeak))
-                    self.visualizerBins = analogSpectrum(samples: samples, sampleRate: sampleRate, binCount: 36)
-                    self.visualizerWaveform = analogWaveform(samples: samples, pointCount: 128)
+                    self.visualizerLeftRMS = Double(min(1, leftRMS))
+                    self.visualizerRightRMS = Double(min(1, rightRMS))
+                    self.visualizerChannelCount = sourceChannelCount
+                    self.visualizerLeftWaveform = analogWaveform(samples: leftSamples, pointCount: 128)
+                    self.visualizerRightWaveform = analogWaveform(samples: rightSamples, pointCount: 128)
+                    self.visualizerBins = analogSpectrum(samples: leftSamples, sampleRate: sampleRate, binCount: 36)
+                    self.visualizerWaveform = analogWaveform(samples: leftSamples, pointCount: 128)
                 }
             }
         }
