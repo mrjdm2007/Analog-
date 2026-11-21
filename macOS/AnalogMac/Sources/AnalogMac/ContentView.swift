@@ -1899,7 +1899,7 @@ private struct CursorVisibilityController: NSViewRepresentable {
         func tearDown() {
             wantsHidden = false
             updateCursorVisibility()
-            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
         }
     }
