@@ -135,6 +135,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var repeatCurrentTrack = false
     @Published var shuffleQueue = false
     @Published var sleepMinutes = 0
+    @Published var sleepFadeSeconds = 20
+    @Published var sleepStopsAtTrackEnd = false
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
     @Published var visualizerLeftPeak: Double = 0
@@ -371,6 +373,7 @@ final class AnalogPlayer: ObservableObject {
         activeDevicePresetName = defaults.string(forKey: "activeDevicePresetName")
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
+        sleepFadeSeconds = min(30, max(0, defaults.object(forKey: "sleepFadeSeconds") as? Int ?? 20))
         crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
         crossfeedAmount = min(0.35, max(0, defaults.object(forKey: "crossfeedAmount") as? Float ?? 0.12))
         audioEngine.mainMixerNode.outputVolume = outputVolume
@@ -408,6 +411,7 @@ final class AnalogPlayer: ObservableObject {
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
+        defaults.set(sleepFadeSeconds, forKey: "sleepFadeSeconds")
         defaults.set(crossfeedEnabled, forKey: "crossfeedEnabled")
         defaults.set(crossfeedAmount, forKey: "crossfeedAmount")
         defaults.set(eqGains, forKey: "eqGains")
@@ -627,7 +631,10 @@ final class AnalogPlayer: ObservableObject {
                 var sequence: [(track: MusicTrack, index: Int)] = []
                 if queue.indices.contains(queueIndex) {
                     sequence.append((queue[queueIndex], queueIndex))
-                    if repeatCurrentTrack {
+                    if sleepStopsAtTrackEnd {
+                        // Keep only the current song scheduled while the end-of-track
+                        // sleep mode is active.
+                    } else if repeatCurrentTrack {
                         sequence.append((queue[queueIndex], queueIndex))
                     } else {
                         let following = gaplessQueueIndices(
@@ -685,7 +692,9 @@ final class AnalogPlayer: ObservableObject {
                                 self.timer?.invalidate()
                                 self.gaplessFiles.removeAll()
                                 self.updateSystemNowPlayingInfo()
-                                if self.repeatCurrentTrack, let current = self.currentTrack {
+                                if self.sleepStopsAtTrackEnd {
+                                    self.finishSleepTimer()
+                                } else if self.repeatCurrentTrack, let current = self.currentTrack {
                                     self.startTrack(current, at: 0, recordPlay: false)
                                 } else if self.repeatQueue, let first = self.queue.first {
                                     self.queueIndex = 0
@@ -762,6 +771,13 @@ final class AnalogPlayer: ObservableObject {
             isPlaying = false
             timer?.invalidate()
         }
+    }
+
+    func seekRelative(by seconds: Double) {
+        updateClock()
+        guard let track = currentTrack, track.duration > 0 else { return }
+        let target = min(max(0, currentTime + seconds), max(0, track.duration - 0.05))
+        seek(to: target)
     }
 
     func previous() {
@@ -1403,20 +1419,82 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func setSleepFadeSeconds(_ seconds: Int) {
+        sleepFadeSeconds = min(30, max(0, seconds))
+        defaults.set(sleepFadeSeconds, forKey: "sleepFadeSeconds")
+    }
+
     func setSleepTimer(minutes: Int) {
-        sleepTimer?.invalidate()
-        sleepFadeTimer?.invalidate()
-        playerNode.volume = 1
+        cancelSleepTimer()
         sleepMinutes = max(0, minutes)
         guard sleepMinutes > 0 else { return }
         let total = Double(sleepMinutes * 60)
-        let fadeDuration = min(15.0, total)
+        let fadeDuration = min(Double(sleepFadeSeconds), total)
         sleepTimer = Timer.scheduledTimer(withTimeInterval: max(0, total - fadeDuration), repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.beginSleepFade(duration: fadeDuration) }
+            Task { @MainActor in
+                guard let self else { return }
+                if fadeDuration > 0 {
+                    self.beginSleepFade(duration: fadeDuration, stopWhenFinished: true)
+                } else {
+                    self.finishSleepTimer()
+                }
+            }
         }
     }
 
-    private func beginSleepFade(duration: Double) {
+    func setSleepTimerEndOfTrack() {
+        cancelSleepTimer()
+        guard let track = currentTrack else { return }
+        sleepStopsAtTrackEnd = true
+        if currentTime >= track.duration {
+            finishSleepTimer()
+            return
+        }
+        // Rebuild the schedule so the next song is not pre-queued.
+        refreshPlaybackSchedule(force: true)
+        let fadeDuration = Double(sleepFadeSeconds)
+        guard fadeDuration > 0 else { return }
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.sleepStopsAtTrackEnd, self.isPlaying,
+                      let current = self.currentTrack, self.sleepFadeTimer == nil else { return }
+                let remaining = max(0, current.duration - self.currentTime)
+                if remaining <= fadeDuration {
+                    self.sleepTimer?.invalidate()
+                    self.sleepTimer = nil
+                    self.beginSleepFade(duration: max(0.1, remaining), stopWhenFinished: false)
+                }
+            }
+        }
+    }
+
+    func cancelSleepTimer() {
+        let rebuildQueue = sleepStopsAtTrackEnd
+        sleepTimer?.invalidate()
+        sleepFadeTimer?.invalidate()
+        sleepTimer = nil
+        sleepFadeTimer = nil
+        sleepMinutes = 0
+        sleepStopsAtTrackEnd = false
+        playerNode.volume = 1
+        if rebuildQueue { refreshPlaybackSchedule(force: true) }
+    }
+
+    private func finishSleepTimer() {
+        sleepTimer?.invalidate()
+        sleepFadeTimer?.invalidate()
+        sleepTimer = nil
+        sleepFadeTimer = nil
+        sleepMinutes = 0
+        sleepStopsAtTrackEnd = false
+        playerNode.pause()
+        playerNode.volume = 1
+        isPlaying = false
+        timer?.invalidate()
+        updateSystemNowPlayingInfo()
+    }
+
+    private func beginSleepFade(duration: Double, stopWhenFinished: Bool) {
         let started = Date()
         sleepFadeTimer?.invalidate()
         sleepFadeTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
@@ -1426,12 +1504,14 @@ final class AnalogPlayer: ObservableObject {
                 self.playerNode.volume = Float(1 - progress)
                 if progress >= 1 {
                     timer.invalidate()
-                    self.playerNode.pause()
-                    self.playerNode.volume = 1
-                    self.isPlaying = false
-                    self.sleepMinutes = 0
-                    self.timer?.invalidate()
                     self.sleepFadeTimer = nil
+                    if stopWhenFinished {
+                        self.finishSleepTimer()
+                    } else {
+                        // Keep the current track playing silently until its segment
+                        // completion callback performs the actual stop.
+                        self.playerNode.volume = 0
+                    }
                 }
             }
         }
