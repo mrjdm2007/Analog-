@@ -1132,6 +1132,7 @@ struct VisualiserView: View {
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
     @State private var scrubTime: Double?
+    @State private var artworkGlow = AnalogPalette.amber
 
     var body: some View {
         Group {
@@ -1147,7 +1148,47 @@ struct VisualiserView: View {
             heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
         }
         .padding(focusMode ? 18 : 22)
-        .background(AnalogPalette.ink)
+        .background {
+            ZStack {
+                AnalogPalette.ink
+                if focusMode {
+                    RadialGradient(colors: [artworkGlow.opacity(0.19), artworkGlow.opacity(0.07), .clear], center: .init(x: 0.78, y: 0.48), startRadius: 12, endRadius: 620)
+                        .animation(.easeInOut(duration: 0.85), value: artworkGlow)
+                    RadialGradient(colors: [AnalogPalette.amber.opacity(0.035), .clear], center: .init(x: 0.08, y: 0.9), startRadius: 0, endRadius: 420)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .task(id: focusMode ? player.currentTrack?.artworkPath : nil) {
+            guard focusMode, let path = player.currentTrack?.artworkPath else {
+                artworkGlow = AnalogPalette.amber
+                return
+            }
+            let components = await Task.detached(priority: .utility) { () -> (Double, Double, Double)? in
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                      let bitmap = NSBitmapImageRep(data: data),
+                      bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0 else { return nil }
+                let points = [(0.25, 0.25), (0.5, 0.25), (0.75, 0.25), (0.25, 0.5), (0.5, 0.5), (0.75, 0.5), (0.25, 0.75), (0.5, 0.75), (0.75, 0.75)]
+                var red = 0.0, green = 0.0, blue = 0.0, weight = 0.0
+                for (x, y) in points {
+                    guard let color = bitmap.colorAt(x: min(bitmap.pixelsWide - 1, Int(Double(bitmap.pixelsWide - 1) * x)), y: min(bitmap.pixelsHigh - 1, Int(Double(bitmap.pixelsHigh - 1) * y)))?.usingColorSpace(.deviceRGB) else { continue }
+                    let brightness = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                    let sampleWeight = max(0.15, 1.0 - abs(brightness - 0.48))
+                    red += color.redComponent * sampleWeight
+                    green += color.greenComponent * sampleWeight
+                    blue += color.blueComponent * sampleWeight
+                    weight += sampleWeight
+                }
+                guard weight > 0 else { return nil }
+                return (red / weight, green / weight, blue / weight)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let components {
+                artworkGlow = Color(red: components.0, green: components.1, blue: components.2)
+            } else {
+                artworkGlow = AnalogPalette.amber
+            }
+        }
     }
 
     private var standardLayout: some View {
@@ -1266,55 +1307,70 @@ struct VisualiserView: View {
                 Spacer()
                 Text("REAL-TIME SIGNAL").font(.system(size: 7, weight: .bold)).tracking(0.8).foregroundStyle(AnalogPalette.muted)
             }
-            Canvas { context, size in
-                let samples = player.visualizerWaveform
-                guard samples.count > 1 else { return }
-                var center = Path()
-                center.move(to: CGPoint(x: 0, y: size.height / 2))
-                center.addLine(to: CGPoint(x: size.width, y: size.height / 2))
-                context.stroke(center, with: .color(.white.opacity(0.08)), lineWidth: 1)
-                var waveform = Path()
-                for index in samples.indices {
-                    let x = CGFloat(index) / CGFloat(samples.count - 1) * size.width
-                    let y = size.height / 2 - CGFloat(samples[index]) * size.height * 0.44
-                    if index == 0 { waveform.move(to: CGPoint(x: x, y: y)) }
-                    else { waveform.addLine(to: CGPoint(x: x, y: y)) }
-                }
-                context.stroke(waveform, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            VStack(spacing: 3) {
+                channelWaveform(samples: player.visualizerLeftWaveform, tint: AnalogPalette.green)
+                channelWaveform(samples: player.visualizerRightWaveform, tint: AnalogPalette.amber)
             }
-            .frame(height: 30)
-            .animation(.linear(duration: 0.10), value: player.visualizerWaveform)
+            .frame(height: 42)
+            .animation(.linear(duration: 0.10), value: player.visualizerLeftWaveform)
+            .animation(.linear(duration: 0.10), value: player.visualizerRightWaveform)
             .padding(.horizontal, 8).padding(.vertical, 5)
             .background(Color.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
     private var stereoActivity: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("STEREO").font(.system(size: 8, weight: .black)).tracking(1).foregroundStyle(AnalogPalette.muted)
-            HStack(spacing: 6) {
-                Text("L").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.green)
-                GeometryReader { proxy in
-                    Capsule().fill(AnalogPalette.ink)
-                        .overlay(alignment: .leading) {
-                            Capsule().fill(AnalogPalette.green)
-                                .frame(width: max(2, proxy.size.width * CGFloat(min(1, max(0, player.visualizerLeftPeak)))))
-                        }
-                }.frame(height: 6)
-                Text("R").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
-                GeometryReader { proxy in
-                    Capsule().fill(AnalogPalette.ink)
-                        .overlay(alignment: .leading) {
-                            Capsule().fill(AnalogPalette.amber)
-                                .frame(width: max(2, proxy.size.width * CGFloat(min(1, max(0, player.visualizerRightPeak)))))
-                        }
-                }.frame(height: 6)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("CHANNEL INPUT").font(.system(size: 8, weight: .black)).tracking(1).foregroundStyle(AnalogPalette.muted)
+                Spacer()
+                Text(player.visualizerChannelCount == 1 ? "MONO" : (player.visualizerChannelCount >= 2 ? "STEREO" : "—"))
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(player.visualizerChannelCount == 1 ? AnalogPalette.muted : AnalogPalette.green)
             }
-            .animation(.easeOut(duration: 0.12), value: player.visualizerLeftPeak)
-            .animation(.easeOut(duration: 0.12), value: player.visualizerRightPeak)
+            channelMeter(label: "L", peak: player.visualizerLeftPeak, rms: player.visualizerLeftRMS, tint: AnalogPalette.green)
+            channelMeter(label: "R", peak: player.visualizerRightPeak, rms: player.visualizerRightRMS, tint: AnalogPalette.amber)
         }
-        .padding(10).frame(width: 168, alignment: .leading)
+        .padding(9).frame(width: 178, alignment: .leading)
         .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private func channelMeter(label: String, peak: Double, rms: Double, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(label).font(.system(size: 8, weight: .black, design: .monospaced)).foregroundStyle(tint).frame(width: 9)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(AnalogPalette.ink)
+                    Capsule().fill(tint.opacity(0.52))
+                        .frame(width: max(1, proxy.size.width * CGFloat(min(1, max(0, rms)))))
+                    Capsule().fill(tint)
+                        .frame(width: max(1, proxy.size.width * CGFloat(min(1, max(0, peak)))))
+                }
+            }.frame(height: 7)
+            Text(String(format: "%.2f", peak)).font(.system(size: 7, weight: .medium, design: .monospaced)).foregroundStyle(AnalogPalette.cream).frame(width: 28, alignment: .trailing)
+        }
+        .animation(.easeOut(duration: 0.12), value: peak)
+        .help("Peak \(label): \(String(format: "%.3f", peak)) • RMS: \(String(format: "%.3f", rms))")
+    }
+
+    private func channelWaveform(samples: [Double], tint: Color) -> some View {
+        Canvas { context, size in
+            guard samples.count > 1 else { return }
+            let mid = size.height / 2
+            var center = Path()
+            center.move(to: CGPoint(x: 0, y: mid))
+            center.addLine(to: CGPoint(x: size.width, y: mid))
+            context.stroke(center, with: .color(.white.opacity(0.08)), lineWidth: 1)
+            var waveform = Path()
+            for index in samples.indices {
+                let x = CGFloat(index) / CGFloat(samples.count - 1) * size.width
+                let y = mid - CGFloat(samples[index]) * size.height * 0.43
+                if index == 0 { waveform.move(to: CGPoint(x: x, y: y)) }
+                else { waveform.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(waveform, with: .color(tint), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+        }
+        .frame(height: 18)
     }
 
     private var visualizerStyleButtons: some View {
