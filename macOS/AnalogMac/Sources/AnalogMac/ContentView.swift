@@ -45,6 +45,7 @@ struct ContentView: View {
             }
         }
         .background(AnalogPalette.ink)
+        .animation(.easeInOut(duration: 0.22), value: visualizerFocusMode)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
@@ -648,10 +649,13 @@ struct EqualizerView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("HEADPHONE CROSSFEED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
-                        Text(player.crossfeedAvailable ? "Subtle L/R channel blending in the playback DSP" : "Preparing native stereo matrix processor…")
-                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                        Text(player.crossfeedStatus)
+                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(2)
                     }
                     Spacer()
+                    if !player.crossfeedAvailable && !player.crossfeedStatus.hasPrefix("Preparing") {
+                        Button("RETRY") { player.retryCrossfeedSetup() }.buttonStyle(AnalogOutlineButton())
+                    }
                     Toggle("ON", isOn: Binding(get: { player.crossfeedEnabled }, set: { player.setCrossfeed(enabled: $0) }))
                         .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
                         .disabled(!player.crossfeedAvailable)
@@ -1087,6 +1091,12 @@ private func formatTime(_ seconds: Double) -> String {
     return String(format: "%d:%02d", value / 60, value % 60)
 }
 
+private struct FrequencyMarker: Identifiable {
+    let frequency: Double
+    let label: String
+    var id: Double { frequency }
+}
+
 struct VisualiserView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @Binding var focusMode: Bool
@@ -1174,18 +1184,13 @@ struct VisualiserView: View {
                         Text("36 BANDS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.amber)
                     }
                     analyserCanvas.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    HStack {
-                        Text("35 Hz").foregroundStyle(AnalogPalette.muted)
-                        Spacer()
-                        Text("POST-EQ  •  LOGARITHMIC").foregroundStyle(AnalogPalette.muted)
-                        Spacer()
-                        Text("16 kHz").foregroundStyle(AnalogPalette.muted)
-                    }
-                    .font(.system(size: 8, weight: .medium))
+                    frequencyScale
+                    liveWaveformStrip
                     HStack(spacing: 8) {
                         MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
                         MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
                         MetricTile(label: "RANGE", value: "35 Hz–16 kHz", symbol: "waveform")
+                        stereoActivity
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1199,6 +1204,89 @@ struct VisualiserView: View {
             }
             playbackControls
         }
+        .animation(.easeInOut(duration: 0.22), value: focusMode)
+    }
+
+    private var frequencyScale: some View {
+        GeometryReader { geometry in
+            let markers = [
+                FrequencyMarker(frequency: 35, label: "35 Hz"),
+                FrequencyMarker(frequency: 100, label: "100 Hz"),
+                FrequencyMarker(frequency: 500, label: "500 Hz"),
+                FrequencyMarker(frequency: 1_000, label: "1 kHz"),
+                FrequencyMarker(frequency: 5_000, label: "5 kHz"),
+                FrequencyMarker(frequency: 16_000, label: "16 kHz")
+            ]
+            ZStack(alignment: .topLeading) {
+                ForEach(markers) { marker in
+                    let fraction = log(marker.frequency / 35) / log(16_000.0 / 35.0)
+                    let x = min(max(CGFloat(fraction) * geometry.size.width, 18), geometry.size.width - 18)
+                    Text(marker.label)
+                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                        .foregroundStyle(AnalogPalette.muted)
+                        .position(x: x, y: 6)
+                }
+            }
+        }
+        .frame(height: 13)
+    }
+
+    private var liveWaveformStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("LIVE WAVEFORM").font(.system(size: 8, weight: .black)).tracking(1.1).foregroundStyle(AnalogPalette.muted)
+                Spacer()
+                Text("REAL-TIME SIGNAL").font(.system(size: 7, weight: .bold)).tracking(0.8).foregroundStyle(AnalogPalette.muted)
+            }
+            Canvas { context, size in
+                let samples = player.visualizerWaveform
+                guard samples.count > 1 else { return }
+                var center = Path()
+                center.move(to: CGPoint(x: 0, y: size.height / 2))
+                center.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                context.stroke(center, with: .color(.white.opacity(0.08)), lineWidth: 1)
+                var waveform = Path()
+                for index in samples.indices {
+                    let x = CGFloat(index) / CGFloat(samples.count - 1) * size.width
+                    let y = size.height / 2 - CGFloat(samples[index]) * size.height * 0.44
+                    if index == 0 { waveform.move(to: CGPoint(x: x, y: y)) }
+                    else { waveform.addLine(to: CGPoint(x: x, y: y)) }
+                }
+                context.stroke(waveform, with: .color(AnalogPalette.green), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            .frame(height: 30)
+            .animation(.linear(duration: 0.10), value: player.visualizerWaveform)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var stereoActivity: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("STEREO").font(.system(size: 8, weight: .black)).tracking(1).foregroundStyle(AnalogPalette.muted)
+            HStack(spacing: 6) {
+                Text("L").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.green)
+                GeometryReader { proxy in
+                    Capsule().fill(AnalogPalette.ink)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(AnalogPalette.green)
+                                .frame(width: max(2, proxy.size.width * CGFloat(min(1, max(0, player.visualizerLeftPeak)))))
+                        }
+                }.frame(height: 6)
+                Text("R").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.amber)
+                GeometryReader { proxy in
+                    Capsule().fill(AnalogPalette.ink)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(AnalogPalette.amber)
+                                .frame(width: max(2, proxy.size.width * CGFloat(min(1, max(0, player.visualizerRightPeak)))))
+                        }
+                }.frame(height: 6)
+            }
+            .animation(.easeOut(duration: 0.12), value: player.visualizerLeftPeak)
+            .animation(.easeOut(duration: 0.12), value: player.visualizerRightPeak)
+        }
+        .padding(10).frame(width: 168, alignment: .leading)
+        .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
     }
 
     private var visualizerStyleButtons: some View {
@@ -1256,6 +1344,7 @@ struct VisualiserView: View {
                 }
             }
             .padding(12)
+            .animation(.easeOut(duration: 0.11), value: player.visualizerBins)
             if !player.isPlaying {
                 VStack(spacing: 5) {
                     Image(systemName: "waveform.path").font(.system(size: 25)).foregroundStyle(AnalogPalette.amber)
@@ -1305,6 +1394,21 @@ struct VisualiserView: View {
                 focusDetail("SAMPLE RATE", track?.sampleRateHz.map { String(format: "%.1f kHz", $0 / 1000) } ?? "—")
                 focusDetail("DURATION", track.map { formatTime($0.duration) } ?? "—")
                 focusDetail("CHANNELS", track?.audioChannels.map { String($0) } ?? "—")
+            }
+            Divider().overlay(AnalogPalette.cream.opacity(0.10))
+            Text("PLAYBACK").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+            HStack {
+                Text(formatTime(player.currentTime))
+                Spacer()
+                Text("-\(formatTime(max(0, (track?.duration ?? 0) - player.currentTime)))")
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(AnalogPalette.cream)
+            ProgressView(value: track.map { $0.duration > 0 ? min(1, max(0, player.currentTime / $0.duration)) : 0 } ?? 0)
+                .tint(AnalogPalette.amber)
+            Text("SIGNAL CHAIN").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+            HStack(spacing: 7) {
+                focusDetail("EQUALIZER", player.eqEnabled ? "ACTIVE" : "BYPASSED")
+                focusDetail("CROSSFEED", player.crossfeedAvailable ? (player.crossfeedEnabled ? "ON" : "OFF") : "UNAVAILABLE")
             }
             Spacer(minLength: 0)
         }
