@@ -56,9 +56,7 @@ struct ContentView: View {
                 let current = tabs.firstIndex(of: player.selectedTab) ?? 0
                 player.selectedTab = tabs[(current + delta + tabs.count) % tabs.count]
                 visualizerFocusMode = false
-            },
-            onSeek: { seconds in player.seekRelative(by: seconds) },
-            isPlaying: { player.isPlaying }
+            }
         ).frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
@@ -1705,22 +1703,16 @@ struct SmartMixesView: View {
 
 private struct ArrowKeyNavigationMonitor: NSViewRepresentable {
     let onNavigate: (Int) -> Void
-    let onSeek: (Double) -> Void
-    let isPlaying: () -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onNavigate = onNavigate
-        context.coordinator.onSeek = onSeek
-        context.coordinator.isPlaying = isPlaying
         context.coordinator.installIfNeeded()
     }
 
     final class Coordinator {
         var onNavigate: (Int) -> Void = { _ in }
-        var onSeek: (Double) -> Void = { _ in }
-        var isPlaying: () -> Bool = { false }
         private var monitor: Any?
 
         func installIfNeeded() {
@@ -1733,14 +1725,12 @@ private struct ArrowKeyNavigationMonitor: NSViewRepresentable {
                     return event
                 }
                 switch event.keyCode {
-                case 123:
-                    if self.isPlaying() { self.onSeek(-15) } else { self.onNavigate(-1) }
-                case 124:
-                    if self.isPlaying() { self.onSeek(15) } else { self.onNavigate(1) }
-                case 126:
-                    self.onNavigate(-1)
-                case 125:
-                    self.onNavigate(1)
+                case 123: self.onNavigate(-1)
+                case 124: self.onNavigate(1)
+                case 126, 125:
+                    // Keep vertical navigation with the active content view. This lets
+                    // lists and scrollable sections handle Up/Down without changing tabs.
+                    return event
                 default:
                     return event
                 }
