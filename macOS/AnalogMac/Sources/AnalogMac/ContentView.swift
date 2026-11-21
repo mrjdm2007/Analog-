@@ -1480,8 +1480,8 @@ struct VisualiserView: View {
             }
             HStack(spacing: 12) {
                 Group {
-                    if let path = player.currentTrack?.artworkPath, let image = NSImage(contentsOfFile: path) {
-                        Image(nsImage: image).resizable().scaledToFill()
+                    if let track = player.currentTrack, track.artworkPath != nil {
+                        TrackArtwork(track: track, size: 124)
                     } else {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10).fill(AnalogPalette.raised)
