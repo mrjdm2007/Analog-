@@ -337,7 +337,10 @@ class PlaybackService : MediaSessionService() {
                             stopPlaybackForSleep()
                         }
                         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) stopForSleep()
+                            // Any item change means the track that was current when
+                            // the timer was armed has ended or was manually skipped.
+                            // Stop both decks so crossfade cannot leak into the next song.
+                            stopForSleep()
                         }
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             if (playbackState == Player.STATE_ENDED) stopForSleep()
