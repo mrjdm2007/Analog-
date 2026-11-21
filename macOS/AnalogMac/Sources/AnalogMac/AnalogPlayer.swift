@@ -1504,12 +1504,20 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func beginSleepFade(duration: Double, stopWhenFinished: Bool) {
-        let started = Date()
+        var elapsed = 0.0
+        var previousTick = Date()
         sleepFadeTimer?.invalidate()
         sleepFadeTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
             Task { @MainActor in
                 guard let self else { timer.invalidate(); return }
-                let progress = min(1, Date().timeIntervalSince(started) / max(0.1, duration))
+                let now = Date()
+                // A normal timer counts down in wall-clock time. End-of-track
+                // fading follows actual playback, so pausing cannot consume it.
+                if stopWhenFinished || self.isPlaying {
+                    elapsed += now.timeIntervalSince(previousTick)
+                }
+                previousTick = now
+                let progress = min(1, elapsed / max(0.1, duration))
                 self.playerNode.volume = Float(1 - progress)
                 if progress >= 1 {
                     timer.invalidate()
