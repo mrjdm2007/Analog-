@@ -764,7 +764,9 @@ final class AnalogPlayer: ObservableObject {
         let wasPlaying = isPlaying
         let target = min(max(0, seconds), max(0, track.duration))
         if target >= track.duration {
-            if wasPlaying {
+            if wasPlaying && sleepStopsAtTrackEnd {
+                finishSleepTimer()
+            } else if wasPlaying {
                 advance()
             } else {
                 currentTime = track.duration
