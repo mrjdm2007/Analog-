@@ -334,8 +334,6 @@ fun VisualizerScreen(
                             VisualDetail("CHANNELS", details.channels, Modifier.weight(1f))
                         }
                         Spacer(Modifier.height(10.dp))
-                        VisualMiniSpectrum(levels, playing && captureReady)
-                        Spacer(Modifier.height(8.dp))
                         Text("POST-EQ  •  35 Hz–16 kHz  •  36 BANDS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
                     }
                 }
@@ -358,36 +356,6 @@ fun VisualizerScreen(
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
             FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk, modifier = Modifier.size(30.dp)) }
             IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipNext, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun VisualMiniSpectrum(levels: FloatArray, active: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("FREQUENCY PROFILE", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.weight(1f))
-            Text("36-BAND FFT", color = VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
-        }
-        Canvas(Modifier.fillMaxWidth().height(48.dp).background(Color(0xFF080908), RoundedCornerShape(8.dp))) {
-            val gap = 2.dp.toPx()
-            val width = (size.width - gap * (levels.size - 1)) / levels.size.coerceAtLeast(1)
-            levels.forEachIndexed { index, raw ->
-                val height = (raw.coerceIn(0f, 1f) * size.height * .88f).coerceAtLeast(1.dp.toPx())
-                val x = index * (width + gap)
-                val color = when {
-                    index < 10 -> VisualGreen
-                    index < 24 -> VisualAmber
-                    else -> VisualOrange
-                }
-                drawRoundRect(
-                    brush = Brush.verticalGradient(listOf(color.copy(alpha = if (active) .55f else .18f), color.copy(alpha = if (active) 1f else .28f))),
-                    topLeft = Offset(x, size.height - height),
-                    size = Size(width, height),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
-                )
-            }
         }
     }
 }
