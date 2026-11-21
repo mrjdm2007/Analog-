@@ -1614,8 +1614,8 @@ struct VisualiserView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.currentTrack == nil || player.queue.isEmpty)
-                .opacity(player.currentTrack == nil || player.queue.isEmpty ? 0.35 : 1)
+                .disabled(player.currentTrack == nil)
+                .opacity(player.currentTrack == nil ? 0.35 : 1)
                 .accessibilityLabel("Previous track")
                 .help("Previous track")
                 Button(action: { player.togglePlayback() }) {
