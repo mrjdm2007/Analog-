@@ -50,6 +50,16 @@ struct ContentView: View {
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
+        .background(ArrowKeyNavigationMonitor(
+            onNavigate: { delta in
+                let tabs = ["Library", "Queue", "History", "Smart Mixes", "Moods", "Playlists", "Equalizer", "Visualiser", "Recorder", "Settings"]
+                let current = tabs.firstIndex(of: player.selectedTab) ?? 0
+                player.selectedTab = tabs[(current + delta + tabs.count) % tabs.count]
+                visualizerFocusMode = false
+            },
+            onSeek: { seconds in player.seekRelative(by: seconds) },
+            isPlaying: { player.isPlaying }
+        ).frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
             player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible, windowVisible: visible)
@@ -259,8 +269,8 @@ struct LibraryView: View {
     @State private var showCreate = false
     @State private var playlistName = ""
     @State private var libraryMode = "Songs"
-    @State private var sortMode = "Title"
-    @State private var sortAscending = true
+    @AppStorage("analog.library.sortMode") private var sortMode = "Title"
+    @AppStorage("analog.library.sortAscending") private var sortAscending = true
     @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
@@ -914,15 +924,33 @@ struct SettingsView: View {
                 HStack { Text("MASTER OUTPUT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green); Spacer(); Text("\(Int(player.outputVolume * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
                 Slider(value: Binding(get: { Double(player.outputVolume) }, set: { player.setOutputVolume(Float($0)) }), in: 0...1).tint(AnalogPalette.amber)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 Text("SLEEP TIMER").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green)
+                HStack(spacing: 8) {
+                    Text("FADE").font(.system(size: 8, weight: .bold)).foregroundStyle(AnalogPalette.muted)
+                    Slider(value: Binding(
+                        get: { Double(player.sleepFadeSeconds) },
+                        set: { player.setSleepFadeSeconds(Int($0.rounded())) }
+                    ), in: 0...30, step: 5).tint(AnalogPalette.amber)
+                    Text(player.sleepFadeSeconds == 0 ? "OFF" : "\(player.sleepFadeSeconds)s")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.cream).frame(width: 34, alignment: .trailing)
+                }
                 HStack {
                     ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
                         Button("\(minutes) MIN") { player.setSleepTimer(minutes: minutes) }.buttonStyle(AnalogOutlineButton())
                     }
-                    Button("CANCEL") { player.setSleepTimer(minutes: 0) }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
                 }
-                if player.sleepMinutes > 0 { Text("Sleep timer set for \(player.sleepMinutes) minutes • final 15 seconds fade smoothly").font(.system(size: 10)).foregroundStyle(AnalogPalette.amber) }
+                HStack {
+                    Button("STOP AT END OF TRACK") { player.setSleepTimerEndOfTrack() }.buttonStyle(AnalogOutlineButton())
+                    Button("CANCEL TIMER") { player.cancelSleepTimer() }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
+                }
+                if player.sleepStopsAtTrackEnd {
+                    Text("Will fade over the final \(player.sleepFadeSeconds) seconds and stop after this track.")
+                        .font(.system(size: 10)).foregroundStyle(AnalogPalette.amber)
+                } else if player.sleepMinutes > 0 {
+                    Text("Sleep timer set for \(player.sleepMinutes) minutes • final \(player.sleepFadeSeconds) seconds fade.")
+                        .font(.system(size: 10)).foregroundStyle(AnalogPalette.amber)
+                }
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             Spacer()
         }.padding(22)
@@ -1589,6 +1617,57 @@ struct SmartMixesView: View {
     }
 }
 
+
+private struct ArrowKeyNavigationMonitor: NSViewRepresentable {
+    let onNavigate: (Int) -> Void
+    let onSeek: (Double) -> Void
+    let isPlaying: () -> Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onNavigate = onNavigate
+        context.coordinator.onSeek = onSeek
+        context.coordinator.isPlaying = isPlaying
+        context.coordinator.installIfNeeded()
+    }
+
+    final class Coordinator {
+        var onNavigate: (Int) -> Void = { _ in }
+        var onSeek: (Double) -> Void = { _ in }
+        var isPlaying: () -> Bool = { false }
+        private var monitor: Any?
+
+        func installIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+                guard modifiers.isEmpty else { return event }
+                if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor {
+                    return event
+                }
+                switch event.keyCode {
+                case 123:
+                    if self.isPlaying() { self.onSeek(-15) } else { self.onNavigate(-1) }
+                case 124:
+                    if self.isPlaying() { self.onSeek(15) } else { self.onNavigate(1) }
+                case 126:
+                    self.onNavigate(-1)
+                case 125:
+                    self.onNavigate(1)
+                default:
+                    return event
+                }
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
 
 private struct EscapeKeyMonitor: NSViewRepresentable {
     let isActive: Bool
