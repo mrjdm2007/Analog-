@@ -337,6 +337,9 @@ class PlaybackService : MediaSessionService() {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
+                // End-of-track sleep must let the current song finish naturally; a crossfade
+                // would transition to the next item early and incorrectly trigger the stop listener.
+                cancelCrossfade()
                 val activePlayer = mediaSession?.player
                 if (activePlayer != null) {
                     val listener = object : Player.Listener {
@@ -698,7 +701,7 @@ class PlaybackService : MediaSessionService() {
         val primary = mediaSession?.player ?: return
         val secondary = crossfadePlayer ?: return
         val durationMs = getSharedPreferences("analog_library", MODE_PRIVATE).getInt("crossfade_seconds", 0) * 1000L
-        if (!primary.isPlaying || durationMs <= 0L) {
+        if (!primary.isPlaying || durationMs <= 0L || sleepEndListener != null) {
             cancelCrossfade()
             applyCrossfadeVolumes()
             return
