@@ -648,6 +648,7 @@ final class AnalogPlayer: ObservableObject {
         else if source < queueIndex && destination >= queueIndex { queueIndex -= 1 }
         else if source > queueIndex && destination <= queueIndex { queueIndex += 1 }
         refreshPlaybackSchedule()
+    }
 
     func clearUpcomingQueue() {
         guard queueIndex < queue.count else {
