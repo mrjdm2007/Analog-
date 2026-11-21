@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity() {
             var audioFocusBluetooth by remember { mutableStateOf(prefs().getBoolean("audio_focus_bluetooth", true)) }
             var replayGainEnabled by remember { mutableStateOf(prefs().getBoolean("replay_gain_enabled", true)) }
             var crossfadeSeconds by remember { mutableIntStateOf(prefs().getInt("crossfade_seconds", 0)) }
-            var sleepFadeSeconds by remember { mutableIntStateOf(prefs().getInt("sleep_fade_seconds", 15).coerceIn(0, 30)) }
+            var sleepFadeSeconds by remember { mutableIntStateOf(prefs().getInt("sleep_fade_seconds", 20).coerceIn(0, 30)) }
             var settings by remember { mutableStateOf(false) }
             var selectedFolders by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getStringSet("selected_folders", emptySet())?.toSet() ?: emptySet()) }
             var sortMode by remember { mutableStateOf(this@MainActivity.getSharedPreferences("analog_library", Context.MODE_PRIVATE).getString("sort_mode", "Title (A–Z)") ?: "Title (A–Z)") }
