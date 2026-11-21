@@ -47,6 +47,7 @@ struct ContentView: View {
         .background(AnalogPalette.ink)
         .animation(.easeInOut(duration: 0.22), value: visualizerFocusMode)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
+        .background(FocusModeShortcutMonitor { visualizerFocusMode.toggle() }.frame(width: 0, height: 0))
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
@@ -1848,6 +1849,40 @@ private struct CursorVisibilityController: NSViewRepresentable {
                 NSCursor.unhide()
             }
             cursorIsHidden = hidden
+        }
+    }
+}
+
+private struct FocusModeShortcutMonitor: NSViewRepresentable {
+    let onToggle: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onToggle = onToggle
+        context.coordinator.installIfNeeded()
+    }
+
+    final class Coordinator {
+        var onToggle: () -> Void = {}
+        private var monitor: Any?
+
+        func installIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      event.keyCode == 3,
+                      event.modifierFlags.contains(.command),
+                      event.modifierFlags.intersection([.control, .option, .shift]).isEmpty else {
+                    return event
+                }
+                self.onToggle()
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
     }
 }
