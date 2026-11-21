@@ -56,12 +56,26 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         .appendingPathComponent("Analog/Artwork", isDirectory: true)
     try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
 
-    var artworkData = metadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue
+    // Some containers expose cover art only through a format-specific metadata
+    // collection (for example ID3 or iTunes metadata), not commonMetadata.
+    let formatMetadata = asset.availableMetadataFormats.flatMap { asset.metadata(forFormat: $0) }
+    let allMetadata = metadata + formatMetadata
+    var artworkData = allMetadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue
+
+    // Fall back to conventional sidecar artwork names when the audio file has
+    // no embedded cover. Keep this work on the scanner's background queue.
     if artworkData == nil || artworkData?.isEmpty == true {
         let folder = url.deletingLastPathComponent()
-        for name in ["cover.jpg", "cover.jpeg", "cover.png", "folder.jpg",
-                     "folder.jpeg", "folder.png", "AlbumArt.jpg", "AlbumArt.jpeg"] {
-            if let data = try? Data(contentsOf: folder.appendingPathComponent(name)), !data.isEmpty {
+        let artworkNames = [
+            "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
+            "folder.jpg", "folder.jpeg", "folder.png",
+            "front.jpg", "front.jpeg", "front.png",
+            "album.jpg", "album.jpeg", "album.png",
+            "AlbumArt.jpg", "AlbumArt.jpeg", "AlbumArtSmall.jpg"
+        ]
+        for name in artworkNames {
+            if let data = try? Data(contentsOf: folder.appendingPathComponent(name)),
+               !data.isEmpty, NSImage(data: data) != nil {
                 artworkData = data
                 break
             }
@@ -69,9 +83,13 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
     }
 
     var artworkPath: String?
-    if let artwork = artworkData, !artwork.isEmpty {
+    if let artwork = artworkData, !artwork.isEmpty, NSImage(data: artwork) != nil {
+        // Include the artwork bytes in the cache key. A changed cover for the
+        // same audio path must not keep showing the old cached image.
         var hash: UInt64 = 14695981039346656037
-        for byte in url.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        for byte in (url.path.utf8 + artwork) {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
+        }
         let destination = cache.appendingPathComponent(String(hash, radix: 16) + ".artwork")
         if !FileManager.default.fileExists(atPath: destination.path) {
             try? artwork.write(to: destination, options: .atomic)
