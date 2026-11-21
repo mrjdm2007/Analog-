@@ -192,6 +192,9 @@ fun VisualizerScreen(
                     val captureSize = 1024.coerceIn(range[0], range[1])
                     this.captureSize = captureSize
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                        // Waveform capture is intentionally disabled on Android; the
+                        // focused screen uses the main spectrum analyser only.
+                        override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) = Unit
                         override fun onFftDataCapture(visualizer: Visualizer, fft: ByteArray, samplingRate: Int) {
                             if (!active || fft.size < 8) return
                             val binCount = fft.size / 2
