@@ -47,7 +47,16 @@ struct ContentView: View {
         .background(AnalogPalette.ink)
         .animation(.easeInOut(duration: 0.22), value: visualizerFocusMode)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
-        .background(FocusModeShortcutMonitor { visualizerFocusMode.toggle() }.frame(width: 0, height: 0))
+        .background(FocusModeShortcutMonitor {
+            if visualizerFocusMode {
+                visualizerFocusMode = false
+            } else {
+                // Focus Mode is a full-screen visualizer, so route the shortcut to
+                // the Visualiser workspace before presenting it from another tab.
+                if player.selectedTab != "Visualiser" { player.selectedTab = "Visualiser" }
+                visualizerFocusMode = true
+            }
+        }.frame(width: 0, height: 0))
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
