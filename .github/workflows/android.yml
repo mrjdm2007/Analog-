@@ -8,7 +8,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main, feature/pro-audio-studio, feature/android-audio-focus-mode ]
+    branches: [ main, feature/pro-audio-studio, feature/android-audio-focus-mode, fix/analog-focused-visualizer-and-cold-start-playback ]
   workflow_dispatch:
 
 jobs:
