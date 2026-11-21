@@ -1131,6 +1131,8 @@ struct VisualiserView: View {
     @State private var style = "Spectrum"
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
+    @State private var heldLeftPeak = 0.0
+    @State private var heldRightPeak = 0.0
     @State private var scrubTime: Double?
     @State private var artworkGlow = AnalogPalette.amber
 
@@ -1146,6 +1148,21 @@ struct VisualiserView: View {
             guard peakHold else { return }
             if heldPeaks.count != values.count { heldPeaks = values; return }
             heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
+        }
+        .onChange(of: player.visualizerLeftPeak) { value in
+            guard peakHold else { heldLeftPeak = 0; return }
+            heldLeftPeak = max(value, heldLeftPeak * 0.965)
+        }
+        .onChange(of: player.visualizerRightPeak) { value in
+            guard peakHold else { heldRightPeak = 0; return }
+            heldRightPeak = max(value, heldRightPeak * 0.965)
+        }
+        .onChange(of: peakHold) { enabled in
+            if !enabled {
+                heldPeaks = Array(repeating: 0, count: 36)
+                heldLeftPeak = 0
+                heldRightPeak = 0
+            }
         }
         .padding(focusMode ? 18 : 22)
         .background {
@@ -1328,29 +1345,41 @@ struct VisualiserView: View {
                     .font(.system(size: 7, weight: .bold, design: .monospaced))
                     .foregroundStyle(player.visualizerChannelCount == 1 ? AnalogPalette.muted : AnalogPalette.green)
             }
-            channelMeter(label: "L", peak: player.visualizerLeftPeak, rms: player.visualizerLeftRMS, tint: AnalogPalette.green)
-            channelMeter(label: "R", peak: player.visualizerRightPeak, rms: player.visualizerRightRMS, tint: AnalogPalette.amber)
+            channelMeter(label: "L", peak: player.visualizerLeftPeak, rms: player.visualizerLeftRMS, held: heldLeftPeak, tint: AnalogPalette.green)
+            channelMeter(label: "R", peak: player.visualizerRightPeak, rms: player.visualizerRightRMS, held: heldRightPeak, tint: AnalogPalette.amber)
         }
-        .padding(9).frame(width: 178, alignment: .leading)
+        .padding(9).frame(width: 208, alignment: .leading)
         .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
     }
 
-    private func channelMeter(label: String, peak: Double, rms: Double, tint: Color) -> some View {
+    private func channelMeter(label: String, peak: Double, rms: Double, held: Double, tint: Color) -> some View {
         HStack(spacing: 5) {
             Text(label).font(.system(size: 8, weight: .black, design: .monospaced)).foregroundStyle(tint).frame(width: 9)
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule().fill(AnalogPalette.ink)
-                    Capsule().fill(tint.opacity(0.52))
-                        .frame(width: max(1, proxy.size.width * CGFloat(min(1, max(0, rms)))))
+                    Capsule().fill(tint.opacity(0.48))
+                        .frame(width: proxy.size.width * CGFloat(min(1, max(0, rms))))
                     Capsule().fill(tint)
-                        .frame(width: max(1, proxy.size.width * CGFloat(min(1, max(0, peak)))))
+                        .frame(width: proxy.size.width * CGFloat(min(1, max(0, peak))))
+                    if peakHold && held > 0 {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(AnalogPalette.cream)
+                            .frame(width: 2, height: 9)
+                            .offset(x: min(proxy.size.width - 2, proxy.size.width * CGFloat(min(1, max(0, held)))) - proxy.size.width / 2)
+                    }
                 }
-            }.frame(height: 7)
-            Text(String(format: "%.2f", peak)).font(.system(size: 7, weight: .medium, design: .monospaced)).foregroundStyle(AnalogPalette.cream).frame(width: 28, alignment: .trailing)
+            }.frame(height: 9)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("P \(String(format: "%.2f", peak))")
+                Text("R \(String(format: "%.2f", rms))").foregroundStyle(AnalogPalette.muted)
+            }
+            .font(.system(size: 6.5, weight: .medium, design: .monospaced))
+            .frame(width: 48, alignment: .trailing)
         }
         .animation(.easeOut(duration: 0.12), value: peak)
-        .help("Peak \(label): \(String(format: "%.3f", peak)) • RMS: \(String(format: "%.3f", rms))")
+        .animation(.easeOut(duration: 0.12), value: rms)
+        .help("Peak \(label): \(String(format: "%.3f", peak)) • Peak hold: \(String(format: "%.3f", held)) • RMS: \(String(format: "%.3f", rms))")
     }
 
     private func channelWaveform(samples: [Double], tint: Color) -> some View {
