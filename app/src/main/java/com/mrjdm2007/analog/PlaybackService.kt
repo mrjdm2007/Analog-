@@ -89,6 +89,7 @@ class PlaybackService : MediaSessionService() {
     private var crossfadeTargetIndex = -1
     private var crossfadeInProgress = false
     private var crossfadeForIndex = -1
+    private var crossfadeSeekTransition = false
     private var crossfadePrimaryGain = 1f
     private var crossfadeSecondaryGain = 0f
     private var sleepVolumeMultiplier = 1f
@@ -217,6 +218,7 @@ class PlaybackService : MediaSessionService() {
         }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                if (crossfadeSeekTransition) crossfadeSeekTransition = false
                 if (crossfadeInProgress && mediaSession?.player?.currentMediaItemIndex != crossfadeTargetIndex) {
                     cancelCrossfade()
                     applyCrossfadeVolumes()
@@ -266,7 +268,7 @@ class PlaybackService : MediaSessionService() {
                 newPosition: Player.PositionInfo,
                 reason: Int
             ) {
-                if (reason == Player.DISCONTINUITY_REASON_SEEK && sleepEndListener != null) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && sleepEndListener != null && !crossfadeSeekTransition) {
                     // A manual rewind should restore full level and let the
                     // end-of-track fade begin again at the new track position.
                     sleepVolumeMultiplier = 1f
@@ -749,6 +751,7 @@ class PlaybackService : MediaSessionService() {
             applyCrossfadeVolumes()
             if (progress >= 1f) {
                 val nextPosition = secondary.currentPosition
+                crossfadeSeekTransition = true
                 primary.seekTo(crossfadeTargetIndex, nextPosition)
                 primary.play()
                 crossfadePrimaryGain = 1f
@@ -765,6 +768,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun cancelCrossfade() {
         crossfadeInProgress = false
+        crossfadeSeekTransition = false
         crossfadeTargetIndex = -1
         crossfadePrimaryGain = 1f
         crossfadeSecondaryGain = 0f
