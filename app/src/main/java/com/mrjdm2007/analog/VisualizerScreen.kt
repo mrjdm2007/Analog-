@@ -73,6 +73,7 @@ private fun visualFileSize(bytes: Long): String = when {
     else -> "%.1f MB".format(bytes / 1_000_000.0)
 }
 
+// This screen intentionally keeps a single primary spectrum visualizer.
 @Composable
 fun VisualizerScreen(
     player: MediaController?,
