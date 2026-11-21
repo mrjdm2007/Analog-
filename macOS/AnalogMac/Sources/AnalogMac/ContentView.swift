@@ -50,6 +50,7 @@ struct ContentView: View {
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
+        .background(CursorVisibilityController(isHidden: visualizerFocusMode).frame(width: 0, height: 0))
         .background(ArrowKeyNavigationMonitor(
             onNavigate: { delta in
                 let tabs = ["Library", "Queue", "History", "Smart Mixes", "Moods", "Playlists", "Equalizer", "Visualiser", "Recorder", "Settings"]
@@ -1520,6 +1521,42 @@ struct VisualiserView: View {
             .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(AnalogPalette.cream)
             ProgressView(value: track.map { $0.duration > 0 ? min(1, max(0, player.currentTime / $0.duration)) : 0 } ?? 0)
                 .tint(AnalogPalette.amber)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("UP NEXT").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Text(player.shuffleQueue ? "SHUFFLE QUEUE" : "PLAYBACK QUEUE")
+                        .font(.system(size: 7, weight: .bold)).tracking(0.7).foregroundStyle(AnalogPalette.muted)
+                }
+                if let upcoming = upcomingTrack {
+                    HStack(spacing: 9) {
+                        Group {
+                            if upcoming.artworkPath != nil {
+                                TrackArtwork(track: upcoming, size: 38)
+                            } else {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6).fill(AnalogPalette.raised)
+                                    Image(systemName: "music.note").font(.system(size: 14, weight: .semibold)).foregroundStyle(AnalogPalette.amber)
+                                }
+                            }
+                        }
+                        .frame(width: 38, height: 38).clipShape(RoundedRectangle(cornerRadius: 6))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(upcoming.title).font(.system(size: 10, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                            Text(upcoming.artist).font(.system(size: 8, weight: .medium)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(7)
+                    .background(AnalogPalette.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Text(player.currentTrack == nil ? "Nothing queued" : (player.repeatQueue ? "Current queue will repeat" : "End of queue"))
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(AnalogPalette.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(9)
+                        .background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
             Text("SIGNAL CHAIN").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
             HStack(spacing: 7) {
                 focusDetail("EQUALIZER", player.eqEnabled ? "ACTIVE" : "BYPASSED")
@@ -1527,6 +1564,14 @@ struct VisualiserView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private var upcomingTrack: MusicTrack? {
+        guard !player.queue.isEmpty else { return nil }
+        if player.repeatCurrentTrack { return player.currentTrack }
+        let nextIndex = player.queueIndex + 1
+        if player.queue.indices.contains(nextIndex) { return player.queue[nextIndex] }
+        return player.repeatQueue ? player.queue.first : nil
     }
 
     private func focusDetail(_ label: String, _ value: String) -> some View {
@@ -1560,16 +1605,42 @@ struct VisualiserView: View {
                 .tint(AnalogPalette.amber)
                 Text(formatTime(duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
             }
-            HStack(spacing: 24) {
-                Button { player.previous() } label: { Image(systemName: "backward.end.fill") }.buttonStyle(.plain)
-                Button { player.togglePlayback() } label: {
+            HStack(spacing: 28) {
+                Button(action: { player.previous() }) {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(AnalogPalette.cream)
+                        .frame(width: 58, height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil || player.queue.isEmpty)
+                .opacity(player.currentTrack == nil || player.queue.isEmpty ? 0.35 : 1)
+                .accessibilityLabel("Previous track")
+                .help("Previous track")
+                Button(action: { player.togglePlayback() }) {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 18, weight: .bold)).foregroundStyle(AnalogPalette.ink)
-                        .frame(width: 44, height: 44).background(AnalogPalette.amber, in: Circle())
-                }.buttonStyle(.plain)
-                Button { player.next() } label: { Image(systemName: "forward.end.fill") }.buttonStyle(.plain)
+                        .frame(width: 48, height: 48).background(AnalogPalette.amber, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil)
+                .accessibilityLabel(player.isPlaying ? "Pause playback" : "Resume playback")
+                Button(action: { player.next() }) {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(AnalogPalette.cream)
+                        .frame(width: 58, height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil || player.queue.isEmpty)
+                .opacity(player.currentTrack == nil || player.queue.isEmpty ? 0.35 : 1)
+                .accessibilityLabel("Next track")
+                .help("Next track")
             }
-            .font(.system(size: 17, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+            .foregroundStyle(AnalogPalette.cream)
         }
         .padding(.horizontal, 10)
     }
@@ -1744,6 +1815,35 @@ private struct ArrowKeyNavigationMonitor: NSViewRepresentable {
 
         deinit {
             if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
+
+private struct CursorVisibilityController: NSViewRepresentable {
+    let isHidden: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.setHidden(isHidden)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.setHidden(false)
+    }
+
+    final class Coordinator {
+        private var cursorIsHidden = false
+
+        func setHidden(_ hidden: Bool) {
+            guard cursorIsHidden != hidden else { return }
+            if hidden {
+                NSCursor.hide()
+            } else {
+                NSCursor.unhide()
+            }
+            cursorIsHidden = hidden
         }
     }
 }
