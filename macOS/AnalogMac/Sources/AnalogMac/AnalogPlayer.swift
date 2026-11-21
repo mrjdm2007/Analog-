@@ -137,6 +137,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var sleepMinutes = 0
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerLeftPeak: Double = 0
+    @Published var visualizerRightPeak: Double = 0
     @Published var visualizerEnabled = false
     private var analysisWindowVisible = true
     @Published var preampDB: Float = 0
@@ -154,6 +156,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var crossfeedEnabled = false
     @Published var crossfeedAmount: Float = 0.12
     @Published private(set) var crossfeedAvailable = false
+    @Published private(set) var crossfeedStatus = "Preparing native stereo processor…"
+    private var crossfeedSetupInProgress = false
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -251,9 +255,13 @@ final class AnalogPlayer: ObservableObject {
         peakGuard.auAudioUnit.shouldBypassEffect = true
         configurePeakGuard()
         equalizer.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
-            guard let channel = buffer.floatChannelData?[0] else { return }
+            guard let channels = buffer.floatChannelData else { return }
             let count = Int(buffer.frameLength)
             guard count > 0 else { return }
+            let channelCount = Int(buffer.format.channelCount)
+            guard channelCount > 0 else { return }
+            let leftChannel = channels[0]
+            let rightChannel = channelCount > 1 ? channels[1] : leftChannel
 
             let work = analogAudioAnalysisGate.withLock { state -> (meter: Bool, visualizer: Bool) in
                 let now = DispatchTime.now().uptimeNanoseconds
@@ -266,19 +274,27 @@ final class AnalogPlayer: ObservableObject {
 
             var peak: Float = 0
             var rms: Float = 0
+            var leftPeak: Float = 0
+            var rightPeak: Float = 0
             if work.meter {
                 var sumSquares: Double = 0
                 for index in 0..<count {
-                    let sample = channel[index]
+                    let sample = leftChannel[index]
                     let magnitude = abs(sample)
                     if magnitude > peak { peak = magnitude }
                     sumSquares += Double(sample) * Double(sample)
                 }
                 rms = Float(sqrt(sumSquares / Double(count)))
             }
+            if work.visualizer {
+                for index in 0..<count {
+                    leftPeak = max(leftPeak, abs(leftChannel[index]))
+                    rightPeak = max(rightPeak, abs(rightChannel[index]))
+                }
+            }
 
             let samples = work.visualizer
-                ? Array(UnsafeBufferPointer(start: channel, count: count))
+                ? Array(UnsafeBufferPointer(start: leftChannel, count: count))
                 : []
             let sampleRate = buffer.format.sampleRate
 
@@ -289,11 +305,9 @@ final class AnalogPlayer: ObservableObject {
                     self.eqOutputRMS = rms
                 }
                 if work.visualizer {
-                    self.visualizerBins = analogSpectrum(
-                        samples: samples,
-                        sampleRate: sampleRate,
-                        binCount: 36
-                    )
+                    self.visualizerLeftPeak = Double(min(1, leftPeak))
+                    self.visualizerRightPeak = Double(min(1, rightPeak))
+                    self.visualizerBins = analogSpectrum(samples: samples, sampleRate: sampleRate, binCount: 36)
                     self.visualizerWaveform = analogWaveform(samples: samples, pointCount: 128)
                 }
             }
@@ -929,6 +943,10 @@ final class AnalogPlayer: ObservableObject {
 
 
     private func configureCrossfeedUnit() {
+        guard !crossfeedSetupInProgress, crossfeedUnit == nil else { return }
+        crossfeedSetupInProgress = true
+        crossfeedAvailable = false
+        crossfeedStatus = "Preparing native stereo processor…"
         let description = AudioComponentDescription(
             componentType: kAudioUnitType_Mixer,
             componentSubType: kAudioUnitSubType_MatrixMixer,
@@ -938,11 +956,27 @@ final class AnalogPlayer: ObservableObject {
         )
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] unit, error in
             guard let unit else {
-                if let error { print("Analog crossfeed unavailable: \(error.localizedDescription)") }
+                let message = error?.localizedDescription ?? "Apple's Matrix Mixer could not be instantiated."
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.crossfeedSetupInProgress = false
+                    self.crossfeedAvailable = false
+                    self.crossfeedEnabled = false
+                    self.crossfeedStatus = "Unavailable: \(message)"
+                }
                 return
             }
-            Task { @MainActor in self?.installCrossfeedUnit(unit) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.crossfeedSetupInProgress = false
+                self.installCrossfeedUnit(unit)
+            }
         }
+    }
+
+    func retryCrossfeedSetup() {
+        guard !crossfeedAvailable, !crossfeedSetupInProgress else { return }
+        configureCrossfeedUnit()
     }
 
     private func installCrossfeedUnit(_ unit: AVAudioUnit) {
@@ -968,6 +1002,7 @@ final class AnalogPlayer: ObservableObject {
         guard inputStatus == noErr, outputStatus == noErr else {
             crossfeedAvailable = false
             crossfeedEnabled = false
+            crossfeedStatus = "Unavailable: matrix bus setup failed (\(inputStatus)/\(outputStatus))."
             print("Analog crossfeed bus configuration failed: input=\(inputStatus), output=\(outputStatus)")
             return
         }
@@ -984,7 +1019,6 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.connect(unit, to: equalizer, format: nil)
         audioEngine.prepare()
         crossfeedUnit = unit
-        crossfeedAvailable = true
         applyCrossfeedMatrix()
         if wasRunning {
             do {
@@ -998,14 +1032,12 @@ final class AnalogPlayer: ObservableObject {
                     }
                 }
             } catch {
-                crossfeedAvailable = false
-                crossfeedEnabled = false
-                print("Analog audio graph update failed: \(error.localizedDescription)")
+                bypassCrossfeedUnit(reason: "Unavailable: audio graph restart failed (\(error.localizedDescription)).")
             }
         }
     }
 
-    private func bypassCrossfeedUnit() {
+    private func bypassCrossfeedUnit(reason: String = "Unavailable: stereo matrix configuration failed.") {
         guard let unit = crossfeedUnit else { return }
         let wasRunning = audioEngine.isRunning
         let wasPlaying = isPlaying
@@ -1020,6 +1052,7 @@ final class AnalogPlayer: ObservableObject {
         crossfeedUnit = nil
         crossfeedEnabled = false
         crossfeedAvailable = false
+        crossfeedStatus = reason
         if wasRunning {
             do {
                 try audioEngine.start()
@@ -1034,28 +1067,37 @@ final class AnalogPlayer: ObservableObject {
             } catch {
                 isPlaying = false
                 timer?.invalidate()
+                crossfeedStatus = "Unavailable: audio bypass recovery failed (\(error.localizedDescription))."
                 print("Analog crossfeed bypass recovery failed: \(error.localizedDescription)")
             }
         }
     }
 
     private func applyCrossfeedMatrix() {
-        guard let unit = crossfeedUnit else { return }
+        guard let unit = crossfeedUnit else {
+            crossfeedAvailable = false
+            return
+        }
         var dimensions = [UInt32](repeating: 0, count: 2)
         var size = UInt32(MemoryLayout<UInt32>.size * dimensions.count)
-        guard AudioUnitGetProperty(
+        let dimensionsStatus = AudioUnitGetProperty(
             unit.audioUnit,
             kAudioUnitProperty_MatrixDimensions,
             kAudioUnitScope_Global,
             0,
             &dimensions,
             &size
-        ) == noErr, dimensions == [2, 2] else {
-            bypassCrossfeedUnit()
+        )
+        guard dimensionsStatus == noErr, dimensions == [2, 2] else {
+            bypassCrossfeedUnit(reason: "Unavailable: expected a 2-in/2-out matrix (status \(dimensionsStatus), dimensions \(dimensions)).")
             return
         }
         let amount = crossfeedEnabled ? min(0.35, max(0, crossfeedAmount)) : 0
         var levels = stereoCrossfeedMatrix(amount: amount)
+        guard levels.count == 9 else {
+            bypassCrossfeedUnit(reason: "Unavailable: invalid 3×3 stereo matrix.")
+            return
+        }
         let status = levels.withUnsafeMutableBufferPointer { buffer in
             AudioUnitSetProperty(
                 unit.audioUnit,
@@ -1066,13 +1108,16 @@ final class AnalogPlayer: ObservableObject {
                 UInt32(buffer.count * MemoryLayout<Float32>.size)
             )
         }
-        if status != noErr {
-            print("Analog crossfeed matrix update failed: \(status)")
-            bypassCrossfeedUnit()
+        guard status == noErr else {
+            bypassCrossfeedUnit(reason: "Unavailable: matrix levels rejected (\(status)).")
+            return
         }
+        crossfeedAvailable = true
+        crossfeedStatus = "Ready • 2-channel matrix active"
     }
 
     func setCrossfeed(enabled: Bool, amount: Float? = nil) {
+        guard crossfeedAvailable else { return }
         crossfeedEnabled = enabled
         if let amount { crossfeedAmount = min(0.35, max(0, amount)) }
         applyCrossfeedMatrix()
