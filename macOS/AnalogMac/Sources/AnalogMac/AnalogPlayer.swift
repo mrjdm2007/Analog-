@@ -708,11 +708,18 @@ final class AnalogPlayer: ObservableObject {
                 let startFrame = AVAudioFramePosition(currentTime * firstFile.processingFormat.sampleRate)
                 let remaining = max(0, firstFile.length - startFrame)
                 let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
-                guard frameCount > 0 else { advance(); return }
+                guard frameCount > 0 else {
+                    if sleepStopsAtTrackEnd { finishSleepTimer() } else { advance() }
+                    return
+                }
                 playerNode.scheduleSegment(firstFile, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
                     DispatchQueue.main.async {
                         guard let self, self.playbackToken == token else { return }
-                        self.advance()
+                        if self.sleepStopsAtTrackEnd {
+                            self.finishSleepTimer()
+                        } else {
+                            self.advance()
+                        }
                     }
                 }
             }
