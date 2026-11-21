@@ -346,6 +346,7 @@ class PlaybackService : MediaSessionService() {
                 // End-of-track sleep must let the current song finish naturally; a crossfade
                 // would transition to the next item early and incorrectly trigger the stop listener.
                 cancelCrossfade()
+                crossfadeForIndex = -1
                 val activePlayer = mediaSession?.player
                 if (activePlayer != null) {
                     val listener = object : Player.Listener {
