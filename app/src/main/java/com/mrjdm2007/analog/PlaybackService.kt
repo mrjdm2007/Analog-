@@ -296,7 +296,7 @@ class PlaybackService : MediaSessionService() {
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
                 val totalMs = minutes * 60_000L
                 val fadeSeconds = getSharedPreferences("analog_library", MODE_PRIVATE)
-                    .getInt("sleep_fade_seconds", 15).coerceIn(0, 30)
+                    .getInt("sleep_fade_seconds", 20).coerceIn(0, 30)
                 val fadeMs = fadeSeconds * 1000L
                 sleepTimer = Runnable {
                     mediaSession?.player?.let { it.pause(); it.volume = 1f }
@@ -344,7 +344,11 @@ class PlaybackService : MediaSessionService() {
                         }
                     }
                     sleepEndListener = listener
-                    activePlayer.addListener(listener)
+                    if (activePlayer.playbackState == Player.STATE_ENDED) {
+                        activePlayer.pause()
+                    } else {
+                        activePlayer.addListener(listener)
+                    }
                 }
             }
             ACTION_TILE_PLAY -> startLastPlayedFromTile()
