@@ -253,10 +253,14 @@ struct TrackArtwork: View {
         .frame(width: size, height: size)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
         .task(id: track.artworkPath) {
-            guard let path = track.artworkPath else { artwork = nil; return }
+            // Clear immediately so a previous track's cover is never shown while
+            // the next track's artwork is loading.
+            artwork = nil
+            guard let path = track.artworkPath else { return }
             let data = await Task.detached(priority: .utility) {
                 try? Data(contentsOf: URL(fileURLWithPath: path))
             }.value
+            guard !Task.isCancelled else { return }
             artwork = data.flatMap { NSImage(data: $0) }
         }
     }
