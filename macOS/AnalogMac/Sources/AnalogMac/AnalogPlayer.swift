@@ -798,13 +798,17 @@ final class AnalogPlayer: ObservableObject {
 
     func previous() {
         if currentTime > 3 { seek(to: 0); return }
+        if sleepStopsAtTrackEnd { finishSleepTimer(); return }
         guard !queue.isEmpty else { return }
         let index = queueIndex > 0 ? queueIndex - 1 : (repeatQueue ? queue.count - 1 : 0)
         queueIndex = index
         startTrack(queue[index], at: 0)
     }
 
-    func next() { advance() }
+    func next() {
+        if sleepStopsAtTrackEnd { finishSleepTimer(); return }
+        advance()
+    }
 
     private func advance() {
         if repeatCurrentTrack, let track = currentTrack { startTrack(track, at: 0); return }
