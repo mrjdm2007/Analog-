@@ -53,6 +53,10 @@ struct ContentView: View {
         .background(CursorVisibilityController(isHidden: visualizerFocusMode).frame(width: 0, height: 0))
         .background(ArrowKeyNavigationMonitor(
             onNavigate: { delta in
+                if visualizerFocusMode {
+                    if delta < 0 { player.previous() } else { player.next() }
+                    return
+                }
                 let tabs = ["Library", "Queue", "History", "Smart Mixes", "Moods", "Playlists", "Equalizer", "Visualiser", "Recorder", "Settings"]
                 let current = tabs.firstIndex(of: player.selectedTab) ?? 0
                 player.selectedTab = tabs[(current + delta + tabs.count) % tabs.count]
