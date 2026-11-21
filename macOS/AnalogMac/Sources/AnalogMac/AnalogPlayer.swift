@@ -1014,6 +1014,7 @@ final class AnalogPlayer: ObservableObject {
             queueIndex = min(queueIndex, max(0, queue.count - 1))
         } else {
             queueIndex = max(0, queueIndex - removedBeforeCurrent)
+            refreshPlaybackSchedule()
         }
         persistState()
     }
