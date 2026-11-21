@@ -87,7 +87,10 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         // Include the artwork bytes in the cache key. A changed cover for the
         // same audio path must not keep showing the old cached image.
         var hash: UInt64 = 14695981039346656037
-        for byte in (url.path.utf8 + artwork) {
+        for byte in url.path.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
+        }
+        for byte in artwork {
             hash = (hash ^ UInt64(byte)) &* 1099511628211
         }
         let destination = cache.appendingPathComponent(String(hash, radix: 16) + ".artwork")
