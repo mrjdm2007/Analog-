@@ -56,12 +56,26 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
         .appendingPathComponent("Analog/Artwork", isDirectory: true)
     try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
 
-    var artworkData = metadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue
+    // Some containers expose cover art only through a format-specific metadata
+    // collection (for example ID3 or iTunes metadata), not commonMetadata.
+    let formatMetadata = asset.availableMetadataFormats.flatMap { asset.metadata(forFormat: $0) }
+    let allMetadata = metadata + formatMetadata
+    var artworkData = allMetadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue
+
+    // Fall back to conventional sidecar artwork names when the audio file has
+    // no embedded cover. Keep this work on the scanner's background queue.
     if artworkData == nil || artworkData?.isEmpty == true {
         let folder = url.deletingLastPathComponent()
-        for name in ["cover.jpg", "cover.jpeg", "cover.png", "folder.jpg",
-                     "folder.jpeg", "folder.png", "AlbumArt.jpg", "AlbumArt.jpeg"] {
-            if let data = try? Data(contentsOf: folder.appendingPathComponent(name)), !data.isEmpty {
+        let artworkNames = [
+            "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
+            "folder.jpg", "folder.jpeg", "folder.png",
+            "front.jpg", "front.jpeg", "front.png",
+            "album.jpg", "album.jpeg", "album.png",
+            "AlbumArt.jpg", "AlbumArt.jpeg", "AlbumArtSmall.jpg"
+        ]
+        for name in artworkNames {
+            if let data = try? Data(contentsOf: folder.appendingPathComponent(name)),
+               !data.isEmpty, NSImage(data: data) != nil {
                 artworkData = data
                 break
             }
@@ -69,9 +83,16 @@ private func makeMusicTrack(from url: URL) -> MusicTrack? {
     }
 
     var artworkPath: String?
-    if let artwork = artworkData, !artwork.isEmpty {
+    if let artwork = artworkData, !artwork.isEmpty, NSImage(data: artwork) != nil {
+        // Include the artwork bytes in the cache key. A changed cover for the
+        // same audio path must not keep showing the old cached image.
         var hash: UInt64 = 14695981039346656037
-        for byte in url.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        for byte in url.path.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
+        }
+        for byte in artwork {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
+        }
         let destination = cache.appendingPathComponent(String(hash, radix: 16) + ".artwork")
         if !FileManager.default.fileExists(atPath: destination.path) {
             try? artwork.write(to: destination, options: .atomic)
@@ -135,8 +156,18 @@ final class AnalogPlayer: ObservableObject {
     @Published var repeatCurrentTrack = false
     @Published var shuffleQueue = false
     @Published var sleepMinutes = 0
+    @Published var sleepFadeSeconds = 20
+    @Published var sleepStopsAtTrackEnd = false
+    private var sleepEndTrackFadeCompleted = false
     @Published var visualizerBins: [Double] = Array(repeating: 0, count: 36)
     @Published var visualizerWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerLeftPeak: Double = 0
+    @Published var visualizerRightPeak: Double = 0
+    @Published var visualizerLeftRMS: Double = 0
+    @Published var visualizerRightRMS: Double = 0
+    @Published var visualizerLeftWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerRightWaveform: [Double] = Array(repeating: 0, count: 128)
+    @Published var visualizerChannelCount = 0
     @Published var visualizerEnabled = false
     private var analysisWindowVisible = true
     @Published var preampDB: Float = 0
@@ -154,6 +185,8 @@ final class AnalogPlayer: ObservableObject {
     @Published var crossfeedEnabled = false
     @Published var crossfeedAmount: Float = 0.12
     @Published private(set) var crossfeedAvailable = false
+    @Published private(set) var crossfeedStatus = "Preparing native stereo processor…"
+    private var crossfeedSetupInProgress = false
 
     let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     private let audioEngine = AVAudioEngine()
@@ -251,9 +284,13 @@ final class AnalogPlayer: ObservableObject {
         peakGuard.auAudioUnit.shouldBypassEffect = true
         configurePeakGuard()
         equalizer.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
-            guard let channel = buffer.floatChannelData?[0] else { return }
+            guard let channels = buffer.floatChannelData else { return }
             let count = Int(buffer.frameLength)
             guard count > 0 else { return }
+            let channelCount = Int(buffer.format.channelCount)
+            guard channelCount > 0 else { return }
+            let leftChannel = channels[0]
+            let rightChannel = channelCount > 1 ? channels[1] : leftChannel
 
             let work = analogAudioAnalysisGate.withLock { state -> (meter: Bool, visualizer: Bool) in
                 let now = DispatchTime.now().uptimeNanoseconds
@@ -266,21 +303,43 @@ final class AnalogPlayer: ObservableObject {
 
             var peak: Float = 0
             var rms: Float = 0
+            var leftPeak: Float = 0
+            var rightPeak: Float = 0
+            var leftRMS: Float = 0
+            var rightRMS: Float = 0
             if work.meter {
                 var sumSquares: Double = 0
                 for index in 0..<count {
-                    let sample = channel[index]
+                    let sample = leftChannel[index]
                     let magnitude = abs(sample)
                     if magnitude > peak { peak = magnitude }
                     sumSquares += Double(sample) * Double(sample)
                 }
                 rms = Float(sqrt(sumSquares / Double(count)))
             }
+            if work.visualizer {
+                var leftSquares = 0.0
+                var rightSquares = 0.0
+                for index in 0..<count {
+                    let left = leftChannel[index]
+                    let right = rightChannel[index]
+                    leftPeak = max(leftPeak, abs(left))
+                    rightPeak = max(rightPeak, abs(right))
+                    leftSquares += Double(left) * Double(left)
+                    rightSquares += Double(right) * Double(right)
+                }
+                leftRMS = Float(sqrt(leftSquares / Double(count)))
+                rightRMS = Float(sqrt(rightSquares / Double(count)))
+            }
 
-            let samples = work.visualizer
-                ? Array(UnsafeBufferPointer(start: channel, count: count))
+            let leftSamples = work.visualizer
+                ? Array(UnsafeBufferPointer(start: leftChannel, count: count))
+                : []
+            let rightSamples = work.visualizer
+                ? Array(UnsafeBufferPointer(start: rightChannel, count: count))
                 : []
             let sampleRate = buffer.format.sampleRate
+            let sourceChannelCount = channelCount
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -289,12 +348,15 @@ final class AnalogPlayer: ObservableObject {
                     self.eqOutputRMS = rms
                 }
                 if work.visualizer {
-                    self.visualizerBins = analogSpectrum(
-                        samples: samples,
-                        sampleRate: sampleRate,
-                        binCount: 36
-                    )
-                    self.visualizerWaveform = analogWaveform(samples: samples, pointCount: 128)
+                    self.visualizerLeftPeak = Double(min(1, leftPeak))
+                    self.visualizerRightPeak = Double(min(1, rightPeak))
+                    self.visualizerLeftRMS = Double(min(1, leftRMS))
+                    self.visualizerRightRMS = Double(min(1, rightRMS))
+                    self.visualizerChannelCount = sourceChannelCount
+                    self.visualizerLeftWaveform = analogWaveform(samples: leftSamples, pointCount: 128)
+                    self.visualizerRightWaveform = analogWaveform(samples: rightSamples, pointCount: 128)
+                    self.visualizerBins = analogSpectrum(samples: leftSamples, sampleRate: sampleRate, binCount: 36)
+                    self.visualizerWaveform = analogWaveform(samples: leftSamples, pointCount: 128)
                 }
             }
         }
@@ -357,6 +419,7 @@ final class AnalogPlayer: ObservableObject {
         activeDevicePresetName = defaults.string(forKey: "activeDevicePresetName")
         autoMatchOutputDevice = defaults.object(forKey: "autoMatchOutputDevice") as? Bool ?? true
         gaplessPlaybackEnabled = defaults.object(forKey: "gaplessPlaybackEnabled") as? Bool ?? true
+        sleepFadeSeconds = min(30, max(0, defaults.object(forKey: "sleepFadeSeconds") as? Int ?? 20))
         crossfeedEnabled = defaults.object(forKey: "crossfeedEnabled") as? Bool ?? false
         crossfeedAmount = min(0.35, max(0, defaults.object(forKey: "crossfeedAmount") as? Float ?? 0.12))
         audioEngine.mainMixerNode.outputVolume = outputVolume
@@ -394,6 +457,7 @@ final class AnalogPlayer: ObservableObject {
         if let data = try? JSONEncoder().encode(devicePresets) { defaults.set(data, forKey: "deviceEQPresets") }
         defaults.set(autoMatchOutputDevice, forKey: "autoMatchOutputDevice")
         defaults.set(gaplessPlaybackEnabled, forKey: "gaplessPlaybackEnabled")
+        defaults.set(sleepFadeSeconds, forKey: "sleepFadeSeconds")
         defaults.set(crossfeedEnabled, forKey: "crossfeedEnabled")
         defaults.set(crossfeedAmount, forKey: "crossfeedAmount")
         defaults.set(eqGains, forKey: "eqGains")
@@ -555,14 +619,17 @@ final class AnalogPlayer: ObservableObject {
         if queue.isEmpty {
             queue = [track]
             queueIndex = 0
+            refreshPlaybackSchedule()
             return
         }
         let insertion = min(max(queueIndex + 1, 0), queue.count)
         queue.insert(track, at: insertion)
+        refreshPlaybackSchedule()
     }
 
     func addToQueue(_ track: MusicTrack) {
         queue.append(track)
+        refreshPlaybackSchedule()
     }
 
     func removeFromQueue(at index: Int) {
@@ -570,6 +637,7 @@ final class AnalogPlayer: ObservableObject {
         guard queue.indices.contains(index), index != queueIndex else { return }
         queue.remove(at: index)
         if index < queueIndex { queueIndex -= 1 }
+        refreshPlaybackSchedule()
     }
 
     func moveQueueItem(from source: Int, to destination: Int) {
@@ -579,11 +647,18 @@ final class AnalogPlayer: ObservableObject {
         if queueIndex == source { queueIndex = destination }
         else if source < queueIndex && destination >= queueIndex { queueIndex -= 1 }
         else if source > queueIndex && destination <= queueIndex { queueIndex += 1 }
+        refreshPlaybackSchedule()
     }
 
     func clearUpcomingQueue() {
-        guard queueIndex < queue.count else { queue = []; queueIndex = 0; return }
+        guard queueIndex < queue.count else {
+            queue = []
+            queueIndex = 0
+            refreshPlaybackSchedule()
+            return
+        }
         queue = Array(queue.prefix(queueIndex + 1))
+        refreshPlaybackSchedule()
     }
 
     var historyTracks: [MusicTrack] {
@@ -595,6 +670,12 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func startTrack(_ track: MusicTrack, at seconds: Double, recordPlay: Bool = true) {
+        if sleepStopsAtTrackEnd {
+            sleepFadeTimer?.invalidate()
+            sleepFadeTimer = nil
+            sleepEndTrackFadeCompleted = false
+            playerNode.volume = 1
+        }
         playbackToken = UUID()
         let token = playbackToken
         playerNode.stop()
@@ -613,7 +694,10 @@ final class AnalogPlayer: ObservableObject {
                 var sequence: [(track: MusicTrack, index: Int)] = []
                 if queue.indices.contains(queueIndex) {
                     sequence.append((queue[queueIndex], queueIndex))
-                    if repeatCurrentTrack {
+                    if sleepStopsAtTrackEnd {
+                        // Keep only the current song scheduled while the end-of-track
+                        // sleep mode is active.
+                    } else if repeatCurrentTrack {
                         sequence.append((queue[queueIndex], queueIndex))
                     } else {
                         let following = gaplessQueueIndices(
@@ -671,7 +755,9 @@ final class AnalogPlayer: ObservableObject {
                                 self.timer?.invalidate()
                                 self.gaplessFiles.removeAll()
                                 self.updateSystemNowPlayingInfo()
-                                if self.repeatCurrentTrack, let current = self.currentTrack {
+                                if self.sleepStopsAtTrackEnd {
+                                    self.finishSleepTimer()
+                                } else if self.repeatCurrentTrack, let current = self.currentTrack {
                                     self.startTrack(current, at: 0, recordPlay: false)
                                 } else if self.repeatQueue, let first = self.queue.first {
                                     self.queueIndex = 0
@@ -685,11 +771,18 @@ final class AnalogPlayer: ObservableObject {
                 let startFrame = AVAudioFramePosition(currentTime * firstFile.processingFormat.sampleRate)
                 let remaining = max(0, firstFile.length - startFrame)
                 let frameCount = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
-                guard frameCount > 0 else { advance(); return }
+                guard frameCount > 0 else {
+                    if sleepStopsAtTrackEnd { finishSleepTimer() } else { advance() }
+                    return
+                }
                 playerNode.scheduleSegment(firstFile, startingFrame: startFrame, frameCount: frameCount, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
                     DispatchQueue.main.async {
                         guard let self, self.playbackToken == token else { return }
-                        self.advance()
+                        if self.sleepStopsAtTrackEnd {
+                            self.finishSleepTimer()
+                        } else {
+                            self.advance()
+                        }
                     }
                 }
             }
@@ -734,7 +827,9 @@ final class AnalogPlayer: ObservableObject {
         let wasPlaying = isPlaying
         let target = min(max(0, seconds), max(0, track.duration))
         if target >= track.duration {
-            if wasPlaying {
+            if wasPlaying && sleepStopsAtTrackEnd {
+                finishSleepTimer()
+            } else if wasPlaying {
                 advance()
             } else {
                 currentTime = track.duration
@@ -750,15 +845,26 @@ final class AnalogPlayer: ObservableObject {
         }
     }
 
+    func seekRelative(by seconds: Double) {
+        updateClock()
+        guard let track = currentTrack, track.duration > 0 else { return }
+        let target = min(max(0, currentTime + seconds), max(0, track.duration - 0.05))
+        seek(to: target)
+    }
+
     func previous() {
         if currentTime > 3 { seek(to: 0); return }
+        if sleepStopsAtTrackEnd { finishSleepTimer(); return }
         guard !queue.isEmpty else { return }
         let index = queueIndex > 0 ? queueIndex - 1 : (repeatQueue ? queue.count - 1 : 0)
         queueIndex = index
         startTrack(queue[index], at: 0)
     }
 
-    func next() { advance() }
+    func next() {
+        if sleepStopsAtTrackEnd { finishSleepTimer(); return }
+        advance()
+    }
 
     private func advance() {
         if repeatCurrentTrack, let track = currentTrack { startTrack(track, at: 0); return }
@@ -909,6 +1015,7 @@ final class AnalogPlayer: ObservableObject {
             queueIndex = min(queueIndex, max(0, queue.count - 1))
         } else {
             queueIndex = max(0, queueIndex - removedBeforeCurrent)
+            refreshPlaybackSchedule()
         }
         persistState()
     }
@@ -929,6 +1036,10 @@ final class AnalogPlayer: ObservableObject {
 
 
     private func configureCrossfeedUnit() {
+        guard !crossfeedSetupInProgress, crossfeedUnit == nil else { return }
+        crossfeedSetupInProgress = true
+        crossfeedAvailable = false
+        crossfeedStatus = "Preparing native stereo processor…"
         let description = AudioComponentDescription(
             componentType: kAudioUnitType_Mixer,
             componentSubType: kAudioUnitSubType_MatrixMixer,
@@ -938,11 +1049,27 @@ final class AnalogPlayer: ObservableObject {
         )
         AVAudioUnit.instantiate(with: description, options: []) { [weak self] unit, error in
             guard let unit else {
-                if let error { print("Analog crossfeed unavailable: \(error.localizedDescription)") }
+                let message = error?.localizedDescription ?? "Apple's Matrix Mixer could not be instantiated."
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.crossfeedSetupInProgress = false
+                    self.crossfeedAvailable = false
+                    self.crossfeedEnabled = false
+                    self.crossfeedStatus = "Unavailable: \(message)"
+                }
                 return
             }
-            Task { @MainActor in self?.installCrossfeedUnit(unit) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.crossfeedSetupInProgress = false
+                self.installCrossfeedUnit(unit)
+            }
         }
+    }
+
+    func retryCrossfeedSetup() {
+        guard !crossfeedAvailable, !crossfeedSetupInProgress else { return }
+        configureCrossfeedUnit()
     }
 
     private func installCrossfeedUnit(_ unit: AVAudioUnit) {
@@ -968,6 +1095,7 @@ final class AnalogPlayer: ObservableObject {
         guard inputStatus == noErr, outputStatus == noErr else {
             crossfeedAvailable = false
             crossfeedEnabled = false
+            crossfeedStatus = "Unavailable: matrix bus setup failed (\(inputStatus)/\(outputStatus))."
             print("Analog crossfeed bus configuration failed: input=\(inputStatus), output=\(outputStatus)")
             return
         }
@@ -984,7 +1112,6 @@ final class AnalogPlayer: ObservableObject {
         audioEngine.connect(unit, to: equalizer, format: nil)
         audioEngine.prepare()
         crossfeedUnit = unit
-        crossfeedAvailable = true
         applyCrossfeedMatrix()
         if wasRunning {
             do {
@@ -998,14 +1125,12 @@ final class AnalogPlayer: ObservableObject {
                     }
                 }
             } catch {
-                crossfeedAvailable = false
-                crossfeedEnabled = false
-                print("Analog audio graph update failed: \(error.localizedDescription)")
+                bypassCrossfeedUnit(reason: "Unavailable: audio graph restart failed (\(error.localizedDescription)).")
             }
         }
     }
 
-    private func bypassCrossfeedUnit() {
+    private func bypassCrossfeedUnit(reason: String = "Unavailable: stereo matrix configuration failed.") {
         guard let unit = crossfeedUnit else { return }
         let wasRunning = audioEngine.isRunning
         let wasPlaying = isPlaying
@@ -1020,6 +1145,7 @@ final class AnalogPlayer: ObservableObject {
         crossfeedUnit = nil
         crossfeedEnabled = false
         crossfeedAvailable = false
+        crossfeedStatus = reason
         if wasRunning {
             do {
                 try audioEngine.start()
@@ -1034,28 +1160,37 @@ final class AnalogPlayer: ObservableObject {
             } catch {
                 isPlaying = false
                 timer?.invalidate()
+                crossfeedStatus = "Unavailable: audio bypass recovery failed (\(error.localizedDescription))."
                 print("Analog crossfeed bypass recovery failed: \(error.localizedDescription)")
             }
         }
     }
 
     private func applyCrossfeedMatrix() {
-        guard let unit = crossfeedUnit else { return }
+        guard let unit = crossfeedUnit else {
+            crossfeedAvailable = false
+            return
+        }
         var dimensions = [UInt32](repeating: 0, count: 2)
         var size = UInt32(MemoryLayout<UInt32>.size * dimensions.count)
-        guard AudioUnitGetProperty(
+        let dimensionsStatus = AudioUnitGetProperty(
             unit.audioUnit,
             kAudioUnitProperty_MatrixDimensions,
             kAudioUnitScope_Global,
             0,
             &dimensions,
             &size
-        ) == noErr, dimensions == [2, 2] else {
-            bypassCrossfeedUnit()
+        )
+        guard dimensionsStatus == noErr, dimensions == [2, 2] else {
+            bypassCrossfeedUnit(reason: "Unavailable: expected a 2-in/2-out matrix (status \(dimensionsStatus), dimensions \(dimensions)).")
             return
         }
         let amount = crossfeedEnabled ? min(0.35, max(0, crossfeedAmount)) : 0
         var levels = stereoCrossfeedMatrix(amount: amount)
+        guard levels.count == 9 else {
+            bypassCrossfeedUnit(reason: "Unavailable: invalid 3×3 stereo matrix.")
+            return
+        }
         let status = levels.withUnsafeMutableBufferPointer { buffer in
             AudioUnitSetProperty(
                 unit.audioUnit,
@@ -1066,13 +1201,16 @@ final class AnalogPlayer: ObservableObject {
                 UInt32(buffer.count * MemoryLayout<Float32>.size)
             )
         }
-        if status != noErr {
-            print("Analog crossfeed matrix update failed: \(status)")
-            bypassCrossfeedUnit()
+        guard status == noErr else {
+            bypassCrossfeedUnit(reason: "Unavailable: matrix levels rejected (\(status)).")
+            return
         }
+        crossfeedAvailable = true
+        crossfeedStatus = "Ready • 2-channel matrix active"
     }
 
     func setCrossfeed(enabled: Bool, amount: Float? = nil) {
+        guard crossfeedAvailable else { return }
         crossfeedEnabled = enabled
         if let amount { crossfeedAmount = min(0.35, max(0, amount)) }
         applyCrossfeedMatrix()
@@ -1358,35 +1496,110 @@ final class AnalogPlayer: ObservableObject {
         persistState()
     }
 
+    func setSleepFadeSeconds(_ seconds: Int) {
+        sleepFadeSeconds = min(30, max(0, seconds))
+        defaults.set(sleepFadeSeconds, forKey: "sleepFadeSeconds")
+    }
+
     func setSleepTimer(minutes: Int) {
-        sleepTimer?.invalidate()
-        sleepFadeTimer?.invalidate()
-        playerNode.volume = 1
+        cancelSleepTimer()
         sleepMinutes = max(0, minutes)
         guard sleepMinutes > 0 else { return }
         let total = Double(sleepMinutes * 60)
-        let fadeDuration = min(15.0, total)
+        let fadeDuration = min(Double(sleepFadeSeconds), total)
         sleepTimer = Timer.scheduledTimer(withTimeInterval: max(0, total - fadeDuration), repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.beginSleepFade(duration: fadeDuration) }
+            Task { @MainActor in
+                guard let self else { return }
+                if fadeDuration > 0 {
+                    self.beginSleepFade(duration: fadeDuration, stopWhenFinished: true)
+                } else {
+                    self.finishSleepTimer()
+                }
+            }
         }
     }
 
-    private func beginSleepFade(duration: Double) {
-        let started = Date()
+    func setSleepTimerEndOfTrack() {
+        cancelSleepTimer()
+        guard let track = currentTrack else { return }
+        sleepStopsAtTrackEnd = true
+        sleepEndTrackFadeCompleted = false
+        if currentTime >= track.duration {
+            finishSleepTimer()
+            return
+        }
+        // Rebuild the schedule so the next song is not pre-queued.
+        refreshPlaybackSchedule(force: true)
+        let fadeDuration = Double(sleepFadeSeconds)
+        guard fadeDuration > 0 else { return }
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.sleepStopsAtTrackEnd, self.isPlaying,
+                      let current = self.currentTrack, self.sleepFadeTimer == nil,
+                      !self.sleepEndTrackFadeCompleted else { return }
+                let remaining = max(0, current.duration - self.currentTime)
+                if remaining <= fadeDuration {
+                    self.beginSleepFade(duration: max(0.1, remaining), stopWhenFinished: false)
+                }
+            }
+        }
+    }
+
+    func cancelSleepTimer() {
+        let rebuildQueue = sleepStopsAtTrackEnd
+        sleepTimer?.invalidate()
+        sleepFadeTimer?.invalidate()
+        sleepTimer = nil
+        sleepFadeTimer = nil
+        sleepMinutes = 0
+        sleepStopsAtTrackEnd = false
+        sleepEndTrackFadeCompleted = false
+        playerNode.volume = 1
+        if rebuildQueue { refreshPlaybackSchedule(force: true) }
+    }
+
+    private func finishSleepTimer() {
+        sleepTimer?.invalidate()
+        sleepFadeTimer?.invalidate()
+        sleepTimer = nil
+        sleepFadeTimer = nil
+        sleepMinutes = 0
+        sleepStopsAtTrackEnd = false
+        sleepEndTrackFadeCompleted = false
+        playerNode.pause()
+        playerNode.volume = 1
+        isPlaying = false
+        timer?.invalidate()
+        updateSystemNowPlayingInfo()
+    }
+
+    private func beginSleepFade(duration: Double, stopWhenFinished: Bool) {
+        var elapsed = 0.0
+        var previousTick = Date()
         sleepFadeTimer?.invalidate()
         sleepFadeTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
             Task { @MainActor in
                 guard let self else { timer.invalidate(); return }
-                let progress = min(1, Date().timeIntervalSince(started) / max(0.1, duration))
+                let now = Date()
+                // A normal timer counts down in wall-clock time. End-of-track
+                // fading follows actual playback, so pausing cannot consume it.
+                if stopWhenFinished || self.isPlaying {
+                    elapsed += now.timeIntervalSince(previousTick)
+                }
+                previousTick = now
+                let progress = min(1, elapsed / max(0.1, duration))
                 self.playerNode.volume = Float(1 - progress)
                 if progress >= 1 {
                     timer.invalidate()
-                    self.playerNode.pause()
-                    self.playerNode.volume = 1
-                    self.isPlaying = false
-                    self.sleepMinutes = 0
-                    self.timer?.invalidate()
                     self.sleepFadeTimer = nil
+                    if stopWhenFinished {
+                        self.finishSleepTimer()
+                    } else {
+                        // Keep the current track playing silently until its segment
+                        // completion callback performs the actual stop.
+                        self.sleepEndTrackFadeCompleted = true
+                        self.playerNode.volume = 0
+                    }
                 }
             }
         }

@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +73,7 @@ private fun visualFileSize(bytes: Long): String = when {
     else -> "%.1f MB".format(bytes / 1_000_000.0)
 }
 
+// This screen intentionally keeps a single primary spectrum visualizer.
 @Composable
 fun VisualizerScreen(
     player: MediaController?,
@@ -190,6 +193,8 @@ fun VisualizerScreen(
                     val captureSize = 1024.coerceIn(range[0], range[1])
                     this.captureSize = captureSize
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                        // Waveform capture is intentionally disabled on Android; the
+                        // focused screen uses the main spectrum analyser only.
                         override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) = Unit
                         override fun onFftDataCapture(visualizer: Visualizer, fft: ByteArray, samplingRate: Int) {
                             if (!active || fft.size < 8) return
@@ -216,7 +221,7 @@ fun VisualizerScreen(
                             val peakFrame = held.copyOf()
                             handler.post { if (active) { levels = next; peaks = peakFrame; captureReady = true; captureError = null } }
                         }
-                    }, min(20_000, Visualizer.getMaxCaptureRate()), false, true)
+                    }, min(20_000, Visualizer.getMaxCaptureRate()), true, true)
                     enabled = true
                 }
             }
@@ -242,8 +247,10 @@ fun VisualizerScreen(
                 Text("POST-EQ AUDIO ANALYSIS  •  36 BANDS", color = VisualMuted, fontSize = 8.sp, letterSpacing = 1.1.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(6.dp).background(if (captureReady && playing) VisualGreen else VisualMuted, RoundedCornerShape(50)))
-                Text(if (captureReady && playing) "LIVE" else "STANDBY", color = if (captureReady && playing) VisualGreen else VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                val live = captureReady && playing
+                val liveAlpha by animateFloatAsState(if (live) 1f else .38f, animationSpec = tween(360), label = "visualizer-live-indicator")
+                Box(Modifier.size(6.dp).background(VisualGreen.copy(alpha = liveAlpha), RoundedCornerShape(50)))
+                Text(if (live) "LIVE" else "STANDBY", color = if (live) VisualGreen else VisualMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -327,6 +334,8 @@ fun VisualizerScreen(
                             VisualDetail("DURATION", if (duration > 0) visualTime(duration) else "—", Modifier.weight(1f))
                             VisualDetail("CHANNELS", details.channels, Modifier.weight(1f))
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Text("POST-EQ  •  35 Hz–16 kHz  •  36 BANDS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
                     }
                 }
             }

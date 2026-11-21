@@ -2,7 +2,7 @@ name: Analog macOS
 
 on:
   push:
-    branches: [feature/pro-audio-studio]
+    branches: [feature/pro-audio-studio, feature/macos-visualizer-stereo-crossfeed]
     paths:
       - "macOS/**"
       - ".github/workflows/macos.yml"

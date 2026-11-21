@@ -89,6 +89,10 @@ class PlaybackService : MediaSessionService() {
     private var crossfadeTargetIndex = -1
     private var crossfadeInProgress = false
     private var crossfadeForIndex = -1
+    private var crossfadeSeekTransition = false
+    private var crossfadePrimaryGain = 1f
+    private var crossfadeSecondaryGain = 0f
+    private var sleepVolumeMultiplier = 1f
     private val listeningTick = object : Runnable {
         override fun run() {
             val player = mediaSession?.player
@@ -214,9 +218,14 @@ class PlaybackService : MediaSessionService() {
         }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                if (crossfadeInProgress && mediaSession?.player?.currentMediaItemIndex != crossfadeTargetIndex) {
+                val isInternalCrossfadeTransition = crossfadeSeekTransition
+                crossfadeSeekTransition = false
+                // Any ordinary item transition during a crossfade (including a manual
+                // skip directly to the prepared target) must discard the secondary deck.
+                if (crossfadeInProgress && !isInternalCrossfadeTransition) {
                     cancelCrossfade()
-                    mediaSession?.player?.volume = 1f
+                    crossfadeForIndex = -1
+                    applyCrossfadeVolumes()
                 }
                 recordTrackStart(mediaItem)
                 updateWidget()
@@ -255,7 +264,7 @@ class PlaybackService : MediaSessionService() {
                         .putFloat("eq_output_rms", 0f)
                         .apply()
                     // A pause during a crossfade must never leave the primary deck attenuated.
-                    mediaSession?.player?.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
             override fun onPositionDiscontinuity(
@@ -263,10 +272,16 @@ class PlaybackService : MediaSessionService() {
                 newPosition: Player.PositionInfo,
                 reason: Int
             ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && sleepEndListener != null && !crossfadeSeekTransition) {
+                    // A manual rewind should restore full level and let the
+                    // end-of-track fade begin again at the new track position.
+                    sleepVolumeMultiplier = 1f
+                    applyCrossfadeVolumes()
+                }
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && crossfadeInProgress) {
                     cancelCrossfade()
                     crossfadeForIndex = -1
-                    player.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
@@ -293,13 +308,14 @@ class PlaybackService : MediaSessionService() {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
+                restartCrossfadeIfPlaying()
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
                 val totalMs = minutes * 60_000L
                 val fadeSeconds = getSharedPreferences("analog_library", MODE_PRIVATE)
-                    .getInt("sleep_fade_seconds", 15).coerceIn(0, 30)
+                    .getInt("sleep_fade_seconds", 20).coerceIn(0, 30)
                 val fadeMs = fadeSeconds * 1000L
                 sleepTimer = Runnable {
-                    mediaSession?.player?.let { it.pause(); it.volume = 1f }
+                    stopPlaybackForSleep()
                     sleepTimer = null
                     sleepFade = null
                 }
@@ -309,8 +325,8 @@ class PlaybackService : MediaSessionService() {
                     sleepFade = object : Runnable {
                         override fun run() {
                             val elapsed = SystemClock.elapsedRealtime() - fadeStart
-                            val volume = SleepFade.volumeAt(elapsed, fadeMs)
-                            mediaSession?.player?.volume = volume
+                            sleepVolumeMultiplier = SleepFade.volumeAt(elapsed, fadeMs)
+                            applyCrossfadeVolumes()
                             if (elapsed < fadeMs) timerHandler.postDelayed(this, 100L)
                         }
                     }
@@ -321,30 +337,60 @@ class PlaybackService : MediaSessionService() {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
+                restartCrossfadeIfPlaying()
             }
             ACTION_SLEEP_TIMER_END_TRACK -> {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+                sleepEndListener = null
+                // End-of-track sleep must let the current song finish naturally; a crossfade
+                // would transition to the next item early and incorrectly trigger the stop listener.
+                cancelCrossfade()
+                crossfadeForIndex = -1
                 val activePlayer = mediaSession?.player
                 if (activePlayer != null) {
                     val listener = object : Player.Listener {
+                        private fun stopForSleep() {
+                            activePlayer.removeListener(this)
+                            sleepEndListener = null
+                            stopPlaybackForSleep()
+                        }
                         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-                            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                                activePlayer.pause()
-                                activePlayer.removeListener(this)
-                                sleepEndListener = null
-                            }
+                            // Any item change means the track that was current when
+                            // the timer was armed has ended or was manually skipped.
+                            // Stop both decks so crossfade cannot leak into the next song.
+                            stopForSleep()
                         }
                         override fun onPlaybackStateChanged(playbackState: Int) {
-                            if (playbackState == Player.STATE_ENDED) {
-                                activePlayer.pause()
-                                activePlayer.removeListener(this)
-                                sleepEndListener = null
-                            }
+                            if (playbackState == Player.STATE_ENDED) stopForSleep()
                         }
                     }
-                    sleepEndListener = listener
-                    activePlayer.addListener(listener)
+                    if (activePlayer.playbackState == Player.STATE_ENDED) {
+                        stopPlaybackForSleep()
+                    } else {
+                        sleepEndListener = listener
+                        activePlayer.addListener(listener)
+                        val fadeMs = getSharedPreferences("analog_library", MODE_PRIVATE)
+                            .getInt("sleep_fade_seconds", 20).coerceIn(0, 30) * 1000L
+                        if (fadeMs > 0L) {
+                            sleepFade = object : Runnable {
+                                override fun run() {
+                                    val duration = activePlayer.duration
+                                    if (activePlayer.isPlaying && duration > 0L) {
+                                        val fadeWindow = minOf(fadeMs, duration)
+                                        val remaining = (duration - activePlayer.currentPosition).coerceAtLeast(0L)
+                                        if (remaining <= fadeWindow) {
+                                            val progress = ((fadeWindow - remaining).toFloat() / fadeWindow.toFloat()).coerceIn(0f, 1f)
+                                            sleepVolumeMultiplier = 1f - progress
+                                            applyCrossfadeVolumes()
+                                        }
+                                    }
+                                    if (sleepEndListener === listener) timerHandler.postDelayed(this, 100L)
+                                }
+                            }
+                            timerHandler.postDelayed(sleepFade!!, 100L)
+                        }
+                    }
                 }
             }
             ACTION_TILE_PLAY -> startLastPlayedFromTile()
@@ -452,7 +498,7 @@ class PlaybackService : MediaSessionService() {
                 val seconds = intent.getIntExtra(EXTRA_CROSSFADE_SECONDS, 0).coerceIn(0, 10)
                 getSharedPreferences("analog_library", MODE_PRIVATE).edit().putInt("crossfade_seconds", seconds).apply()
                 cancelCrossfade()
-                mediaSession?.player?.volume = 1f
+                applyCrossfadeVolumes()
                 if (mediaSession?.player?.isPlaying == true) timerHandler.post(crossfadeTick)
             }
         }
@@ -465,12 +511,35 @@ class PlaybackService : MediaSessionService() {
         player.play()
     }
 
+    private fun restartCrossfadeIfPlaying() {
+        if (mediaSession?.player?.isPlaying == true) {
+            timerHandler.removeCallbacks(crossfadeTick)
+            timerHandler.post(crossfadeTick)
+        }
+    }
+
     private fun clearSleepTimer(restoreVolume: Boolean) {
         sleepTimer?.let(timerHandler::removeCallbacks)
         sleepFade?.let(timerHandler::removeCallbacks)
         sleepTimer = null
         sleepFade = null
-        if (restoreVolume) mediaSession?.player?.volume = 1f
+        if (restoreVolume) {
+            sleepVolumeMultiplier = 1f
+            applyCrossfadeVolumes()
+        }
+    }
+
+    private fun applyCrossfadeVolumes() {
+        mediaSession?.player?.volume = (crossfadePrimaryGain * sleepVolumeMultiplier).coerceIn(0f, 1f)
+        crossfadePlayer?.volume = (crossfadeSecondaryGain * sleepVolumeMultiplier).coerceIn(0f, 1f)
+    }
+
+    private fun stopPlaybackForSleep() {
+        clearSleepTimer(restoreVolume = true)
+        sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
+        sleepEndListener = null
+        cancelCrossfade()
+        mediaSession?.player?.pause()
     }
 
     /**
@@ -646,9 +715,9 @@ class PlaybackService : MediaSessionService() {
         val primary = mediaSession?.player ?: return
         val secondary = crossfadePlayer ?: return
         val durationMs = getSharedPreferences("analog_library", MODE_PRIVATE).getInt("crossfade_seconds", 0) * 1000L
-        if (!primary.isPlaying || durationMs <= 0L) {
+        if (!primary.isPlaying || durationMs <= 0L || sleepEndListener != null) {
             cancelCrossfade()
-            primary.volume = 1f
+            applyCrossfadeVolumes()
             return
         }
         if (!crossfadeInProgress) {
@@ -662,7 +731,9 @@ class PlaybackService : MediaSessionService() {
                     secondary.clearMediaItems()
                     secondary.setMediaItem(primary.getMediaItemAt(nextIndex))
                     secondary.prepare()
-                    secondary.volume = 0f
+                    crossfadePrimaryGain = 1f
+                    crossfadeSecondaryGain = 0f
+                    applyCrossfadeVolumes()
                     secondary.play()
                     crossfadeTargetIndex = nextIndex
                     crossfadeForIndex = primary.currentMediaItemIndex
@@ -670,7 +741,7 @@ class PlaybackService : MediaSessionService() {
                     crossfadeInProgress = true
                 }.onFailure {
                     cancelCrossfade()
-                    primary.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
         } else {
@@ -680,7 +751,7 @@ class PlaybackService : MediaSessionService() {
                 // The queue may have been edited while the second decoder prepared.
                 // Never jump to a stale queue index or crossfade into the wrong track.
                 cancelCrossfade()
-                primary.volume = 1f
+                applyCrossfadeVolumes()
                 crossfadeForIndex = -1
                 return
             }
@@ -692,15 +763,17 @@ class PlaybackService : MediaSessionService() {
             }
             if (crossfadeStartMs == 0L) crossfadeStartMs = SystemClock.elapsedRealtime()
             val progress = ((SystemClock.elapsedRealtime() - crossfadeStartMs).toFloat() / durationMs).coerceIn(0f, 1f)
-            primary.volume = 1f - progress
-            secondary.volume = progress
+            crossfadePrimaryGain = 1f - progress
+            crossfadeSecondaryGain = progress
+            applyCrossfadeVolumes()
             if (progress >= 1f) {
                 val nextPosition = secondary.currentPosition
-                primary.volume = 0f
+                crossfadeSeekTransition = true
                 primary.seekTo(crossfadeTargetIndex, nextPosition)
                 primary.play()
-                primary.volume = 1f
-                secondary.volume = 0f
+                crossfadePrimaryGain = 1f
+                crossfadeSecondaryGain = 0f
+                applyCrossfadeVolumes()
                 secondary.pause()
                 secondary.clearMediaItems()
                 crossfadeInProgress = false
@@ -712,8 +785,12 @@ class PlaybackService : MediaSessionService() {
 
     private fun cancelCrossfade() {
         crossfadeInProgress = false
+        crossfadeSeekTransition = false
         crossfadeTargetIndex = -1
+        crossfadePrimaryGain = 1f
+        crossfadeSecondaryGain = 0f
         crossfadePlayer?.let { runCatching { it.volume = 0f; it.pause(); it.clearMediaItems() } }
+        applyCrossfadeVolumes()
     }
 
 

@@ -45,10 +45,34 @@ struct ContentView: View {
             }
         }
         .background(AnalogPalette.ink)
+        .animation(.easeInOut(duration: 0.22), value: visualizerFocusMode)
         .background(SpacebarShortcutMonitor { player.togglePlayback() }.frame(width: 0, height: 0))
+        .background(FocusModeShortcutMonitor {
+            if visualizerFocusMode {
+                visualizerFocusMode = false
+            } else {
+                // Focus Mode is a full-screen visualizer, so route the shortcut to
+                // the Visualiser workspace before presenting it from another tab.
+                if player.selectedTab != "Visualiser" { player.selectedTab = "Visualiser" }
+                visualizerFocusMode = true
+            }
+        }.frame(width: 0, height: 0))
         .background(EscapeKeyMonitor(isActive: visualizerFocusMode) {
             visualizerFocusMode = false
         }.frame(width: 0, height: 0))
+        .background(CursorVisibilityController(isHidden: visualizerFocusMode).frame(width: 0, height: 0))
+        .background(ArrowKeyNavigationMonitor(
+            onNavigate: { delta in
+                if visualizerFocusMode {
+                    if delta < 0 { player.previous() } else { player.next() }
+                    return
+                }
+                let tabs = ["Library", "Queue", "History", "Smart Mixes", "Moods", "Playlists", "Equalizer", "Visualiser", "Recorder", "Settings"]
+                let current = tabs.firstIndex(of: player.selectedTab) ?? 0
+                player.selectedTab = tabs[(current + delta + tabs.count) % tabs.count]
+                visualizerFocusMode = false
+            }
+        ).frame(width: 0, height: 0))
         .background(MainWindowVisibilityProbe { visible in
             mainWindowVisible = visible
             player.setVisualizerEnabled(player.selectedTab == "Visualiser" && visible, windowVisible: visible)
@@ -244,10 +268,14 @@ struct TrackArtwork: View {
         .frame(width: size, height: size)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(AnalogPalette.cream.opacity(0.12), lineWidth: 1))
         .task(id: track.artworkPath) {
-            guard let path = track.artworkPath else { artwork = nil; return }
+            // Clear immediately so a previous track's cover is never shown while
+            // the next track's artwork is loading.
+            artwork = nil
+            guard let path = track.artworkPath else { return }
             let data = await Task.detached(priority: .utility) {
                 try? Data(contentsOf: URL(fileURLWithPath: path))
             }.value
+            guard !Task.isCancelled else { return }
             artwork = data.flatMap { NSImage(data: $0) }
         }
     }
@@ -258,8 +286,8 @@ struct LibraryView: View {
     @State private var showCreate = false
     @State private var playlistName = ""
     @State private var libraryMode = "Songs"
-    @State private var sortMode = "Title"
-    @State private var sortAscending = true
+    @AppStorage("analog.library.sortMode") private var sortMode = "Title"
+    @AppStorage("analog.library.sortAscending") private var sortAscending = true
     @State private var showSkippedFiles = false
 
     private var sortedTracks: [MusicTrack] {
@@ -648,10 +676,13 @@ struct EqualizerView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("HEADPHONE CROSSFEED").font(.system(size: 9, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.green)
-                        Text(player.crossfeedAvailable ? "Subtle L/R channel blending in the playback DSP" : "Preparing native stereo matrix processor…")
-                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted)
+                        Text(player.crossfeedStatus)
+                            .font(.system(size: 9)).foregroundStyle(AnalogPalette.muted).lineLimit(2)
                     }
                     Spacer()
+                    if !player.crossfeedAvailable && !player.crossfeedStatus.hasPrefix("Preparing") {
+                        Button("RETRY") { player.retryCrossfeedSetup() }.buttonStyle(AnalogOutlineButton())
+                    }
                     Toggle("ON", isOn: Binding(get: { player.crossfeedEnabled }, set: { player.setCrossfeed(enabled: $0) }))
                         .toggleStyle(.switch).tint(AnalogPalette.green).font(.system(size: 9, weight: .bold))
                         .disabled(!player.crossfeedAvailable)
@@ -910,15 +941,33 @@ struct SettingsView: View {
                 HStack { Text("MASTER OUTPUT").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green); Spacer(); Text("\(Int(player.outputVolume * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(AnalogPalette.amber) }
                 Slider(value: Binding(get: { Double(player.outputVolume) }, set: { player.setOutputVolume(Float($0)) }), in: 0...1).tint(AnalogPalette.amber)
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 Text("SLEEP TIMER").font(.system(size: 9, weight: .black)).tracking(1.5).foregroundStyle(AnalogPalette.green)
+                HStack(spacing: 8) {
+                    Text("FADE").font(.system(size: 8, weight: .bold)).foregroundStyle(AnalogPalette.muted)
+                    Slider(value: Binding(
+                        get: { Double(player.sleepFadeSeconds) },
+                        set: { player.setSleepFadeSeconds(Int($0.rounded())) }
+                    ), in: 0...30, step: 5).tint(AnalogPalette.amber)
+                    Text(player.sleepFadeSeconds == 0 ? "OFF" : "\(player.sleepFadeSeconds)s")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(AnalogPalette.cream).frame(width: 34, alignment: .trailing)
+                }
                 HStack {
                     ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
                         Button("\(minutes) MIN") { player.setSleepTimer(minutes: minutes) }.buttonStyle(AnalogOutlineButton())
                     }
-                    Button("CANCEL") { player.setSleepTimer(minutes: 0) }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
                 }
-                if player.sleepMinutes > 0 { Text("Sleep timer set for \(player.sleepMinutes) minutes • final 15 seconds fade smoothly").font(.system(size: 10)).foregroundStyle(AnalogPalette.amber) }
+                HStack {
+                    Button("STOP AT END OF TRACK") { player.setSleepTimerEndOfTrack() }.buttonStyle(AnalogOutlineButton())
+                    Button("CANCEL TIMER") { player.cancelSleepTimer() }.buttonStyle(.plain).foregroundStyle(AnalogPalette.amber)
+                }
+                if player.sleepStopsAtTrackEnd {
+                    Text("Will fade over the final \(player.sleepFadeSeconds) seconds and stop after this track.")
+                        .font(.system(size: 10)).foregroundStyle(AnalogPalette.amber)
+                } else if player.sleepMinutes > 0 {
+                    Text("Sleep timer set for \(player.sleepMinutes) minutes • final \(player.sleepFadeSeconds) seconds fade.")
+                        .font(.system(size: 10)).foregroundStyle(AnalogPalette.amber)
+                }
             }.padding(14).background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             Spacer()
         }.padding(22)
@@ -1087,13 +1136,22 @@ private func formatTime(_ seconds: Double) -> String {
     return String(format: "%d:%02d", value / 60, value % 60)
 }
 
+private struct FrequencyMarker: Identifiable {
+    let frequency: Double
+    let label: String
+    var id: Double { frequency }
+}
+
 struct VisualiserView: View {
     @EnvironmentObject private var player: AnalogPlayer
     @Binding var focusMode: Bool
     @State private var style = "Spectrum"
     @State private var peakHold = true
     @State private var heldPeaks: [Double] = Array(repeating: 0, count: 36)
+    @State private var heldLeftPeak = 0.0
+    @State private var heldRightPeak = 0.0
     @State private var scrubTime: Double?
+    @State private var artworkGlow = AnalogPalette.amber
 
     var body: some View {
         Group {
@@ -1108,8 +1166,63 @@ struct VisualiserView: View {
             if heldPeaks.count != values.count { heldPeaks = values; return }
             heldPeaks = zip(heldPeaks, values).map { max($0.0 * 0.965, $0.1) }
         }
+        .onChange(of: player.visualizerLeftPeak) { value in
+            guard peakHold else { heldLeftPeak = 0; return }
+            heldLeftPeak = max(value, heldLeftPeak * 0.965)
+        }
+        .onChange(of: player.visualizerRightPeak) { value in
+            guard peakHold else { heldRightPeak = 0; return }
+            heldRightPeak = max(value, heldRightPeak * 0.965)
+        }
+        .onChange(of: peakHold) { enabled in
+            if !enabled {
+                heldPeaks = Array(repeating: 0, count: 36)
+                heldLeftPeak = 0
+                heldRightPeak = 0
+            }
+        }
         .padding(focusMode ? 18 : 22)
-        .background(AnalogPalette.ink)
+        .background {
+            ZStack {
+                AnalogPalette.ink
+                if focusMode {
+                    RadialGradient(colors: [artworkGlow.opacity(0.19), artworkGlow.opacity(0.07), .clear], center: .init(x: 0.78, y: 0.48), startRadius: 12, endRadius: 620)
+                        .animation(.easeInOut(duration: 0.85), value: artworkGlow)
+                    RadialGradient(colors: [AnalogPalette.amber.opacity(0.035), .clear], center: .init(x: 0.08, y: 0.9), startRadius: 0, endRadius: 420)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .task(id: focusMode ? player.currentTrack?.artworkPath : nil) {
+            guard focusMode, let path = player.currentTrack?.artworkPath else {
+                artworkGlow = AnalogPalette.amber
+                return
+            }
+            let components = await Task.detached(priority: .utility) { () -> (Double, Double, Double)? in
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                      let bitmap = NSBitmapImageRep(data: data),
+                      bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0 else { return nil }
+                let points = [(0.25, 0.25), (0.5, 0.25), (0.75, 0.25), (0.25, 0.5), (0.5, 0.5), (0.75, 0.5), (0.25, 0.75), (0.5, 0.75), (0.75, 0.75)]
+                var red = 0.0, green = 0.0, blue = 0.0, weight = 0.0
+                for (x, y) in points {
+                    guard let color = bitmap.colorAt(x: min(bitmap.pixelsWide - 1, Int(Double(bitmap.pixelsWide - 1) * x)), y: min(bitmap.pixelsHigh - 1, Int(Double(bitmap.pixelsHigh - 1) * y)))?.usingColorSpace(.deviceRGB) else { continue }
+                    let brightness = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                    let sampleWeight = max(0.15, 1.0 - abs(brightness - 0.48))
+                    red += color.redComponent * sampleWeight
+                    green += color.greenComponent * sampleWeight
+                    blue += color.blueComponent * sampleWeight
+                    weight += sampleWeight
+                }
+                guard weight > 0 else { return nil }
+                return (red / weight, green / weight, blue / weight)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let components {
+                artworkGlow = Color(red: components.0, green: components.1, blue: components.2)
+            } else {
+                artworkGlow = AnalogPalette.amber
+            }
+        }
     }
 
     private var standardLayout: some View {
@@ -1174,18 +1287,13 @@ struct VisualiserView: View {
                         Text("36 BANDS").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(AnalogPalette.amber)
                     }
                     analyserCanvas.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    HStack {
-                        Text("35 Hz").foregroundStyle(AnalogPalette.muted)
-                        Spacer()
-                        Text("POST-EQ  •  LOGARITHMIC").foregroundStyle(AnalogPalette.muted)
-                        Spacer()
-                        Text("16 kHz").foregroundStyle(AnalogPalette.muted)
-                    }
-                    .font(.system(size: 8, weight: .medium))
+                    frequencyScale
+                    liveWaveformStrip
                     HStack(spacing: 8) {
                         MetricTile(label: "SOURCE", value: "POST-EQ", symbol: "arrow.down.to.line")
                         MetricTile(label: "BANDS", value: "36", symbol: "chart.bar.fill")
                         MetricTile(label: "RANGE", value: "35 Hz–16 kHz", symbol: "waveform")
+                        stereoActivity
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1199,6 +1307,116 @@ struct VisualiserView: View {
             }
             playbackControls
         }
+        .animation(.easeInOut(duration: 0.22), value: focusMode)
+    }
+
+    private var frequencyScale: some View {
+        GeometryReader { geometry in
+            let markers = [
+                FrequencyMarker(frequency: 35, label: "35 Hz"),
+                FrequencyMarker(frequency: 100, label: "100 Hz"),
+                FrequencyMarker(frequency: 500, label: "500 Hz"),
+                FrequencyMarker(frequency: 1_000, label: "1 kHz"),
+                FrequencyMarker(frequency: 5_000, label: "5 kHz"),
+                FrequencyMarker(frequency: 16_000, label: "16 kHz")
+            ]
+            ZStack(alignment: .topLeading) {
+                ForEach(markers) { marker in
+                    let fraction = log(marker.frequency / 35) / log(16_000.0 / 35.0)
+                    let x = min(max(CGFloat(fraction) * geometry.size.width, 18), geometry.size.width - 18)
+                    Text(marker.label)
+                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                        .foregroundStyle(AnalogPalette.muted)
+                        .position(x: x, y: 6)
+                }
+            }
+        }
+        .frame(height: 13)
+    }
+
+    private var liveWaveformStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("LIVE WAVEFORM").font(.system(size: 8, weight: .black)).tracking(1.1).foregroundStyle(AnalogPalette.muted)
+                Spacer()
+                Text("REAL-TIME SIGNAL").font(.system(size: 7, weight: .bold)).tracking(0.8).foregroundStyle(AnalogPalette.muted)
+            }
+            VStack(spacing: 3) {
+                channelWaveform(samples: player.visualizerLeftWaveform, tint: AnalogPalette.green)
+                channelWaveform(samples: player.visualizerRightWaveform, tint: AnalogPalette.amber)
+            }
+            .frame(height: 42)
+            .animation(.linear(duration: 0.10), value: player.visualizerLeftWaveform)
+            .animation(.linear(duration: 0.10), value: player.visualizerRightWaveform)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var stereoActivity: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("CHANNEL INPUT").font(.system(size: 8, weight: .black)).tracking(1).foregroundStyle(AnalogPalette.muted)
+                Spacer()
+                Text(player.visualizerChannelCount == 1 ? "MONO" : (player.visualizerChannelCount >= 2 ? "STEREO" : "—"))
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(player.visualizerChannelCount == 1 ? AnalogPalette.muted : AnalogPalette.green)
+            }
+            channelMeter(label: "L", peak: player.visualizerLeftPeak, rms: player.visualizerLeftRMS, held: heldLeftPeak, tint: AnalogPalette.green)
+            channelMeter(label: "R", peak: player.visualizerRightPeak, rms: player.visualizerRightRMS, held: heldRightPeak, tint: AnalogPalette.amber)
+        }
+        .padding(9).frame(width: 208, alignment: .leading)
+        .background(AnalogPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private func channelMeter(label: String, peak: Double, rms: Double, held: Double, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(label).font(.system(size: 8, weight: .black, design: .monospaced)).foregroundStyle(tint).frame(width: 9)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(AnalogPalette.ink)
+                    Capsule().fill(tint.opacity(0.48))
+                        .frame(width: proxy.size.width * CGFloat(min(1, max(0, rms))))
+                    Capsule().fill(tint)
+                        .frame(width: proxy.size.width * CGFloat(min(1, max(0, peak))))
+                    if peakHold && held > 0 {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(AnalogPalette.cream)
+                            .frame(width: 2, height: 9)
+                            .offset(x: max(0, min(proxy.size.width - 2, proxy.size.width * CGFloat(min(1, max(0, held))) - 1)))
+                    }
+                }
+            }.frame(height: 9)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("P \(String(format: "%.2f", peak))")
+                Text("R \(String(format: "%.2f", rms))").foregroundStyle(AnalogPalette.muted)
+            }
+            .font(.system(size: 6.5, weight: .medium, design: .monospaced))
+            .frame(width: 48, alignment: .trailing)
+        }
+        .animation(.easeOut(duration: 0.12), value: peak)
+        .animation(.easeOut(duration: 0.12), value: rms)
+        .help("Peak \(label): \(String(format: "%.3f", peak)) • Peak hold: \(String(format: "%.3f", held)) • RMS: \(String(format: "%.3f", rms))")
+    }
+
+    private func channelWaveform(samples: [Double], tint: Color) -> some View {
+        Canvas { context, size in
+            guard samples.count > 1 else { return }
+            let mid = size.height / 2
+            var center = Path()
+            center.move(to: CGPoint(x: 0, y: mid))
+            center.addLine(to: CGPoint(x: size.width, y: mid))
+            context.stroke(center, with: .color(.white.opacity(0.08)), lineWidth: 1)
+            var waveform = Path()
+            for index in samples.indices {
+                let x = CGFloat(index) / CGFloat(samples.count - 1) * size.width
+                let y = mid - CGFloat(samples[index]) * size.height * 0.43
+                if index == 0 { waveform.move(to: CGPoint(x: x, y: y)) }
+                else { waveform.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(waveform, with: .color(tint), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+        }
+        .frame(height: 18)
     }
 
     private var visualizerStyleButtons: some View {
@@ -1256,6 +1474,7 @@ struct VisualiserView: View {
                 }
             }
             .padding(12)
+            .animation(.easeOut(duration: 0.11), value: player.visualizerBins)
             if !player.isPlaying {
                 VStack(spacing: 5) {
                     Image(systemName: "waveform.path").font(.system(size: 25)).foregroundStyle(AnalogPalette.amber)
@@ -1276,8 +1495,8 @@ struct VisualiserView: View {
             }
             HStack(spacing: 12) {
                 Group {
-                    if let path = player.currentTrack?.artworkPath, let image = NSImage(contentsOfFile: path) {
-                        Image(nsImage: image).resizable().scaledToFill()
+                    if let track = player.currentTrack, track.artworkPath != nil {
+                        TrackArtwork(track: track, size: 124)
                     } else {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10).fill(AnalogPalette.raised)
@@ -1306,8 +1525,74 @@ struct VisualiserView: View {
                 focusDetail("DURATION", track.map { formatTime($0.duration) } ?? "—")
                 focusDetail("CHANNELS", track?.audioChannels.map { String($0) } ?? "—")
             }
+            Divider().overlay(AnalogPalette.cream.opacity(0.10))
+            Text("PLAYBACK").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+            HStack {
+                Text(formatTime(player.currentTime))
+                Spacer()
+                Text("-\(formatTime(max(0, (track?.duration ?? 0) - player.currentTime)))")
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(AnalogPalette.cream)
+            ProgressView(value: track.map { $0.duration > 0 ? min(1, max(0, player.currentTime / $0.duration)) : 0 } ?? 0)
+                .tint(AnalogPalette.amber)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("UP NEXT").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+                    Spacer()
+                    Text(player.shuffleQueue ? "SHUFFLE QUEUE" : "PLAYBACK QUEUE")
+                        .font(.system(size: 7, weight: .bold)).tracking(0.7).foregroundStyle(AnalogPalette.muted)
+                }
+                if let upcoming = upcomingTrack {
+                    HStack(spacing: 9) {
+                        Group {
+                            if upcoming.artworkPath != nil {
+                                TrackArtwork(track: upcoming, size: 38)
+                            } else {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6).fill(AnalogPalette.raised)
+                                    Image(systemName: "music.note").font(.system(size: 14, weight: .semibold)).foregroundStyle(AnalogPalette.amber)
+                                }
+                            }
+                        }
+                        .frame(width: 38, height: 38).clipShape(RoundedRectangle(cornerRadius: 6))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(upcoming.title).font(.system(size: 10, weight: .bold)).foregroundStyle(AnalogPalette.cream).lineLimit(1)
+                            Text(upcoming.artist).font(.system(size: 8, weight: .medium)).foregroundStyle(AnalogPalette.muted).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(7)
+                    .background(AnalogPalette.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    let status = player.currentTrack == nil
+                        ? "Nothing queued"
+                        : (player.shuffleQueue
+                            ? "Next track will be selected randomly"
+                            : (player.repeatQueue ? "Current queue will repeat" : "End of queue"))
+                    Text(status)
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(AnalogPalette.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(9)
+                        .background(AnalogPalette.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            Text("SIGNAL CHAIN").font(.system(size: 8, weight: .black)).tracking(1.2).foregroundStyle(AnalogPalette.muted)
+            HStack(spacing: 7) {
+                focusDetail("EQUALIZER", player.eqEnabled ? "ACTIVE" : "BYPASSED")
+                focusDetail("CROSSFEED", player.crossfeedAvailable ? (player.crossfeedEnabled ? "ON" : "OFF") : "UNAVAILABLE")
+            }
             Spacer(minLength: 0)
         }
+    }
+
+    private var upcomingTrack: MusicTrack? {
+        // The random next item is chosen by the playback scheduler, not queue order.
+        // Avoid displaying queueIndex + 1 as a promise when shuffle is enabled.
+        guard !player.shuffleQueue, !player.queue.isEmpty else { return nil }
+        if player.repeatCurrentTrack { return player.currentTrack }
+        let nextIndex = player.queueIndex + 1
+        if player.queue.indices.contains(nextIndex) { return player.queue[nextIndex] }
+        return player.repeatQueue ? player.queue.first : nil
     }
 
     private func focusDetail(_ label: String, _ value: String) -> some View {
@@ -1341,16 +1626,42 @@ struct VisualiserView: View {
                 .tint(AnalogPalette.amber)
                 Text(formatTime(duration)).font(.system(size: 9, design: .monospaced)).foregroundStyle(AnalogPalette.muted)
             }
-            HStack(spacing: 24) {
-                Button { player.previous() } label: { Image(systemName: "backward.end.fill") }.buttonStyle(.plain)
-                Button { player.togglePlayback() } label: {
+            HStack(spacing: 28) {
+                Button(action: { player.previous() }) {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(AnalogPalette.cream)
+                        .frame(width: 58, height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil)
+                .opacity(player.currentTrack == nil ? 0.35 : 1)
+                .accessibilityLabel("Previous track")
+                .help("Previous track")
+                Button(action: { player.togglePlayback() }) {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 18, weight: .bold)).foregroundStyle(AnalogPalette.ink)
-                        .frame(width: 44, height: 44).background(AnalogPalette.amber, in: Circle())
-                }.buttonStyle(.plain)
-                Button { player.next() } label: { Image(systemName: "forward.end.fill") }.buttonStyle(.plain)
+                        .frame(width: 48, height: 48).background(AnalogPalette.amber, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil)
+                .accessibilityLabel(player.isPlaying ? "Pause playback" : "Resume playback")
+                Button(action: { player.next() }) {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(AnalogPalette.cream)
+                        .frame(width: 58, height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentTrack == nil || player.queue.isEmpty)
+                .opacity(player.currentTrack == nil || player.queue.isEmpty ? 0.35 : 1)
+                .accessibilityLabel("Next track")
+                .help("Next track")
             }
-            .font(.system(size: 17, weight: .semibold)).foregroundStyle(AnalogPalette.cream)
+            .foregroundStyle(AnalogPalette.cream)
         }
         .padding(.horizontal, 10)
     }
@@ -1485,6 +1796,148 @@ struct SmartMixesView: View {
     }
 }
 
+
+private struct ArrowKeyNavigationMonitor: NSViewRepresentable {
+    let onNavigate: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onNavigate = onNavigate
+        context.coordinator.installIfNeeded()
+    }
+
+    final class Coordinator {
+        var onNavigate: (Int) -> Void = { _ in }
+        private var monitor: Any?
+
+        func installIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+                guard modifiers.isEmpty else { return event }
+                if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor {
+                    return event
+                }
+                switch event.keyCode {
+                case 123: self.onNavigate(-1)
+                case 124: self.onNavigate(1)
+                case 126, 125:
+                    // Keep vertical navigation with the active content view. This lets
+                    // lists and scrollable sections handle Up/Down without changing tabs.
+                    return event
+                default:
+                    return event
+                }
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
+
+private struct CursorVisibilityController: NSViewRepresentable {
+    let isHidden: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.installApplicationObservers()
+        context.coordinator.setHidden(isHidden)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.tearDown()
+    }
+
+    final class Coordinator {
+        private var wantsHidden = false
+        private var applicationIsActive = NSApp.isActive
+        private var cursorIsHidden = false
+        private var observers: [NSObjectProtocol] = []
+
+        func installApplicationObservers() {
+            guard observers.isEmpty else { return }
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.setApplicationActive(false)
+            })
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.setApplicationActive(true)
+            })
+        }
+
+        func setHidden(_ hidden: Bool) {
+            wantsHidden = hidden
+            updateCursorVisibility()
+        }
+
+        private func setApplicationActive(_ active: Bool) {
+            applicationIsActive = active
+            updateCursorVisibility()
+        }
+
+        private func updateCursorVisibility() {
+            let shouldHide = wantsHidden && applicationIsActive
+            guard cursorIsHidden != shouldHide else { return }
+            if shouldHide { NSCursor.hide() } else { NSCursor.unhide() }
+            cursorIsHidden = shouldHide
+        }
+
+        func tearDown() {
+            wantsHidden = false
+            updateCursorVisibility()
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers.removeAll()
+        }
+    }
+}
+
+private struct FocusModeShortcutMonitor: NSViewRepresentable {
+    let onToggle: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onToggle = onToggle
+        context.coordinator.installIfNeeded()
+    }
+
+    final class Coordinator {
+        var onToggle: () -> Void = {}
+        private var monitor: Any?
+
+        func installIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      event.keyCode == 3,
+                      event.modifierFlags.contains(.command),
+                      event.modifierFlags.intersection([.control, .option, .shift]).isEmpty else {
+                    return event
+                }
+                self.onToggle()
+                return nil
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
 
 private struct EscapeKeyMonitor: NSViewRepresentable {
     let isActive: Bool

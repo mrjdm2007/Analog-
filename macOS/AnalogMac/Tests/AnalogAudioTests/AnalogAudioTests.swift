@@ -79,18 +79,23 @@ extension AnalogAudioTests {
         XCTAssertFalse(preset.matchesOutput(named: "Realtek ÚSB Audio"))
     }
 
-    func testStereoCrossfeedMatrixIsAValidTwoByTwoMixerMatrix() {
+    func testStereoCrossfeedMatrixIncludesMixerInputOutputAndMasterGains() {
         let matrix = stereoCrossfeedMatrix(amount: 0.2)
-        XCTAssertEqual(matrix.count, 4)
-        XCTAssertEqual(matrix[0], 0.8, accuracy: 0.0001)
-        XCTAssertEqual(matrix[1], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(matrix[2], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(matrix[3], 0.8, accuracy: 0.0001)
+        XCTAssertEqual(matrix.count, 9)
+        XCTAssertEqual(matrix[0], 0.8, accuracy: 0.0001) // Left → left
+        XCTAssertEqual(matrix[1], 0.2, accuracy: 0.0001) // Left → right
+        XCTAssertEqual(matrix[2], 1, accuracy: 0.0001)   // Left input gain
+        XCTAssertEqual(matrix[3], 0.2, accuracy: 0.0001) // Right → left
+        XCTAssertEqual(matrix[4], 0.8, accuracy: 0.0001) // Right → right
+        XCTAssertEqual(matrix[5], 1, accuracy: 0.0001)   // Right input gain
+        XCTAssertEqual(matrix[6], 1, accuracy: 0.0001)   // Left output gain
+        XCTAssertEqual(matrix[7], 1, accuracy: 0.0001)   // Right output gain
+        XCTAssertEqual(matrix[8], 1, accuracy: 0.0001)   // Master gain
     }
 
     func testStereoCrossfeedAmountIsClamped() {
-        XCTAssertEqual(stereoCrossfeedMatrix(amount: -1), [1, 0, 0, 1])
-        XCTAssertEqual(stereoCrossfeedMatrix(amount: 2), [0.65, 0.35, 0.35, 0.65])
+        XCTAssertEqual(stereoCrossfeedMatrix(amount: -1), [1, 0, 1, 0, 1, 1, 1, 1, 1])
+        XCTAssertEqual(stereoCrossfeedMatrix(amount: 2), [0.65, 0.35, 1, 0.35, 0.65, 1, 1, 1, 1])
     }
 
     func testDeviceProfileRoundTripsAllDSPSettingsAndReadsLegacyProfiles() throws {
