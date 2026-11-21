@@ -613,6 +613,11 @@ final class AnalogPlayer: ObservableObject {
     }
 
     private func startTrack(_ track: MusicTrack, at seconds: Double, recordPlay: Bool = true) {
+        if sleepStopsAtTrackEnd {
+            sleepFadeTimer?.invalidate()
+            sleepFadeTimer = nil
+            playerNode.volume = 1
+        }
         playbackToken = UUID()
         let token = playbackToken
         playerNode.stop()
@@ -1469,8 +1474,6 @@ final class AnalogPlayer: ObservableObject {
                       let current = self.currentTrack, self.sleepFadeTimer == nil else { return }
                 let remaining = max(0, current.duration - self.currentTime)
                 if remaining <= fadeDuration {
-                    self.sleepTimer?.invalidate()
-                    self.sleepTimer = nil
                     self.beginSleepFade(duration: max(0.1, remaining), stopWhenFinished: false)
                 }
             }
