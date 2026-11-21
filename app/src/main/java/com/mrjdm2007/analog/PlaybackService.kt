@@ -219,7 +219,7 @@ class PlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 if (crossfadeInProgress && mediaSession?.player?.currentMediaItemIndex != crossfadeTargetIndex) {
                     cancelCrossfade()
-                    mediaSession?.player?.volume = 1f
+                    applyCrossfadeVolumes()
                 }
                 recordTrackStart(mediaItem)
                 updateWidget()
@@ -258,7 +258,7 @@ class PlaybackService : MediaSessionService() {
                         .putFloat("eq_output_rms", 0f)
                         .apply()
                     // A pause during a crossfade must never leave the primary deck attenuated.
-                    mediaSession?.player?.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
             override fun onPositionDiscontinuity(
@@ -269,7 +269,7 @@ class PlaybackService : MediaSessionService() {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK && crossfadeInProgress) {
                     cancelCrossfade()
                     crossfadeForIndex = -1
-                    player.volume = 1f
+                    applyCrossfadeVolumes()
                 }
             }
             override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) { updateWidget() }
