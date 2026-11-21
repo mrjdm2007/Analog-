@@ -95,7 +95,6 @@ fun VisualizerScreen(
     var sessionId by remember { mutableIntStateOf(0) }
     var levels by remember { mutableStateOf(FloatArray(36)) }
     var peaks by remember { mutableStateOf(FloatArray(36)) }
-    var waveformSamples by remember { mutableStateOf(FloatArray(96)) }
     var captureReady by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var details by remember { mutableStateOf(VisualFileDetails()) }
@@ -174,7 +173,6 @@ fun VisualizerScreen(
         peaks = FloatArray(36)
         if (!shouldCapture) {
             captureReady = false
-            waveformSamples = FloatArray(96)
             captureError = when {
                 !audioPermissionGranted -> "Allow audio analysis to enable the live spectrum."
                 !playing -> "Start playback to activate the spectrum analyser."
@@ -194,14 +192,6 @@ fun VisualizerScreen(
                     val captureSize = 1024.coerceIn(range[0], range[1])
                     this.captureSize = captureSize
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) {
-                            if (!active || waveform.isEmpty()) return
-                            val samples = FloatArray(96) { index ->
-                                val sourceIndex = index * (waveform.size - 1) / 95
-                                (((waveform[sourceIndex].toInt() and 0xFF) - 128) / 128f).coerceIn(-1f, 1f)
-                            }
-                            handler.post { if (active) waveformSamples = samples }
-                        }
                         override fun onFftDataCapture(visualizer: Visualizer, fft: ByteArray, samplingRate: Int) {
                             if (!active || fft.size < 8) return
                             val binCount = fft.size / 2
@@ -240,7 +230,6 @@ fun VisualizerScreen(
                 handler.removeCallbacksAndMessages(null)
                 levels = FloatArray(36)
                 peaks = FloatArray(36)
-                waveformSamples = FloatArray(96)
                 captureReady = false
             }
         }
@@ -342,8 +331,6 @@ fun VisualizerScreen(
                             VisualDetail("CHANNELS", details.channels, Modifier.weight(1f))
                         }
                         Spacer(Modifier.height(10.dp))
-                        VisualWaveformPanel(waveformSamples, playing && captureReady)
-                        Spacer(Modifier.height(9.dp))
                         VisualMiniSpectrum(levels, playing && captureReady)
                         Spacer(Modifier.height(8.dp))
                         Text("POST-EQ  •  35 Hz–16 kHz  •  36 BANDS", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
@@ -368,35 +355,6 @@ fun VisualizerScreen(
             IconButton(onClick = { player?.seekToPrevious() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipPrevious, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
             FilledIconButton(onClick = { if (playing) player?.pause() else if (player?.mediaItemCount == 0) Unit else player?.play() }, modifier = Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = VisualAmber)) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = VisualInk, modifier = Modifier.size(30.dp)) }
             IconButton(onClick = { player?.seekToNext() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.SkipNext, null, tint = VisualCream, modifier = Modifier.size(27.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun VisualWaveformPanel(samples: FloatArray, active: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("LIVE WAVEFORM", color = VisualMuted, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.weight(1f))
-            Text(if (active) "SIGNAL ACTIVE" else "SIGNAL IDLE", color = if (active) VisualGreen else VisualMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
-        }
-        Canvas(Modifier.fillMaxWidth().height(68.dp).background(Color(0xFF080908), RoundedCornerShape(8.dp))) {
-            val center = size.height / 2f
-            for (fraction in listOf(.25f, .5f, .75f)) {
-                val y = size.height * fraction
-                drawLine(Color.White.copy(alpha = .07f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
-            }
-            val step = size.width / samples.size.coerceAtLeast(1)
-            samples.forEachIndexed { index, sample ->
-                val x = (index + .5f) * step
-                val amplitude = sample.coerceIn(-1f, 1f) * size.height * .43f
-                drawLine(
-                    color = (if (index < samples.size / 2) VisualGreen else VisualAmber).copy(alpha = if (active) .9f else .28f),
-                    start = Offset(x, center - amplitude),
-                    end = Offset(x, center + amplitude),
-                    strokeWidth = max(1.2f, step * .52f)
-                )
-            }
         }
     }
 }
