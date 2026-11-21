@@ -1847,24 +1847,60 @@ private struct CursorVisibilityController: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.installApplicationObservers()
         context.coordinator.setHidden(isHidden)
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.setHidden(false)
+        coordinator.tearDown()
     }
 
     final class Coordinator {
+        private var wantsHidden = false
+        private var applicationIsActive = NSApp.isActive
         private var cursorIsHidden = false
+        private var observers: [NSObjectProtocol] = []
+
+        func installApplicationObservers() {
+            guard observers.isEmpty else { return }
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.setApplicationActive(false)
+            })
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.setApplicationActive(true)
+            })
+        }
 
         func setHidden(_ hidden: Bool) {
-            guard cursorIsHidden != hidden else { return }
-            if hidden {
-                NSCursor.hide()
-            } else {
-                NSCursor.unhide()
-            }
-            cursorIsHidden = hidden
+            wantsHidden = hidden
+            updateCursorVisibility()
+        }
+
+        private func setApplicationActive(_ active: Bool) {
+            applicationIsActive = active
+            updateCursorVisibility()
+        }
+
+        private func updateCursorVisibility() {
+            let shouldHide = wantsHidden && applicationIsActive
+            guard cursorIsHidden != shouldHide else { return }
+            if shouldHide { NSCursor.hide() } else { NSCursor.unhide() }
+            cursorIsHidden = shouldHide
+        }
+
+        func tearDown() {
+            wantsHidden = false
+            updateCursorVisibility()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
         }
     }
 }
