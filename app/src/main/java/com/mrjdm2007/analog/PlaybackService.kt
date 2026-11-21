@@ -304,6 +304,7 @@ class PlaybackService : MediaSessionService() {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
+                restartCrossfadeIfPlaying()
                 val minutes = intent.getIntExtra(EXTRA_MINUTES, 30).coerceIn(1, 240)
                 val totalMs = minutes * 60_000L
                 val fadeSeconds = getSharedPreferences("analog_library", MODE_PRIVATE)
@@ -332,6 +333,7 @@ class PlaybackService : MediaSessionService() {
                 clearSleepTimer(restoreVolume = true)
                 sleepEndListener?.let { mediaSession?.player?.removeListener(it) }
                 sleepEndListener = null
+                restartCrossfadeIfPlaying()
             }
             ACTION_SLEEP_TIMER_END_TRACK -> {
                 clearSleepTimer(restoreVolume = true)
@@ -502,6 +504,13 @@ class PlaybackService : MediaSessionService() {
     private fun resumeOrRestart(player: Player) {
         if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
         player.play()
+    }
+
+    private fun restartCrossfadeIfPlaying() {
+        if (mediaSession?.player?.isPlaying == true) {
+            timerHandler.removeCallbacks(crossfadeTick)
+            timerHandler.post(crossfadeTick)
+        }
     }
 
     private fun clearSleepTimer(restoreVolume: Boolean) {
